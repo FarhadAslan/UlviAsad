@@ -25,8 +25,7 @@ export const authOptions: NextAuthOptions = {
         }
 
         // Yalnız admin tərəfindən açıq şəkildə deaktiv edilmiş hesabları blok et
-        // SQLite 0/false hər ikisini handle edir
-        const isActive = user.active !== false && user.active !== 0;
+        const isActive = user.active !== false;
         if (!isActive) {
           throw new Error("Hesabınız deaktiv edilib");
         }

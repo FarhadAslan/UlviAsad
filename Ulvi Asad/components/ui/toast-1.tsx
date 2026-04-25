@@ -50,7 +50,11 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const warning = useCallback((m: string, p?: ToastPosition) => showToast(m, "warning", p), [showToast]);
   const info    = useCallback((m: string, p?: ToastPosition) => showToast(m, "info",    p), [showToast]);
 
-  if (!mounted) return <>{children}</>;
+  if (!mounted) return (
+    <ToastContext.Provider value={{ showToast, success, error, warning, info }}>
+      {children}
+    </ToastContext.Provider>
+  );
 
   const positions: ToastPosition[] = [
     "top-left", "top-right", "bottom-left", "bottom-right", "center",
