@@ -1,1 +1,6 @@
-{"buildCommand": "cd \"Ulvi Asad\" && npm install && npm run build","outputDirectory": "Ulvi Asad/.next","installCommand": "cd \"Ulvi Asad\" && npm install","framework": "nextjs"}
+{
+  "buildCommand": "cd 'Ulvi Asad' && npm install && npm run build",
+  "outputDirectory": "Ulvi Asad/.next",
+  "installCommand": "cd 'Ulvi Asad' && npm install",
+  "framework": "nextjs"
+}
