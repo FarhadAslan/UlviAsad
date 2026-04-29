@@ -4,6 +4,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { DEFAULT_SETTINGS } from "@/lib/defaultSettings";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     let s = await prisma.siteSettings.findUnique({ where: { id: "main" } });

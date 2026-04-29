@@ -4,6 +4,8 @@ import { authOptions } from "@/lib/auth";
 import { uploadToCloudinary } from "@/lib/cloudinary";
 import path from "path";
 
+export const dynamic = "force-dynamic";
+
 const ALLOWED_MIME_TYPES = new Set([
   "application/pdf",
   "application/msword",
