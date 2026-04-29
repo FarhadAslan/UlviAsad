@@ -38,66 +38,82 @@ function SectionHeader({ title, subtitle, href }: { title: string; subtitle: str
   );
 }
 
-// Stats data - sürətli
+// Stats data - sürətli, xəta olsa default qaytar
 async function getStats() {
-  const [qCount, mCount, uCount] = await Promise.all([
-    prisma.quiz.count({ where: { active: true } }),
-    prisma.material.count({ where: { active: true } }),
-    prisma.user.count(),
-  ]);
-  return { totalQuizzes: qCount, totalMaterials: mCount, totalUsers: uCount };
+  try {
+    const [qCount, mCount, uCount] = await Promise.all([
+      prisma.quiz.count({ where: { active: true } }),
+      prisma.material.count({ where: { active: true } }),
+      prisma.user.count(),
+    ]);
+    return { totalQuizzes: qCount, totalMaterials: mCount, totalUsers: uCount };
+  } catch {
+    return { totalQuizzes: 0, totalMaterials: 0, totalUsers: 0 };
+  }
 }
 
 // Quizzes - ayrıca yüklənir
 async function getQuizzes(userRole?: string) {
-  const isAdmin = userRole === "ADMIN";
-  const isStudent = userRole === "STUDENT";
+  try {
+    const isAdmin = userRole === "ADMIN";
+    const isStudent = userRole === "STUDENT";
 
-  const baseWhere = isAdmin || isStudent
-    ? { active: true }
-    : { visibility: "PUBLIC" as const, active: true };
+    const baseWhere = isAdmin || isStudent
+      ? { active: true }
+      : { visibility: "PUBLIC" as const, active: true };
 
-  return prisma.quiz.findMany({
-    where: baseWhere,
-    select: {
-      id: true, title: true, category: true, type: true,
-      duration: true, visibility: true, active: true, createdAt: true,
-      _count: { select: { questions: true, results: true } },
-      results: {
-        orderBy: { score: "desc" }, take: 3,
-        select: { id: true, score: true, user: { select: { name: true } } },
+    return prisma.quiz.findMany({
+      where: baseWhere,
+      select: {
+        id: true, title: true, category: true, type: true,
+        duration: true, visibility: true, active: true, createdAt: true,
+        _count: { select: { questions: true, results: true } },
+        results: {
+          orderBy: { score: "desc" }, take: 3,
+          select: { id: true, score: true, user: { select: { name: true } } },
+        },
       },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 3,
-  });
+      orderBy: { createdAt: "desc" },
+      take: 3,
+    });
+  } catch {
+    return [];
+  }
 }
 
 // Materials - ayrıca yüklənir
 async function getMaterials(userRole?: string) {
-  const isAdmin = userRole === "ADMIN";
-  const isStudent = userRole === "STUDENT";
+  try {
+    const isAdmin = userRole === "ADMIN";
+    const isStudent = userRole === "STUDENT";
 
-  const baseWhere = isAdmin || isStudent
-    ? { active: true }
-    : { visibility: "PUBLIC" as const, active: true };
+    const baseWhere = isAdmin || isStudent
+      ? { active: true }
+      : { visibility: "PUBLIC" as const, active: true };
 
-  return prisma.material.findMany({
-    where: baseWhere,
-    select: { id: true, title: true, category: true, fileUrl: true, fileType: true, visibility: true, active: true, createdAt: true },
-    orderBy: { createdAt: "desc" },
-    take: 3,
-  });
+    return prisma.material.findMany({
+      where: baseWhere,
+      select: { id: true, title: true, category: true, fileUrl: true, fileType: true, visibility: true, active: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+      take: 3,
+    });
+  } catch {
+    return [];
+  }
 }
 
 // Articles - ayrıca yüklənir
 async function getArticles() {
-  return prisma.article.findMany({
-    where: { active: true },
-    select: { id: true, title: true, summary: true, content: true, imageUrl: true, createdAt: true },
-    orderBy: { createdAt: "desc" },
-    take: 3,
-  });
+  try {
+    return prisma.article.findMany({
+      where: { active: true },
+      select: { id: true, title: true, summary: true, content: true, imageUrl: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+      take: 3,
+    });
+  } catch {
+    return [];
+  }
 }
 
 // Quizzes Section Component

@@ -8,6 +8,7 @@ export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
+    // Neon serverless üçün connection timeout artır
     datasources: {
       db: {
         url: process.env.DATABASE_URL,

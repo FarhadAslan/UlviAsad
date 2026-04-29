@@ -13,7 +13,7 @@ async function getQuizzes(category: string, type: string, search: string, userRo
   where.active = true;
   if (category && category !== "ALL") where.category = category;
   if (type     && type     !== "ALL") where.type     = type;
-  if (search) where.title = { contains: search };
+  if (search) where.title = { contains: search, mode: "insensitive" };
 
   return prisma.quiz.findMany({
     where,

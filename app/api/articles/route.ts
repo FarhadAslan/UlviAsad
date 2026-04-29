@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
     const all    = searchParams.get("all"); // admin üçün hamısını göstər
 
     const where: any = {};
-    if (search) where.title = { contains: search };
+    if (search) where.title = { contains: search, mode: "insensitive" };
 
     // Admin "all=true" ilə bütün məqalələri görür
     if (userRole !== "ADMIN" || all !== "true") {

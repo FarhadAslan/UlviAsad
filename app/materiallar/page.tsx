@@ -11,7 +11,7 @@ async function getMaterials(category: string, search: string, userRole?: string)
   const where: any = { active: true };
   if (!isAdmin && !isStudent) where.visibility = "PUBLIC";
   if (category && category !== "ALL") where.category = category;
-  if (search) where.title = { contains: search };
+  if (search) where.title = { contains: search, mode: "insensitive" };
 
   return prisma.material.findMany({
     where,

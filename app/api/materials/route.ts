@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (search) {
-      where.title = { contains: search };
+      where.title = { contains: search, mode: "insensitive" };
     }
 
     const materials = await prisma.material.findMany({

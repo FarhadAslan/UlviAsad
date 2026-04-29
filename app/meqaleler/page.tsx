@@ -4,7 +4,7 @@ import ArticleFilters from "@/components/ArticleFilters";
 
 async function getArticles(search: string) {
   const where: any = { active: true };
-  if (search) where.title = { contains: search };
+  if (search) where.title = { contains: search, mode: "insensitive" };
   return prisma.article.findMany({
     where,
     select: { id: true, title: true, summary: true, imageUrl: true, createdAt: true },

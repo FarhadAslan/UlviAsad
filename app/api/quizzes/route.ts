@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (search) {
-      where.title = { contains: search };
+      where.title = { contains: search, mode: "insensitive" };
     }
 
     const quizzes = await prisma.quiz.findMany({
