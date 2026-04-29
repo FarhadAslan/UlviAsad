@@ -45,17 +45,6 @@ export default function LoginPage() {
           </button>
         } />
 
-      {/* Demo accounts */}
-      <div className="rounded-xl p-3 text-xs"
-        style={{ background: "rgba(147,204,255,0.06)", border: "1px solid rgba(147,204,255,0.12)" }}>
-        <p className="font-semibold mb-1.5" style={{ color: "rgb(147,204,255)" }}>Demo hesablar:</p>
-        <div className="space-y-0.5" style={{ color: "rgba(147,204,255,0.5)" }}>
-          <p>👑 admin@muellim.az / admin123</p>
-          <p>🎓 telebe@muellim.az / student123</p>
-          <p>👤 user@muellim.az / user123</p>
-        </div>
-      </div>
-
       {/* Footer */}
       <p className="text-center text-xs pt-1" style={{ color: "rgba(255,255,255,0.35)" }}>
         Hesabınız yoxdur?{" "}
