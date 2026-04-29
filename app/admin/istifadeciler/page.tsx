@@ -8,7 +8,7 @@ import Pagination from "@/components/Pagination";
 
 const ROLES = ["USER", "STUDENT", "ADMIN"];
 const roleLabels: Record<string, string> = { USER: "İstifadəçi", STUDENT: "Tələbə", ADMIN: "Admin" };
-const PAGE_SIZE = 15;
+const PAGE_SIZE = 10;
 
 function isActive(val: any): boolean {
   if (val === true  || val === 1) return true;

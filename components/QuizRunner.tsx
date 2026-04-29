@@ -362,21 +362,21 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
         </h1>
 
         {/* Score cards */}
-        <div className="grid grid-cols-3 gap-4 mb-8">
-          <div className="card-static text-center">
-            <CheckCircle size={28} className="text-green-400 mx-auto mb-2" />
-            <p className="text-3xl font-bold text-green-400">{result.correct}</p>
-            <p className="text-slate-500 text-sm">Düzgün</p>
+        <div className="grid grid-cols-3 gap-3 mb-8">
+          <div className="card-static text-center p-4">
+            <CheckCircle size={24} className="text-green-400 mx-auto mb-2" />
+            <p className="text-2xl font-bold text-green-400">{result.correct}</p>
+            <p className="text-slate-500 text-xs mt-1">Düzgün</p>
           </div>
-          <div className="card-static text-center">
-            <XCircle size={28} className="text-red-400 mx-auto mb-2" />
-            <p className="text-3xl font-bold text-red-400">{result.wrong}</p>
-            <p className="text-slate-500 text-sm">Səhv</p>
+          <div className="card-static text-center p-4">
+            <XCircle size={24} className="text-red-400 mx-auto mb-2" />
+            <p className="text-2xl font-bold text-red-400">{result.wrong}</p>
+            <p className="text-slate-500 text-xs mt-1">Səhv</p>
           </div>
-          <div className="card-static text-center">
-            <MinusCircle size={28} className="text-slate-500 mx-auto mb-2" />
-            <p className="text-3xl font-bold text-slate-500">{result.skipped}</p>
-            <p className="text-slate-500 text-sm">Cavablanmamış</p>
+          <div className="card-static text-center p-4">
+            <MinusCircle size={24} className="text-slate-400 mx-auto mb-2" />
+            <p className="text-2xl font-bold text-slate-500">{result.skipped}</p>
+            <p className="text-slate-500 text-xs mt-1 leading-tight">Cavab<br/>lanmamış</p>
           </div>
         </div>
 
@@ -482,11 +482,11 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
                     {q.options.map((opt: any) => {
                       let cls = "p-3 rounded-lg text-sm flex items-center gap-3 ";
                       if (opt.label === correctOpt) {
-                        cls += "bg-green-900/20 border border-green-700/40 text-green-300";
+                        cls += "bg-green-100 border border-green-400 text-green-800 font-medium";
                       } else if (opt.label === selected && !isCorrect) {
-                        cls += "bg-red-900/20 border border-red-700/40 text-red-300";
+                        cls += "bg-red-100 border border-red-400 text-red-800 font-medium";
                       } else {
-                        cls += "bg-slate-50 border border-violet-900/20 text-slate-500";
+                        cls += "bg-slate-50 border border-slate-200 text-slate-600";
                       }
 
                       return (
@@ -513,7 +513,7 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
         )}
 
         {/* Action buttons */}
-        <div className="flex gap-4">
+        <div className="flex flex-wrap gap-3">
           <button
             onClick={() => {
               setPhase("start");
@@ -522,14 +522,14 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
               setResult(null);
               setShowDetails(false);
             }}
-            className="flex-1 btn-secondary flex items-center justify-center gap-2"
+            className="flex-1 min-w-[140px] btn-secondary flex items-center justify-center gap-2"
           >
             <RotateCcw size={16} />
             Yenidən cəhd et
           </button>
           <Link
             href="/quizler"
-            className="flex-1 btn-primary flex items-center justify-center gap-2"
+            className="flex-1 min-w-[140px] btn-primary flex items-center justify-center gap-2"
           >
             <ArrowLeft size={16} />
             Quizlərə qayıt
