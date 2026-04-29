@@ -144,6 +144,13 @@ export default function Header() {
               style={{ borderColor: "rgba(147,204,255,0.15)" }}>
               {session ? (
                 <>
+                  {(session.user as any)?.role === "ADMIN" && (
+                    <Link href="/admin" onClick={() => setMobileOpen(false)}
+                      className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl transition-all"
+                      style={{ color: "#1a7fe0", background: "rgba(147,204,255,0.1)" }}>
+                      <LayoutDashboard size={15} /> Admin Panel
+                    </Link>
+                  )}
                   <Link href="/profil" onClick={() => setMobileOpen(false)}
                     className="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-600">
                     <User size={15} /> {session.user?.name}
