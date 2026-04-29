@@ -18,38 +18,40 @@ interface FileUploadProps {
 }
 
 function formatSize(bytes: number): string {
-  if (bytes < 1024)       return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes === 0)          return "—";
+  if (bytes < 1024)         return `${bytes} B`;
+  if (bytes < 1024 * 1024)  return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function FileIcon({ type }: { type: string }) {
-  if (type === "VIDEO") return <Film size={28} className="text-purple-500" />;
-  if (type === "PDF")   return <FileText size={28} className="text-red-500" />;
+  if (type === "VIDEO")                    return <Film size={28} className="text-purple-500" />;
+  if (type === "PDF")                      return <FileText size={28} className="text-red-500" />;
+  if (["DOC","DOCX","TXT"].includes(type)) return <FileText size={28} className="text-blue-500" />;
+  if (["PPT","PPTX"].includes(type))       return <FileText size={28} className="text-orange-500" />;
   return <File size={28} className="text-[#1a7fe0]" />;
 }
 
 export default function FileUpload({ onUpload, onClear, uploaded }: FileUploadProps) {
   const { error } = useToast();
-  const [dragging,   setDragging]   = useState(false);
-  const [uploading,  setUploading]  = useState(false);
-  const [progress,   setProgress]   = useState(0);
+  const [dragging,  setDragging]  = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [progress,  setProgress]  = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = useCallback(async (file: File) => {
     setUploading(true);
     setProgress(0);
 
-    // Fake progress animation
     const interval = setInterval(() => {
-      setProgress((p) => (p < 85 ? p + 12 : p));
-    }, 150);
+      setProgress((p) => (p < 85 ? p + 8 : p));
+    }, 200);
 
     try {
       const fd = new FormData();
       fd.append("file", file);
 
-      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      const res  = await fetch("/api/upload", { method: "POST", body: fd });
       const data = await res.json();
 
       clearInterval(interval);
@@ -62,10 +64,7 @@ export default function FileUpload({ onUpload, onClear, uploaded }: FileUploadPr
       }
 
       setProgress(100);
-      setTimeout(() => {
-        setUploading(false);
-        onUpload(data);
-      }, 400);
+      setTimeout(() => { setUploading(false); onUpload(data); }, 400);
     } catch {
       clearInterval(interval);
       error("Yükləmə zamanı xəta baş verdi");
@@ -87,7 +86,7 @@ export default function FileUpload({ onUpload, onClear, uploaded }: FileUploadPr
     e.target.value = "";
   };
 
-  // ── Uploaded state ──────────────────────────────────────────
+  // Uploaded state
   if (uploaded) {
     return (
       <div className="rounded-2xl border p-4 flex items-center gap-4"
@@ -102,7 +101,7 @@ export default function FileUpload({ onUpload, onClear, uploaded }: FileUploadPr
             <p className="text-sm font-semibold text-slate-800 truncate">{uploaded.fileName}</p>
           </div>
           <p className="text-xs text-slate-400">
-            {uploaded.fileType} · {formatSize(uploaded.size)}
+            {uploaded.fileType}{uploaded.size > 0 ? ` · ${formatSize(uploaded.size)}` : ""}
           </p>
         </div>
         <button type="button" onClick={onClear}
@@ -113,7 +112,7 @@ export default function FileUpload({ onUpload, onClear, uploaded }: FileUploadPr
     );
   }
 
-  // ── Upload zone ─────────────────────────────────────────────
+  // Upload zone
   return (
     <div>
       <div
@@ -129,7 +128,6 @@ export default function FileUpload({ onUpload, onClear, uploaded }: FileUploadPr
         }}
       >
         {uploading ? (
-          /* Progress */
           <div className="text-center">
             <div className="w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-3"
               style={{ background: "rgba(147,204,255,0.12)" }}>
@@ -143,9 +141,8 @@ export default function FileUpload({ onUpload, onClear, uploaded }: FileUploadPr
             <p className="text-xs text-slate-400 mt-2">{progress}%</p>
           </div>
         ) : (
-          /* Idle */
           <div className="text-center">
-            <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4 transition-transform duration-200"
+            <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"
               style={{ background: dragging ? "rgba(147,204,255,0.2)" : "rgba(147,204,255,0.1)" }}>
               <Upload size={26} style={{ color: dragging ? "#1f6f43" : "#1a7fe0" }} />
             </div>
@@ -155,14 +152,19 @@ export default function FileUpload({ onUpload, onClear, uploaded }: FileUploadPr
             <p className="text-xs text-slate-400 mb-3">və ya klikləyin seçin</p>
             <span className="inline-block px-3 py-1.5 rounded-lg text-xs font-medium"
               style={{ background: "rgba(147,204,255,0.12)", color: "#1a7fe0", border: "1px solid rgba(147,204,255,0.3)" }}>
-              PDF, DOC, DOCX, PPT, PPTX, MP4 · Maks 50MB
+              PDF · DOC · DOCX · PPT · PPTX · TXT · MP4 · Şəkil · Maks 100MB
             </span>
           </div>
         )}
       </div>
 
-      <input ref={inputRef} type="file" className="hidden" onChange={onInputChange}
-        accept=".pdf,.doc,.docx,.ppt,.pptx,.mp4,.webm,.ogg,.jpg,.jpeg,.png,.gif" />
+      <input
+        ref={inputRef}
+        type="file"
+        className="hidden"
+        onChange={onInputChange}
+        accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.mp4,.webm,.ogg,.jpg,.jpeg,.png,.gif,.webp"
+      />
     </div>
   );
 }

@@ -1,18 +1,22 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Plus, Trash2, Edit } from "lucide-react";
 import { useToast } from "@/components/ui/toast-1";
 import { getCategoryLabel, getTypeLabel } from "@/lib/utils";
 import QuizForm from "@/components/admin/QuizForm";
+import Pagination from "@/components/Pagination";
+
+const PAGE_SIZE = 10;
 
 export default function AdminQuizzesPage() {
   const { success, error } = useToast();
-  const [quizzes, setQuizzes] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
+  const [quizzes,     setQuizzes]     = useState<any[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [showForm,    setShowForm]    = useState(false);
   const [editingQuiz, setEditingQuiz] = useState<any>(null);
   const [editLoading, setEditLoading] = useState<string | null>(null);
+  const [page,        setPage]        = useState(1);
 
   useEffect(() => { fetchQuizzes(); }, []);
 
@@ -52,6 +56,9 @@ export default function AdminQuizzesPage() {
     );
   }
 
+  const totalPages = Math.ceil(quizzes.length / PAGE_SIZE);
+  const paginated  = quizzes.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
   return (
     <div>
       <div className="flex items-center justify-between mb-8">
@@ -70,17 +77,18 @@ export default function AdminQuizzesPage() {
             ))}
           </div>
         ) : (
-          <div className="table-scroll">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-slate-100">
-                  {["Başlıq","Kateqoriya","Tip","Suallar","Görünürlük","Status","Əməliyyatlar"].map((h) => (
-                    <th key={h} className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 pr-4">{h}</th>
-                  ))}
+          <>
+            <div className="table-scroll">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-slate-100">
+                    {["Başlıq","Kateqoriya","Tip","Suallar","Görünürlük","Status","Əməliyyatlar"].map((h) => (
+                      <th key={h} className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 pr-4">{h}</th>
+                    ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {quizzes.map((quiz) => (
+                {paginated.map((quiz) => (
                   <tr key={quiz.id} className="hover:bg-slate-50 transition-colors">
                     <td className="py-3 pr-4 font-medium text-sm text-slate-800">{quiz.title}</td>
                     <td className="py-3 pr-4"><span className="badge-category">{getCategoryLabel(quiz.category)}</span></td>
@@ -131,6 +139,8 @@ export default function AdminQuizzesPage() {
               <div className="text-center py-12 text-slate-400">Hələ quiz əlavə edilməyib</div>
             )}
           </div>
+          <Pagination page={page} totalPages={totalPages} onPageChange={(p) => { setPage(p); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+          </>
         )}
       </div>
     </div>

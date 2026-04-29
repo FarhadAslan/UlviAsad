@@ -3,8 +3,12 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import MaterialCard from "@/components/MaterialCard";
 import MaterialFilters from "@/components/MaterialFilters";
+import Link from "next/link";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
-async function getMaterials(category: string, search: string, userRole?: string) {
+const PAGE_SIZE = 9;
+
+async function getMaterials(category: string, search: string, userRole?: string, page = 1) {
   const isAdmin   = userRole === "ADMIN";
   const isStudent = userRole === "STUDENT";
 
@@ -13,28 +17,37 @@ async function getMaterials(category: string, search: string, userRole?: string)
   if (category && category !== "ALL") where.category = category;
   if (search) where.title = { contains: search, mode: "insensitive" };
 
-  return prisma.material.findMany({
-    where,
-    select: {
-      id: true, title: true, category: true,
-      fileUrl: true, fileType: true, visibility: true, active: true, createdAt: true,
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  const [items, total] = await Promise.all([
+    prisma.material.findMany({
+      where,
+      select: { id: true, title: true, category: true, fileUrl: true, fileType: true, visibility: true, active: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+    }),
+    prisma.material.count({ where }),
+  ]);
+
+  return { items, total, totalPages: Math.ceil(total / PAGE_SIZE) };
 }
 
-export default async function MaterialsPage({
-  searchParams,
-}: {
-  searchParams: { category?: string; search?: string };
-}) {
+function buildParams(current: Record<string, string>, overrides: Record<string, string>) {
+  const p = new URLSearchParams(current);
+  Object.entries(overrides).forEach(([k, v]) => v ? p.set(k, v) : p.delete(k));
+  return p.toString();
+}
+
+export default async function MaterialsPage({ searchParams }: { searchParams: Record<string, string> }) {
   const session  = await getServerSession(authOptions);
   const userRole = (session?.user as any)?.role;
 
   const category = searchParams.category || "ALL";
   const search   = searchParams.search   || "";
+  const page     = Math.max(1, parseInt(searchParams.page || "1"));
 
-  const materials = await getMaterials(category, search, userRole);
+  const { items: materials, totalPages } = await getMaterials(category, search, userRole, page);
+
+  const base = { category, search };
 
   return (
     <div className="container mx-auto py-12">
@@ -46,11 +59,30 @@ export default async function MaterialsPage({
       <MaterialFilters category={category} search={search} />
 
       {materials.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {materials.map((m) => (
-            <MaterialCard key={m.id} material={m} userRole={userRole} />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {materials.map((m) => <MaterialCard key={m.id} material={m} userRole={userRole} />)}
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-1.5 mt-10">
+              <Link href={`?${buildParams(base, { page: String(page - 1) })}`}
+                className={`w-9 h-9 rounded-lg border border-slate-200 flex items-center justify-center text-slate-500 transition-all hover:border-[rgb(147,204,255)] hover:text-[#1a7fe0] ${page === 1 ? "pointer-events-none opacity-30" : ""}`}>
+                <ChevronLeft size={16} />
+              </Link>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                <Link key={p} href={`?${buildParams(base, { page: String(p) })}`}
+                  className={`w-9 h-9 rounded-lg text-sm font-medium flex items-center justify-center transition-all ${p === page ? "bg-[#1f6f43] text-white shadow-sm" : "border border-slate-200 text-slate-600 hover:border-[rgb(147,204,255)] hover:text-[#1a7fe0]"}`}>
+                  {p}
+                </Link>
+              ))}
+              <Link href={`?${buildParams(base, { page: String(page + 1) })}`}
+                className={`w-9 h-9 rounded-lg border border-slate-200 flex items-center justify-center text-slate-500 transition-all hover:border-[rgb(147,204,255)] hover:text-[#1a7fe0] ${page === totalPages ? "pointer-events-none opacity-30" : ""}`}>
+                <ChevronRight size={16} />
+              </Link>
+            </div>
+          )}
+        </>
       ) : (
         <div className="text-center py-20">
           <div className="text-6xl mb-4">📁</div>

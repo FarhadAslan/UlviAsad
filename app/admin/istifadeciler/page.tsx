@@ -1,20 +1,19 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Search, UserCheck, UserX } from "lucide-react";
 import { useToast } from "@/components/ui/toast-1";
 import { formatDate } from "@/lib/utils";
+import Pagination from "@/components/Pagination";
 
 const ROLES = ["USER", "STUDENT", "ADMIN"];
-const roleLabels: Record<string, string> = {
-  USER: "İstifadəçi", STUDENT: "Tələbə", ADMIN: "Admin",
-};
+const roleLabels: Record<string, string> = { USER: "İstifadəçi", STUDENT: "Tələbə", ADMIN: "Admin" };
+const PAGE_SIZE = 15;
 
-// SQLite 0/1 və ya true/false hər ikisini handle edir
 function isActive(val: any): boolean {
-  if (val === true  || val === 1)  return true;
-  if (val === false || val === 0)  return false;
-  return true; // default: aktiv
+  if (val === true  || val === 1) return true;
+  if (val === false || val === 0) return false;
+  return true;
 }
 
 export default function AdminUsersPage() {
@@ -22,6 +21,7 @@ export default function AdminUsersPage() {
   const [users,   setUsers]   = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search,  setSearch]  = useState("");
+  const [page,    setPage]    = useState(1);
 
   useEffect(() => { fetchUsers(); }, [search]);
 
@@ -58,6 +58,9 @@ export default function AdminUsersPage() {
     updateUser(user.id, { active: !currentlyActive });
   };
 
+  const totalPages = Math.ceil(users.length / PAGE_SIZE);
+  const paginated  = useMemo(() => users.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [users, page]);
+
   return (
     <div>
       <h1 className="text-3xl font-bold text-slate-900 mb-8">İstifadəçilər</h1>
@@ -80,21 +83,22 @@ export default function AdminUsersPage() {
             ))}
           </div>
         ) : (
-          <div className="table-scroll">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-slate-100">
-                  {["Ad","Email","Rol","Status","Qeydiyyat","Əməliyyatlar"].map((h) => (
-                    <th key={h}
-                      className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 pr-4">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {users.map((user) => {
-                  const active = isActive(user.active);
+          <>
+            <div className="table-scroll">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-slate-100">
+                    {["Ad","Email","Rol","Status","Qeydiyyat","Əməliyyatlar"].map((h) => (
+                      <th key={h}
+                        className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 pr-4">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {paginated.map((user) => {
+                    const active = isActive(user.active);
                   return (
                     <tr key={user.id} className="hover:bg-slate-50 transition-colors">
                       <td className="py-3 pr-4">
@@ -149,11 +153,11 @@ export default function AdminUsersPage() {
               </tbody>
             </table>
             {users.length === 0 && (
-              <div className="text-center py-12 text-slate-400">
-                İstifadəçi tapılmadı
-              </div>
+              <div className="text-center py-12 text-slate-400">İstifadəçi tapılmadı</div>
             )}
-          </div>
+            </div>
+            <Pagination page={page} totalPages={totalPages} onPageChange={(p) => { setPage(p); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+          </>
         )}
       </div>
     </div>
