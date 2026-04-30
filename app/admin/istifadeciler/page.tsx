@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Search, UserCheck, UserX, ArrowLeft, Eye, Loader2 } from "lucide-react";
+import { Search, UserCheck, UserX, ArrowLeft, Eye, Loader2, Share2, Check } from "lucide-react";
 import { useToast } from "@/components/ui/toast-1";
 import { formatDate, getCategoryLabel, getTypeLabel } from "@/lib/utils";
 import Pagination from "@/components/Pagination";
@@ -24,11 +24,23 @@ export default function AdminUsersPage() {
   const [search,  setSearch]  = useState("");
   const [page,    setPage]    = useState(1);
 
-  // İstifadəçi detayı
-  const [selectedUser,    setSelectedUser]    = useState<any>(null);
-  const [userResults,     setUserResults]     = useState<any[]>([]);
-  const [resultsLoading,  setResultsLoading]  = useState(false);
+  const [selectedUser,     setSelectedUser]     = useState<any>(null);
+  const [userResults,      setUserResults]      = useState<any[]>([]);
+  const [resultsLoading,   setResultsLoading]   = useState(false);
   const [selectedResultId, setSelectedResultId] = useState<string | null>(null);
+  const [copiedId,         setCopiedId]         = useState<string | null>(null);
+
+  const copyResultLink = async (e: React.MouseEvent, resultId: string) => {
+    e.stopPropagation();
+    const url = `${window.location.origin}/neticeler/${resultId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedId(resultId);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      prompt("Linki kopyalayın:", url);
+    }
+  };
 
   useEffect(() => { fetchUsers(); }, [search]);
 
@@ -138,7 +150,7 @@ export default function AdminUsersPage() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-100">
-                    {["Quiz Adı", "Kateqoriya", "Tip", "Nəticə", "Xal", "Tarix", "Detay"].map((h) => (
+                    {["Quiz Adı", "Kateqoriya", "Tip", "Nəticə", "Xal", "Tarix", "Əməliyyatlar"].map((h) => (
                       <th key={h} className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 pr-4">{h}</th>
                     ))}
                   </tr>
@@ -174,12 +186,24 @@ export default function AdminUsersPage() {
                       </td>
                       <td className="py-3 pr-4 text-sm text-slate-400">{formatDate(r.createdAt)}</td>
                       <td className="py-3">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setSelectedResultId(r.id); }}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#1a7fe0] hover:bg-blue-50 border border-[rgba(147,204,255,0.4)] transition-all"
-                        >
-                          <Eye size={13} /> Detay
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setSelectedResultId(r.id); }}
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-[#1a7fe0] hover:bg-blue-50 border border-[rgba(147,204,255,0.4)] transition-all"
+                            title="Detaylı bax"
+                          >
+                            <Eye size={13} /> Detay
+                          </button>
+                          <button
+                            onClick={(e) => copyResultLink(e, r.id)}
+                            className="p-1.5 rounded-lg text-[#1a7fe0] hover:bg-blue-50 transition-all"
+                            title="Nəticə linkini kopyala"
+                          >
+                            {copiedId === r.id
+                              ? <Check size={13} className="text-green-500" />
+                              : <Share2 size={13} />}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

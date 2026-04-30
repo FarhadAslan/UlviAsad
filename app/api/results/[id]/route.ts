@@ -11,13 +11,9 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session) {
-      return NextResponse.json({ error: "Giriş tələb olunur" }, { status: 401 });
-    }
-
-    const userId      = (session.user as any).id;
-    const userRole    = (session.user as any).role;
+    const session  = await getServerSession(authOptions);
+    const userId   = (session?.user as any)?.id;
+    const userRole = (session?.user as any)?.role;
 
     const result = await prisma.result.findUnique({
       where: { id: params.id },
@@ -50,7 +46,7 @@ export async function GET(
           },
         },
         user: {
-          select: { id: true, name: true, email: true },
+          select: { id: true, name: true },
         },
       },
     });
@@ -59,21 +55,25 @@ export async function GET(
       return NextResponse.json({ error: "Nəticə tapılmadı" }, { status: 404 });
     }
 
-    // Yalnız öz nəticəsini görə bilər, admin hamısını görür
-    if (result.userId !== userId && userRole !== "ADMIN") {
-      return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
-    }
+    const isOwner = userId && result.userId === userId;
+    const isAdmin = userRole === "ADMIN";
 
-    // Options-ları parse et
+    // Sahibi və admin tam məlumat görür (cavablar daxil)
+    // Başqaları yalnız ümumi statistikanı görür (cavablar gizli)
     const parsed = {
       ...result,
-      answers: JSON.parse(result.answers as string),
+      answers: (isOwner || isAdmin)
+        ? JSON.parse(result.answers as string)
+        : null,
+      isOwner: !!isOwner,
       quiz: {
         ...result.quiz,
-        questions: result.quiz.questions.map((q) => ({
-          ...q,
-          options: JSON.parse(q.options),
-        })),
+        questions: (isOwner || isAdmin)
+          ? result.quiz.questions.map((q) => ({
+              ...q,
+              options: JSON.parse(q.options),
+            }))
+          : [], // başqaları sualları görmür
       },
     };
 

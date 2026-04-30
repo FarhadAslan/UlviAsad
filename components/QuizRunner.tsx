@@ -119,9 +119,9 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
   const shareResult = async () => {
     const resultId = result?.id;
     const base     = typeof window !== "undefined" ? window.location.origin : "";
-    // Nəticə ID-si varsa (giriş etmiş istifadəçi) — nəticə linki, yoxsa quiz linki
+    // Nəticə ID-si varsa — ayrıca nəticə səhifəsi, yoxsa quiz linki
     const shareUrl = resultId
-      ? `${base}/quizler/${quiz.id}?result=${resultId}`
+      ? `${base}/neticeler/${resultId}`
       : `${base}/quizler/${quiz.id}`;
     const text = `"${quiz.title}" quizini işlədim — ${result?.score ?? 0} xal aldım! Sən də cəhd et:`;
 

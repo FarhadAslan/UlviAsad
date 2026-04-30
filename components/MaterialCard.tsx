@@ -1,15 +1,16 @@
 "use client";
 
 import { memo } from "react";
+import Link from "next/link";
 import { Lock, Download, Eye } from "lucide-react";
 import { getCategoryLabel, getFileTypeIcon } from "@/lib/utils";
 import { GlowCard } from "@/components/ui/glow-card";
+import ShareIconButton from "@/components/ShareIconButton";
 
 function MaterialCard({ material, userRole }: { material: any; userRole?: string }) {
-  const isLocked = material.visibility === "STUDENT_ONLY" && (!userRole || userRole === "USER");
-
-  // Yükləmə URL-i — proxy vasitəsilə düzgün fayl adı ilə
+  const isLocked    = material.visibility === "STUDENT_ONLY" && (!userRole || userRole === "USER");
   const downloadUrl = `/api/download?url=${encodeURIComponent(material.fileUrl)}&filename=${encodeURIComponent(material.title)}`;
+  const detailPath  = `/materiallar/${material.id}`;
 
   return (
     <div className="relative h-full">
@@ -24,9 +25,15 @@ function MaterialCard({ material, userRole }: { material: any; userRole?: string
           </div>
         )}
 
-        <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-4 text-2xl"
-          style={{ background: "rgba(147,204,255,0.12)", border: "1px solid rgba(147,204,255,0.25)" }}>
-          {getFileTypeIcon(material.fileType)}
+        {/* Icon + paylaş */}
+        <div className="flex items-start justify-between mb-4">
+          <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl"
+            style={{ background: "rgba(147,204,255,0.12)", border: "1px solid rgba(147,204,255,0.25)" }}>
+            {getFileTypeIcon(material.fileType)}
+          </div>
+          {!isLocked && (
+            <ShareIconButton title={material.title} path={detailPath} />
+          )}
         </div>
 
         <div className="flex items-center gap-2 mb-3 flex-wrap">
@@ -49,12 +56,16 @@ function MaterialCard({ material, userRole }: { material: any; userRole?: string
           </button>
         ) : (
           <div className="flex gap-2">
-            <a href={material.fileUrl} target="_blank" rel="noopener noreferrer"
-              className="flex-1 btn-primary text-sm flex items-center justify-center gap-1.5">
+            <Link
+              href={detailPath}
+              className="flex-1 btn-primary text-sm flex items-center justify-center gap-1.5"
+            >
               <Eye size={13} /> Bax
-            </a>
-            <a href={downloadUrl}
-              className="flex-1 btn-secondary text-sm flex items-center justify-center gap-1.5">
+            </Link>
+            <a
+              href={downloadUrl}
+              className="flex-1 btn-secondary text-sm flex items-center justify-center gap-1.5"
+            >
               <Download size={13} /> Yüklə
             </a>
           </div>

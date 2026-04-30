@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { formatDate, getCategoryLabel, getTypeLabel, getRoleLabel } from "@/lib/utils";
 import Link from "next/link";
-import { User, Trophy, Target, Star, Zap, Calendar, Eye } from "lucide-react";
+import { User, Trophy, Target, Star, Zap, Calendar, Eye, Share2, Check } from "lucide-react";
 import ResultDetailModal from "@/components/ResultDetailModal";
 
 interface ProfileData {
@@ -22,6 +22,19 @@ export default function ProfileClient({ data }: { data: ProfileData }) {
   const { user, stats, results } = data;
   const rb = roleBadge[user.role] || roleBadge.USER;
   const [selectedResultId, setSelectedResultId] = useState<string | null>(null);
+  const [copiedId,          setCopiedId]         = useState<string | null>(null);
+
+  const copyResultLink = async (e: React.MouseEvent, resultId: string) => {
+    e.stopPropagation();
+    const url = `${window.location.origin}/neticeler/${resultId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedId(resultId);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      prompt("Linki kopyalayın:", url);
+    }
+  };
 
   const statCards = [
     { icon: Target, label: "İşlənən Quiz",    value: stats.totalQuizzes,  color: "#1a7fe0", bg: "rgba(147,204,255,0.1)" },
@@ -81,7 +94,7 @@ export default function ProfileClient({ data }: { data: ProfileData }) {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-100">
-                    {["Quiz Adı", "Tip", "Nəticə", "Tarix", "Detay"].map((h) => (
+                    {["Quiz Adı", "Tip", "Nəticə", "Tarix", "Əməliyyatlar"].map((h) => (
                       <th key={h} className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 pr-4">{h}</th>
                     ))}
                   </tr>
@@ -108,12 +121,24 @@ export default function ProfileClient({ data }: { data: ProfileData }) {
                       </td>
                       <td className="py-3 pr-4 text-sm text-slate-400">{formatDate(r.createdAt)}</td>
                       <td className="py-3">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setSelectedResultId(r.id); }}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#1a7fe0] hover:bg-blue-50 border border-[rgba(147,204,255,0.4)] transition-all"
-                        >
-                          <Eye size={13} /> Detay
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setSelectedResultId(r.id); }}
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-[#1a7fe0] hover:bg-blue-50 border border-[rgba(147,204,255,0.4)] transition-all"
+                            title="Detaylı bax"
+                          >
+                            <Eye size={13} /> Detay
+                          </button>
+                          <button
+                            onClick={(e) => copyResultLink(e, r.id)}
+                            className="p-1.5 rounded-lg text-[#1a7fe0] hover:bg-blue-50 transition-all"
+                            title="Nəticə linkini kopyala"
+                          >
+                            {copiedId === r.id
+                              ? <Check size={13} className="text-green-500" />
+                              : <Share2 size={13} />}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -134,12 +159,24 @@ export default function ProfileClient({ data }: { data: ProfileData }) {
                       <p className="font-semibold text-sm text-slate-800 truncate">{r.quizTitle}</p>
                       <p className="text-xs text-slate-400">{getCategoryLabel(r.quizCategory)}</p>
                     </div>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setSelectedResultId(r.id); }}
-                      className="p-1.5 rounded-lg text-[#1a7fe0] hover:bg-blue-50 transition-all flex-shrink-0"
-                    >
-                      <Eye size={14} />
-                    </button>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setSelectedResultId(r.id); }}
+                        className="p-1.5 rounded-lg text-[#1a7fe0] hover:bg-blue-50 transition-all"
+                        title="Detaylı bax"
+                      >
+                        <Eye size={14} />
+                      </button>
+                      <button
+                        onClick={(e) => copyResultLink(e, r.id)}
+                        className="p-1.5 rounded-lg text-[#1a7fe0] hover:bg-blue-50 transition-all"
+                        title="Paylaş"
+                      >
+                        {copiedId === r.id
+                          ? <Check size={14} className="text-green-500" />
+                          : <Share2 size={14} />}
+                      </button>
+                    </div>
                   </div>
                   <div className="flex items-center gap-3 flex-wrap">
                     <span className={r.quizType === "SINAQ" ? "badge-type-sinaq" : "badge-type-test"}>
