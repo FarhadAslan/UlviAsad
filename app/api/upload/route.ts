@@ -122,33 +122,20 @@ export async function POST(req: NextRequest) {
       folder:        "muellim-portal",
       public_id:     publicId,
       resource_type: resourceType,
-      use_filename:  true,
-      unique_filename: false,
+      access_mode:   "public",      // ← mütləq public olsun
+      type:          "upload",
+      use_filename:  false,
     };
 
-    // Raw fayllar (PDF, DOC, PPT, TXT) üçün:
-    // - format saxla ki URL-də uzantı görünsün
-    // - fl_attachment ilə yükləmə zamanı düzgün fayl adı verilsin
+    // Raw fayllar üçün format saxla ki URL-də uzantı görünsün
     if (resourceType === "raw") {
-      uploadOptions.format = ext.replace(".", ""); // "pdf", "docx" və s.
+      uploadOptions.format = ext.replace(".", "");
     }
 
     const result = await uploadStream(buffer, uploadOptions);
 
-    // Raw fayllar üçün URL-ə fl_attachment əlavə et
-    // Bu brauzerin faylı düzgün ad və uzantı ilə yükləməsini təmin edir
-    let fileUrl = result.secure_url as string;
-    if (resourceType === "raw") {
-      // Cloudinary raw URL formatı: .../upload/v.../folder/publicId.ext
-      // fl_attachment:filename əlavə edirik
-      const originalFileName = encodeURIComponent(
-        cleanName.replace(/_/g, " ") + ext
-      );
-      fileUrl = fileUrl.replace(
-        "/upload/",
-        `/upload/fl_attachment:${originalFileName}/`
-      );
-    }
+    // access_mode: public olduğu üçün birbaşa URL işləyir
+    const fileUrl = result.secure_url as string;
 
     return NextResponse.json({
       url:      fileUrl,
