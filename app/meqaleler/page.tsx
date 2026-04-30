@@ -4,6 +4,8 @@ import ArticleFilters from "@/components/ArticleFilters";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
+export const dynamic = "force-dynamic";
+
 const PAGE_SIZE = 9;
 
 async function getArticles(search: string, page = 1) {

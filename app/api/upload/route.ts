@@ -5,6 +5,7 @@ import { v2 as cloudinary } from "cloudinary";
 import path from "path";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 const ALLOWED_MIME_TYPES = new Set([
   "application/pdf",
@@ -51,10 +52,7 @@ function getResourceType(ext: string): "image" | "video" | "raw" {
   return "raw";
 }
 
-function uploadStream(
-  buffer: Buffer,
-  options: Record<string, any>
-): Promise<any> {
+function uploadStream(buffer: Buffer, options: Record<string, any>): Promise<any> {
   return new Promise((resolve, reject) => {
     cloudinary.uploader
       .upload_stream(options, (error, result) => {
@@ -107,13 +105,8 @@ export async function POST(req: NextRequest) {
     }
 
     const resourceType = getResourceType(ext);
-
-    // Fayl adını təmizlə — orijinal adı saxla (uzantı ilə)
-    const cleanName = path
-      .basename(file.name, ext)
-      .replace(/[^a-zA-Z0-9-_]/g, "_")
-      .substring(0, 50);
-    const publicId = `${cleanName}_${Date.now()}`;
+    const cleanName = path.basename(file.name, ext).replace(/[^a-zA-Z0-9-_]/g, "_").substring(0, 50);
+    const publicId   = `${cleanName}_${Date.now()}`;
 
     const bytes  = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
@@ -122,19 +115,16 @@ export async function POST(req: NextRequest) {
       folder:        "muellim-portal",
       public_id:     publicId,
       resource_type: resourceType,
-      access_mode:   "public",      // ← mütləq public olsun
+      access_mode:   "public",
       type:          "upload",
       use_filename:  false,
     };
 
-    // Raw fayllar üçün format saxla ki URL-də uzantı görünsün
     if (resourceType === "raw") {
       uploadOptions.format = ext.replace(".", "");
     }
 
-    const result = await uploadStream(buffer, uploadOptions);
-
-    // access_mode: public olduğu üçün birbaşa URL işləyir
+    const result  = await uploadStream(buffer, uploadOptions);
     const fileUrl = result.secure_url as string;
 
     return NextResponse.json({

@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { Users, BookOpen, FileText, GraduationCap } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
 
+export const dynamic = "force-dynamic";
+
 async function getDashboardData() {
   const [totalUsers, totalStudents, totalQuizzes, totalMaterials, recentUsers] =
     await Promise.all([

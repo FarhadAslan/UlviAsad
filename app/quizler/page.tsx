@@ -6,6 +6,8 @@ import QuizFilters from "@/components/QuizFilters";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
+export const dynamic = "force-dynamic";
+
 const PAGE_SIZE = 9;
 
 async function getQuizzes(category: string, type: string, search: string, userRole?: string, page = 1) {

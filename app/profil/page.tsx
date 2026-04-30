@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import ProfileClient from "@/components/ProfileClient";
 
+export const dynamic = "force-dynamic";
+
 async function getUserData(userId: string) {
   const user = await prisma.user.findUnique({
     where: { id: userId },

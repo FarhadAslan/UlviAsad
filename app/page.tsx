@@ -10,6 +10,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { Suspense } from "react";
 
+export const dynamic = "force-dynamic";
+
 // Skeleton loader
 function CardSkeleton() {
   return (

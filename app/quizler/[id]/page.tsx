@@ -4,6 +4,8 @@ import { authOptions } from "@/lib/auth";
 import { notFound, redirect } from "next/navigation";
 import QuizRunner from "@/components/QuizRunner";
 
+export const dynamic = "force-dynamic";
+
 async function getQuiz(id: string) {
   const quiz = await prisma.quiz.findUnique({
     where: { id },

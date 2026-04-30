@@ -5,6 +5,8 @@ import Link from "next/link";
 import { ArrowLeft, Calendar } from "lucide-react";
 import ShareButton from "@/components/ShareButton";
 
+export const dynamic = "force-dynamic";
+
 async function getArticle(id: string) {
   return prisma.article.findUnique({ where: { id } });
 }

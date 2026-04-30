@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { DEFAULT_SETTINGS } from "@/lib/defaultSettings";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function GET() {
   try {
