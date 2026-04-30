@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Search, UserCheck, UserX } from "lucide-react";
+import { Search, UserCheck, UserX, ArrowLeft, Eye, Loader2 } from "lucide-react";
 import { useToast } from "@/components/ui/toast-1";
-import { formatDate } from "@/lib/utils";
+import { formatDate, getCategoryLabel, getTypeLabel } from "@/lib/utils";
 import Pagination from "@/components/Pagination";
+import ResultDetailModal from "@/components/ResultDetailModal";
 
 const ROLES = ["USER", "STUDENT", "ADMIN"];
 const roleLabels: Record<string, string> = { USER: "İstifadəçi", STUDENT: "Tələbə", ADMIN: "Admin" };
@@ -23,6 +24,12 @@ export default function AdminUsersPage() {
   const [search,  setSearch]  = useState("");
   const [page,    setPage]    = useState(1);
 
+  // İstifadəçi detayı
+  const [selectedUser,    setSelectedUser]    = useState<any>(null);
+  const [userResults,     setUserResults]     = useState<any[]>([]);
+  const [resultsLoading,  setResultsLoading]  = useState(false);
+  const [selectedResultId, setSelectedResultId] = useState<string | null>(null);
+
   useEffect(() => { fetchUsers(); }, [search]);
 
   const fetchUsers = async () => {
@@ -37,6 +44,18 @@ export default function AdminUsersPage() {
     finally   { setLoading(false); }
   };
 
+  const openUserDetail = async (user: any) => {
+    setSelectedUser(user);
+    setResultsLoading(true);
+    setUserResults([]);
+    try {
+      const res  = await fetch(`/api/results?userId=${user.id}`);
+      const data = await res.json();
+      setUserResults(Array.isArray(data) ? data : []);
+    } catch { error("Nəticələr yüklənmədi"); }
+    finally   { setResultsLoading(false); }
+  };
+
   const updateUser = async (id: string, data: any) => {
     try {
       const res = await fetch(`/api/users/${id}`, {
@@ -44,23 +63,145 @@ export default function AdminUsersPage() {
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify(data),
       });
-      if (res.ok) {
-        success("Yeniləndi");
-        fetchUsers();
-      } else {
-        error("Xəta baş verdi");
-      }
+      if (res.ok) { success("Yeniləndi"); fetchUsers(); }
+      else error("Xəta baş verdi");
     } catch { error("Xəta baş verdi"); }
   };
 
   const toggleActive = (user: any) => {
-    const currentlyActive = isActive(user.active);
-    updateUser(user.id, { active: !currentlyActive });
+    updateUser(user.id, { active: !isActive(user.active) });
   };
 
   const totalPages = Math.ceil(users.length / PAGE_SIZE);
   const paginated  = useMemo(() => users.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [users, page]);
 
+  // ── İstifadəçi detay görünüşü ──────────────────────────────
+  if (selectedUser) {
+    return (
+      <div>
+        <button
+          onClick={() => { setSelectedUser(null); setUserResults([]); }}
+          className="flex items-center gap-2 text-slate-500 hover:text-slate-900 transition-colors mb-6 text-sm font-medium"
+        >
+          <ArrowLeft size={16} /> İstifadəçilərə qayıt
+        </button>
+
+        {/* User info */}
+        <div className="card-static mb-6">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-xl font-bold text-white flex-shrink-0"
+              style={{ background: "linear-gradient(135deg,#1a7fe0,rgb(147,204,255))" }}>
+              {selectedUser.name[0].toUpperCase()}
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-slate-900">{selectedUser.name}</h2>
+              <p className="text-sm text-slate-500">{selectedUser.email}</p>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-slate-100 text-slate-600">
+                  {roleLabels[selectedUser.role]}
+                </span>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                  isActive(selectedUser.active)
+                    ? "bg-green-50 text-green-700"
+                    : "bg-slate-100 text-slate-500"
+                }`}>
+                  {isActive(selectedUser.active) ? "Aktiv" : "Deaktiv"}
+                </span>
+                <span className="text-xs text-slate-400">
+                  Qeydiyyat: {formatDate(selectedUser.createdAt)}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Quiz results */}
+        <div className="card-static">
+          <h3 className="text-lg font-bold text-slate-900 mb-5">
+            Quiz Tarixçəsi
+            {!resultsLoading && (
+              <span className="ml-2 text-sm font-normal text-slate-400">({userResults.length} nəticə)</span>
+            )}
+          </h3>
+
+          {resultsLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 size={28} className="text-[#1a7fe0] animate-spin" />
+            </div>
+          ) : userResults.length === 0 ? (
+            <div className="text-center py-12 text-slate-400">
+              <div className="text-4xl mb-3">📊</div>
+              Bu istifadəçi hələ heç bir quiz işləməyib
+            </div>
+          ) : (
+            <div className="table-scroll">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-slate-100">
+                    {["Quiz Adı", "Kateqoriya", "Tip", "Nəticə", "Xal", "Tarix", "Detay"].map((h) => (
+                      <th key={h} className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 pr-4">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {userResults.map((r: any) => (
+                    <tr
+                      key={r.id}
+                      className="hover:bg-slate-50 transition-colors cursor-pointer"
+                      onClick={() => setSelectedResultId(r.id)}
+                    >
+                      <td className="py-3 pr-4 font-medium text-sm text-slate-800 max-w-[180px] truncate">
+                        {r.quiz?.title ?? "—"}
+                      </td>
+                      <td className="py-3 pr-4">
+                        <span className="badge-category">{getCategoryLabel(r.quiz?.category ?? "")}</span>
+                      </td>
+                      <td className="py-3 pr-4">
+                        <span className={r.quiz?.type === "SINAQ" ? "badge-type-sinaq" : "badge-type-test"}>
+                          {getTypeLabel(r.quiz?.type ?? "TEST")}
+                        </span>
+                      </td>
+                      <td className="py-3 pr-4 text-sm">
+                        <span className="font-bold text-green-600">{r.correct}</span>
+                        <span className="text-slate-400 mx-1">/</span>
+                        <span className="text-red-500">{r.wrong}</span>
+                        <span className="text-slate-400 mx-1">/</span>
+                        <span className="text-slate-400">{r.skipped}</span>
+                        <span className="text-xs text-slate-400 ml-1">(d/s/k)</span>
+                      </td>
+                      <td className="py-3 pr-4">
+                        <span className="font-bold text-[#1a7fe0]">{r.score} xal</span>
+                      </td>
+                      <td className="py-3 pr-4 text-sm text-slate-400">{formatDate(r.createdAt)}</td>
+                      <td className="py-3">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setSelectedResultId(r.id); }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#1a7fe0] hover:bg-blue-50 border border-[rgba(147,204,255,0.4)] transition-all"
+                        >
+                          <Eye size={13} /> Detay
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Result Detail Modal */}
+        {selectedResultId && (
+          <ResultDetailModal
+            resultId={selectedResultId}
+            userName={selectedUser.name}
+            onClose={() => setSelectedResultId(null)}
+          />
+        )}
+      </div>
+    );
+  }
+
+  // ── İstifadəçilər siyahısı ─────────────────────────────────
   return (
     <div>
       <h1 className="text-3xl font-bold text-slate-900 mb-8">İstifadəçilər</h1>
@@ -89,72 +230,65 @@ export default function AdminUsersPage() {
                 <thead>
                   <tr className="border-b border-slate-100">
                     {["Ad","Email","Rol","Status","Qeydiyyat","Əməliyyatlar"].map((h) => (
-                      <th key={h}
-                        className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 pr-4">
-                        {h}
-                      </th>
+                      <th key={h} className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 pr-4">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {paginated.map((user) => {
                     const active = isActive(user.active);
-                  return (
-                    <tr key={user.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="py-3 pr-4">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
-                            style={{ background: "linear-gradient(135deg,#1a7fe0,rgb(147,204,255))" }}>
-                            {user.name[0].toUpperCase()}
+                    return (
+                      <tr
+                        key={user.id}
+                        className="hover:bg-slate-50 transition-colors cursor-pointer"
+                        onClick={() => openUserDetail(user)}
+                      >
+                        <td className="py-3 pr-4">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
+                              style={{ background: "linear-gradient(135deg,#1a7fe0,rgb(147,204,255))" }}>
+                              {user.name[0].toUpperCase()}
+                            </div>
+                            <span className="text-sm font-medium text-slate-800">{user.name}</span>
                           </div>
-                          <span className="text-sm font-medium text-slate-800">{user.name}</span>
-                        </div>
-                      </td>
-                      <td className="py-3 pr-4 text-sm text-slate-500">{user.email}</td>
-                      <td className="py-3 pr-4">
-                        <select value={user.role}
-                          onChange={(e) => updateUser(user.id, { role: e.target.value })}
-                          className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 bg-white focus:outline-none focus:border-[rgb(147,204,255)] min-w-[100px]"
-                          style={{ fontSize: "max(14px, 0.75rem)", WebkitAppearance: "none", appearance: "none", paddingRight: "1.5rem", backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 0.4rem center" }}>
-                          {ROLES.map((r) => (
-                            <option key={r} value={r}>{roleLabels[r]}</option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="py-3 pr-4">
-                        <span className={`text-xs px-2.5 py-1 rounded-full font-medium inline-flex items-center gap-1 ${
-                          active
-                            ? "bg-green-50 text-green-700 border border-green-100"
-                            : "bg-slate-100 text-slate-500 border border-slate-200"
-                        }`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${active ? "bg-green-500" : "bg-slate-400"}`} />
-                          {active ? "Aktiv" : "Deaktiv"}
-                        </span>
-                      </td>
-                      <td className="py-3 pr-4 text-sm text-slate-400">
-                        {formatDate(user.createdAt)}
-                      </td>
-                      <td className="py-3">
-                        <button
-                          onClick={() => toggleActive(user)}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                            active
-                              ? "bg-red-50 text-red-600 hover:bg-red-100 border border-red-100"
-                              : "bg-green-50 text-green-700 hover:bg-green-100 border border-green-100"
+                        </td>
+                        <td className="py-3 pr-4 text-sm text-slate-500">{user.email}</td>
+                        <td className="py-3 pr-4" onClick={(e) => e.stopPropagation()}>
+                          <select value={user.role}
+                            onChange={(e) => updateUser(user.id, { role: e.target.value })}
+                            className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 bg-white focus:outline-none focus:border-[rgb(147,204,255)] min-w-[100px]"
+                            style={{ fontSize: "max(14px, 0.75rem)", WebkitAppearance: "none", appearance: "none", paddingRight: "1.5rem", backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 0.4rem center" }}>
+                            {ROLES.map((r) => <option key={r} value={r}>{roleLabels[r]}</option>)}
+                          </select>
+                        </td>
+                        <td className="py-3 pr-4">
+                          <span className={`text-xs px-2.5 py-1 rounded-full font-medium inline-flex items-center gap-1 ${
+                            active ? "bg-green-50 text-green-700 border border-green-100" : "bg-slate-100 text-slate-500 border border-slate-200"
                           }`}>
-                          {active
-                            ? <><UserX size={12} /> Deaktiv et</>
-                            : <><UserCheck size={12} /> Aktiv et</>}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            {users.length === 0 && (
-              <div className="text-center py-12 text-slate-400">İstifadəçi tapılmadı</div>
-            )}
+                            <span className={`w-1.5 h-1.5 rounded-full ${active ? "bg-green-500" : "bg-slate-400"}`} />
+                            {active ? "Aktiv" : "Deaktiv"}
+                          </span>
+                        </td>
+                        <td className="py-3 pr-4 text-sm text-slate-400">{formatDate(user.createdAt)}</td>
+                        <td className="py-3" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={() => toggleActive(user)}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                              active
+                                ? "bg-red-50 text-red-600 hover:bg-red-100 border border-red-100"
+                                : "bg-green-50 text-green-700 hover:bg-green-100 border border-green-100"
+                            }`}>
+                            {active ? <><UserX size={12} /> Deaktiv et</> : <><UserCheck size={12} /> Aktiv et</>}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {users.length === 0 && (
+                <div className="text-center py-12 text-slate-400">İstifadəçi tapılmadı</div>
+              )}
             </div>
             <Pagination page={page} totalPages={totalPages} onPageChange={(p) => { setPage(p); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
           </>

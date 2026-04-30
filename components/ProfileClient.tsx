@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { formatDate, getCategoryLabel, getTypeLabel, getRoleLabel } from "@/lib/utils";
 import Link from "next/link";
-import { User, Trophy, Target, Star, Zap, Calendar, ExternalLink } from "lucide-react";
+import { User, Trophy, Target, Star, Zap, Calendar, Eye } from "lucide-react";
+import ResultDetailModal from "@/components/ResultDetailModal";
 
 interface ProfileData {
   user: any;
@@ -19,6 +21,7 @@ const roleBadge: Record<string, { bg: string; color: string; border: string }> =
 export default function ProfileClient({ data }: { data: ProfileData }) {
   const { user, stats, results } = data;
   const rb = roleBadge[user.role] || roleBadge.USER;
+  const [selectedResultId, setSelectedResultId] = useState<string | null>(null);
 
   const statCards = [
     { icon: Target, label: "İşlənən Quiz",    value: stats.totalQuizzes,  color: "#1a7fe0", bg: "rgba(147,204,255,0.1)" },
@@ -78,14 +81,18 @@ export default function ProfileClient({ data }: { data: ProfileData }) {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-100">
-                    {["Quiz Adı", "Tip", "Nəticə", "Tarix", ""].map((h) => (
+                    {["Quiz Adı", "Tip", "Nəticə", "Tarix", "Detay"].map((h) => (
                       <th key={h} className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 pr-4">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {results.map((r) => (
-                    <tr key={r.id} className="hover:bg-slate-50 transition-colors">
+                    <tr
+                      key={r.id}
+                      className="hover:bg-slate-50 transition-colors cursor-pointer"
+                      onClick={() => setSelectedResultId(r.id)}
+                    >
                       <td className="py-3 pr-4">
                         <p className="font-medium text-sm text-slate-800">{r.quizTitle}</p>
                         <p className="text-xs text-slate-400">{getCategoryLabel(r.quizCategory)}</p>
@@ -101,10 +108,12 @@ export default function ProfileClient({ data }: { data: ProfileData }) {
                       </td>
                       <td className="py-3 pr-4 text-sm text-slate-400">{formatDate(r.createdAt)}</td>
                       <td className="py-3">
-                        <Link href={`/quizler/${r.quizId}`}
-                          className="p-1.5 rounded-lg text-[#1a7fe0] hover:bg-blue-50 transition-all inline-flex">
-                          <ExternalLink size={15} />
-                        </Link>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setSelectedResultId(r.id); }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#1a7fe0] hover:bg-blue-50 border border-[rgba(147,204,255,0.4)] transition-all"
+                        >
+                          <Eye size={13} /> Detay
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -115,16 +124,22 @@ export default function ProfileClient({ data }: { data: ProfileData }) {
             {/* Mobile cards */}
             <div className="sm:hidden space-y-3">
               {results.map((r) => (
-                <div key={r.id} className="p-4 rounded-xl border border-slate-100 bg-slate-50">
+                <div
+                  key={r.id}
+                  className="p-4 rounded-xl border border-slate-100 bg-slate-50 cursor-pointer hover:border-[rgba(147,204,255,0.4)] transition-all"
+                  onClick={() => setSelectedResultId(r.id)}
+                >
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <div className="min-w-0">
                       <p className="font-semibold text-sm text-slate-800 truncate">{r.quizTitle}</p>
                       <p className="text-xs text-slate-400">{getCategoryLabel(r.quizCategory)}</p>
                     </div>
-                    <Link href={`/quizler/${r.quizId}`}
-                      className="p-1.5 rounded-lg text-[#1a7fe0] hover:bg-blue-50 transition-all flex-shrink-0">
-                      <ExternalLink size={14} />
-                    </Link>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setSelectedResultId(r.id); }}
+                      className="p-1.5 rounded-lg text-[#1a7fe0] hover:bg-blue-50 transition-all flex-shrink-0"
+                    >
+                      <Eye size={14} />
+                    </button>
                   </div>
                   <div className="flex items-center gap-3 flex-wrap">
                     <span className={r.quizType === "SINAQ" ? "badge-type-sinaq" : "badge-type-test"}>
@@ -146,6 +161,14 @@ export default function ProfileClient({ data }: { data: ProfileData }) {
           </div>
         )}
       </div>
+
+      {/* Result Detail Modal */}
+      {selectedResultId && (
+        <ResultDetailModal
+          resultId={selectedResultId}
+          onClose={() => setSelectedResultId(null)}
+        />
+      )}
     </div>
   );
 }
