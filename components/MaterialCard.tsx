@@ -8,6 +8,9 @@ import { GlowCard } from "@/components/ui/glow-card";
 function MaterialCard({ material, userRole }: { material: any; userRole?: string }) {
   const isLocked = material.visibility === "STUDENT_ONLY" && (!userRole || userRole === "USER");
 
+  // Yükləmə URL-i — proxy vasitəsilə düzgün fayl adı ilə
+  const downloadUrl = `/api/download?url=${encodeURIComponent(material.fileUrl)}&filename=${encodeURIComponent(material.title)}`;
+
   return (
     <div className="relative h-full">
       <GlowCard>
@@ -50,13 +53,8 @@ function MaterialCard({ material, userRole }: { material: any; userRole?: string
               className="flex-1 btn-primary text-sm flex items-center justify-center gap-1.5">
               <Eye size={13} /> Bax
             </a>
-            <a
-              href={material.fileUrl}
-              download={material.title}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex-1 btn-secondary text-sm flex items-center justify-center gap-1.5"
-            >
+            <a href={downloadUrl}
+              className="flex-1 btn-secondary text-sm flex items-center justify-center gap-1.5">
               <Download size={13} /> Yüklə
             </a>
           </div>
