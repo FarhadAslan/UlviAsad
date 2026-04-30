@@ -34,8 +34,8 @@ export default async function MaterialDetailPage({ params }: { params: { id: str
     redirect("/auth/giris");
   }
 
-  const downloadUrl = `/api/download?url=${encodeURIComponent(material.fileUrl)}&filename=${encodeURIComponent(material.title)}`;
-  const viewUrl     = `/api/download?url=${encodeURIComponent(material.fileUrl)}&filename=${encodeURIComponent(material.title)}&inline=true`;
+  const downloadUrl = `/api/download?url=${encodeURIComponent(material.fileUrl)}&filename=${encodeURIComponent(material.title)}&type=${material.fileType}`;
+  const viewUrl     = `/api/download?url=${encodeURIComponent(material.fileUrl)}&filename=${encodeURIComponent(material.title)}&type=${material.fileType}&inline=true`;
 
   return (
     <div className="container mx-auto py-12 max-w-3xl">

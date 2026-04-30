@@ -120,9 +120,12 @@ export async function POST(req: NextRequest) {
       use_filename:  false,
     };
 
-    if (resourceType === "raw") {
+    // Raw fayllar üçün: PDF-i uzantısız yüklə (Cloudinary PDF delivery-ni bloklamır)
+    // Digər raw fayllar üçün format saxla
+    if (resourceType === "raw" && ext !== ".pdf") {
       uploadOptions.format = ext.replace(".", "");
     }
+    // PDF üçün format əlavə etmirik — uzantısız yüklənir, proxy düzgün serve edir
 
     const result  = await uploadStream(buffer, uploadOptions);
     const fileUrl = result.secure_url as string;

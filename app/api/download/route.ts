@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { v2 as cloudinary } from "cloudinary";
+import JSZip from "jszip";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -10,106 +11,135 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-function extractPublicId(url: string): { publicId: string; format: string } | null {
-  try {
-    const match = url.match(/\/raw\/upload\/(?:v\d+\/)?(.+?)(?:\.([a-zA-Z0-9]+))?$/);
-    if (!match) return null;
-    return { publicId: match[1], format: match[2] || "" };
-  } catch {
-    return null;
-  }
-}
-
-function getExtFromUrl(url: string, contentType: string): string {
-  const urlExt = url.match(/\.([a-zA-Z0-9]+)(?:\?|$)/)?.[1];
-  if (urlExt && urlExt.length <= 5) return `.${urlExt}`;
+function getContentType(fileType: string, url: string): string {
+  const type = fileType.toUpperCase();
   const map: Record<string, string> = {
-    "application/pdf":       ".pdf",
-    "application/msword":    ".doc",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
-    "application/vnd.ms-powerpoint": ".ppt",
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
-    "text/plain":            ".txt",
-    "video/mp4":             ".mp4",
-    "image/jpeg":            ".jpg",
-    "image/png":             ".png",
-    "image/gif":             ".gif",
-    "image/webp":            ".webp",
-    "application/octet-stream": "",
+    PDF:  "application/pdf",
+    DOC:  "application/msword",
+    DOCX: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    PPT:  "application/vnd.ms-powerpoint",
+    PPTX: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    TXT:  "text/plain",
+    VIDEO: "video/mp4",
+    MP4:  "video/mp4",
+    IMAGE: "image/jpeg",
   };
-  return map[contentType.split(";")[0].trim()] || "";
+  if (map[type]) return map[type];
+  const ext = url.match(/\.([a-zA-Z0-9]+)(?:\?|$)/)?.[1]?.toLowerCase() || "";
+  const extMap: Record<string, string> = {
+    pdf: "application/pdf", doc: "application/msword",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    txt: "text/plain", mp4: "video/mp4",
+  };
+  return extMap[ext] || "application/octet-stream";
 }
 
-async function fetchFromCloudinary(url: string): Promise<Response | null> {
-  // Əvvəlcə birbaşa sına
-  const direct = await fetch(url);
-  if (direct.ok) return direct;
+function buildFilename(filename: string, fileType: string): string {
+  const extMap: Record<string, string> = {
+    PDF: ".pdf", DOC: ".doc", DOCX: ".docx",
+    PPT: ".ppt", PPTX: ".pptx", TXT: ".txt",
+    VIDEO: ".mp4", MP4: ".mp4", IMAGE: ".jpg",
+  };
+  const ext = extMap[fileType.toUpperCase()] || "";
+  // Artıq uzantı varsa əlavə etmə
+  if (ext && filename.toLowerCase().endsWith(ext)) return filename;
+  // Uzantı yoxdursa əlavə et
+  if (ext) return filename + ext;
+  return filename;
+}
 
-  // 401 — signed URL ilə cəhd et
-  if (direct.status === 401) {
-    const parsed = extractPublicId(url);
-    if (!parsed) return null;
-
-    const signedUrl = cloudinary.utils.private_download_url(
-      parsed.publicId,
-      parsed.format || "pdf",
-      {
-        resource_type: "raw",
-        expires_at:    Math.floor(Date.now() / 1000) + 3600,
-        attachment:    false, // inline üçün false
-      }
-    );
-
-    const signed = await fetch(signedUrl);
-    if (signed.ok) return signed;
-  }
-
-  return null;
+// Cloudinary URL-dən public_id çıxar
+function extractPublicId(url: string): string | null {
+  const match = url.match(/\/raw\/upload\/(?:v\d+\/)?(.+)$/);
+  return match ? match[1] : null;
 }
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const url      = searchParams.get("url");
   const filename = searchParams.get("filename") || "fayl";
-  // inline=true → brauzerdə göstər, inline=false/yoxdur → yüklə
   const inline   = searchParams.get("inline") === "true";
+  const fileType = searchParams.get("type") || "";
 
-  if (!url) {
-    return NextResponse.json({ error: "URL tələb olunur" }, { status: 400 });
-  }
-
+  if (!url) return NextResponse.json({ error: "URL tələb olunur" }, { status: 400 });
   if (!url.startsWith("https://res.cloudinary.com/")) {
     return NextResponse.json({ error: "İcazəsiz URL" }, { status: 403 });
   }
 
   try {
-    const res = await fetchFromCloudinary(url);
+    // 1. Birbaşa fetch cəhdi
+    const directRes = await fetch(url);
 
-    if (!res) {
-      return NextResponse.json({ error: "Fayl tapılmadı" }, { status: 404 });
+    if (directRes.ok) {
+      const buffer      = await directRes.arrayBuffer();
+      const contentType = getContentType(fileType, url);
+      const finalFilename = buildFilename(filename, fileType);
+      const disposition   = inline
+        ? `inline; filename="${finalFilename}"`
+        : `attachment; filename="${finalFilename}"`;
+
+      return new NextResponse(buffer, {
+        headers: {
+          "Content-Type":        contentType,
+          "Content-Disposition": disposition,
+          "Content-Length":      buffer.byteLength.toString(),
+          "Cache-Control":       "public, max-age=3600",
+        },
+      });
     }
 
-    const buffer      = await res.arrayBuffer();
-    const contentType = res.headers.get("content-type") || "application/octet-stream";
-    const ext         = getExtFromUrl(url, contentType);
-    const safeFilename = encodeURIComponent(
-      filename.endsWith(ext) ? filename : filename + ext
-    );
+    // 2. 401 aldıqda — Cloudinary generate_archive API ilə ZIP al
+    if (directRes.status === 401) {
+      const publicId = extractPublicId(url);
+      if (!publicId) return NextResponse.json({ error: "URL formatı tanınmadı" }, { status: 400 });
 
-    const disposition = inline
-      ? `inline; filename="${safeFilename}"`
-      : `attachment; filename="${safeFilename}"; filename*=UTF-8''${safeFilename}`;
+      const zipUrl = cloudinary.utils.download_zip_url({
+        public_ids:    [publicId],
+        resource_type: "raw",
+      });
 
-    return new NextResponse(buffer, {
-      headers: {
-        "Content-Type":        contentType,
-        "Content-Disposition": disposition,
-        "Content-Length":      buffer.byteLength.toString(),
-        "Cache-Control":       "public, max-age=3600",
-      },
-    });
+      const zipRes = await fetch(zipUrl as string);
+      if (!zipRes.ok) {
+        return NextResponse.json({ error: "Fayl tapılmadı" }, { status: 404 });
+      }
+
+      const zipBuffer = await zipRes.arrayBuffer();
+
+      // ZIP-dən faylı çıxar
+      const zip = await JSZip.loadAsync(zipBuffer);
+      const zipFiles = Object.keys(zip.files).filter(f => !zip.files[f].dir);
+
+      if (zipFiles.length === 0) {
+        return NextResponse.json({ error: "ZIP boşdur" }, { status: 404 });
+      }
+
+      const fileData    = await zip.files[zipFiles[0]].async("arraybuffer");
+      const contentType = getContentType(fileType, url);
+
+      // Fayl adını düzgün qur — uzantı mütləq olsun
+      const finalFilename = buildFilename(filename, fileType);
+
+      const disposition = inline
+        ? `inline; filename="${finalFilename}"`
+        : `attachment; filename="${finalFilename}"`;
+
+      return new NextResponse(fileData, {
+        headers: {
+          "Content-Type":        contentType,
+          "Content-Disposition": disposition,
+          "Content-Length":      fileData.byteLength.toString(),
+          "Cache-Control":       "public, max-age=3600",
+        },
+      });
+    }
+
+    return NextResponse.json({ error: "Fayl tapılmadı" }, { status: 404 });
+
   } catch (error) {
     console.error("Download proxy error:", error);
-    return NextResponse.json({ error: "Yükləmə xətası" }, { status: 500 });
+    return NextResponse.json(
+      { error: `Yükləmə xətası: ${error instanceof Error ? error.message : "Naməlum xəta"}` },
+      { status: 500 }
+    );
   }
 }

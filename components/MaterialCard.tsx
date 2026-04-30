@@ -9,7 +9,7 @@ import ShareIconButton from "@/components/ShareIconButton";
 
 function MaterialCard({ material, userRole }: { material: any; userRole?: string }) {
   const isLocked    = material.visibility === "STUDENT_ONLY" && (!userRole || userRole === "USER");
-  const downloadUrl = `/api/download?url=${encodeURIComponent(material.fileUrl)}&filename=${encodeURIComponent(material.title)}`;
+  const downloadUrl = `/api/download?url=${encodeURIComponent(material.fileUrl)}&filename=${encodeURIComponent(material.title)}&type=${material.fileType}`;
   const detailPath  = `/materiallar/${material.id}`;
 
   return (
