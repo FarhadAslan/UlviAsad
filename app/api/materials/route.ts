@@ -51,11 +51,7 @@ export async function GET(req: NextRequest) {
       ...(limit ? { take: parseInt(limit) } : {}),
     });
 
-    return NextResponse.json(materials, {
-      headers: {
-        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60",
-      },
-    });
+    return NextResponse.json(materials);
   } catch (error) {
     return NextResponse.json({ error: "Server xətası" }, { status: 500 });
   }

@@ -50,8 +50,13 @@ function MaterialCard({ material, userRole }: { material: any; userRole?: string
               className="flex-1 btn-primary text-sm flex items-center justify-center gap-1.5">
               <Eye size={13} /> Bax
             </a>
-            <a href={material.fileUrl} download
-              className="flex-1 btn-secondary text-sm flex items-center justify-center gap-1.5">
+            <a
+              href={material.fileUrl}
+              download={material.title}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 btn-secondary text-sm flex items-center justify-center gap-1.5"
+            >
               <Download size={13} /> Yüklə
             </a>
           </div>

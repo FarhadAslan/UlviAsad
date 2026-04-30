@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { uploadToCloudinary } from "@/lib/cloudinary";
+import { v2 as cloudinary } from "cloudinary";
 import path from "path";
 
 export const dynamic = "force-dynamic";
@@ -28,12 +28,6 @@ const ALLOWED_EXTENSIONS = new Set([
   ".jpg", ".jpeg", ".png", ".gif", ".webp",
 ]);
 
-function getResourceType(ext: string): "image" | "video" | "raw" {
-  if ([".jpg", ".jpeg", ".png", ".gif", ".webp"].includes(ext)) return "image";
-  if ([".mp4", ".webm", ".ogg"].includes(ext)) return "video";
-  return "raw";
-}
-
 const FILE_TYPE_MAP: Record<string, string> = {
   ".pdf":  "PDF",
   ".doc":  "DOC",
@@ -51,6 +45,26 @@ const FILE_TYPE_MAP: Record<string, string> = {
   ".webp": "IMAGE",
 };
 
+function getResourceType(ext: string): "image" | "video" | "raw" {
+  if ([".jpg", ".jpeg", ".png", ".gif", ".webp"].includes(ext)) return "image";
+  if ([".mp4", ".webm", ".ogg"].includes(ext)) return "video";
+  return "raw";
+}
+
+function uploadStream(
+  buffer: Buffer,
+  options: Record<string, any>
+): Promise<any> {
+  return new Promise((resolve, reject) => {
+    cloudinary.uploader
+      .upload_stream(options, (error, result) => {
+        if (error || !result) reject(error ?? new Error("Upload failed"));
+        else resolve(result);
+      })
+      .end(buffer);
+  });
+}
+
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -61,6 +75,12 @@ export async function POST(req: NextRequest) {
     if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
       return NextResponse.json({ error: "Cloudinary konfiqurasiyası tapılmadı" }, { status: 500 });
     }
+
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key:    process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET,
+    });
 
     let formData: FormData;
     try {
@@ -74,7 +94,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Fayl tapılmadı" }, { status: 400 });
     }
 
-    // 100MB limit
     if (file.size > 100 * 1024 * 1024) {
       return NextResponse.json({ error: "Fayl ölçüsü 100MB-dan çox ola bilməz" }, { status: 400 });
     }
@@ -87,21 +106,52 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const baseName = path.basename(file.name, ext).replace(/[^a-zA-Z0-9-_]/g, "_").substring(0, 40);
-    const publicId = `${baseName}_${Date.now()}`;
+    const resourceType = getResourceType(ext);
+
+    // Fayl adını təmizlə — orijinal adı saxla (uzantı ilə)
+    const cleanName = path
+      .basename(file.name, ext)
+      .replace(/[^a-zA-Z0-9-_]/g, "_")
+      .substring(0, 50);
+    const publicId = `${cleanName}_${Date.now()}`;
 
     const bytes  = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    const resourceType = getResourceType(ext);
-    const { url } = await uploadToCloudinary(buffer, {
+    const uploadOptions: Record<string, any> = {
       folder:        "muellim-portal",
-      filename:      publicId,
+      public_id:     publicId,
       resource_type: resourceType,
-    });
+      use_filename:  true,
+      unique_filename: false,
+    };
+
+    // Raw fayllar (PDF, DOC, PPT, TXT) üçün:
+    // - format saxla ki URL-də uzantı görünsün
+    // - fl_attachment ilə yükləmə zamanı düzgün fayl adı verilsin
+    if (resourceType === "raw") {
+      uploadOptions.format = ext.replace(".", ""); // "pdf", "docx" və s.
+    }
+
+    const result = await uploadStream(buffer, uploadOptions);
+
+    // Raw fayllar üçün URL-ə fl_attachment əlavə et
+    // Bu brauzerin faylı düzgün ad və uzantı ilə yükləməsini təmin edir
+    let fileUrl = result.secure_url as string;
+    if (resourceType === "raw") {
+      // Cloudinary raw URL formatı: .../upload/v.../folder/publicId.ext
+      // fl_attachment:filename əlavə edirik
+      const originalFileName = encodeURIComponent(
+        cleanName.replace(/_/g, " ") + ext
+      );
+      fileUrl = fileUrl.replace(
+        "/upload/",
+        `/upload/fl_attachment:${originalFileName}/`
+      );
+    }
 
     return NextResponse.json({
-      url,
+      url:      fileUrl,
       fileType: FILE_TYPE_MAP[ext] ?? "FILE",
       fileName: file.name,
       size:     file.size,
