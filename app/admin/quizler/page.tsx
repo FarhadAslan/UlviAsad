@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Plus, Trash2, Edit } from "lucide-react";
+import { Plus, Trash2, Edit, Share2, Check } from "lucide-react";
 import { useToast } from "@/components/ui/toast-1";
 import { getCategoryLabel, getTypeLabel } from "@/lib/utils";
 import QuizForm from "@/components/admin/QuizForm";
@@ -15,8 +15,21 @@ export default function AdminQuizzesPage() {
   const [loading,     setLoading]     = useState(true);
   const [showForm,    setShowForm]    = useState(false);
   const [editingQuiz, setEditingQuiz] = useState<any>(null);
-  const [editLoading, setEditLoading] = useState<string | null>(null);
-  const [page,        setPage]        = useState(1);
+  const [editLoading,  setEditLoading]  = useState<string | null>(null);
+  const [page,         setPage]         = useState(1);
+  const [copiedId,     setCopiedId]     = useState<string | null>(null);
+
+  const copyLink = async (quizId: string) => {
+    const url = `${window.location.origin}/quizler/${quizId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      success("Link kopyalandı!");
+      setCopiedId(quizId);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      prompt("Linki kopyalayın:", url);
+    }
+  };
 
   useEffect(() => { fetchQuizzes(); }, []);
 
@@ -120,13 +133,22 @@ export default function AdminQuizzesPage() {
                     <td className="py-3">
                       <div className="flex items-center gap-1.5">
                         <button onClick={() => handleEdit(quiz)} disabled={editLoading === quiz.id}
-                          className="p-1.5 text-[#1a7fe0] hover:bg-blue-50 rounded-lg transition-all disabled:opacity-50">
+                          className="p-1.5 text-[#1a7fe0] hover:bg-blue-50 rounded-lg transition-all disabled:opacity-50"
+                          title="Düzəlt">
                           {editLoading === quiz.id
                             ? <div className="w-3.5 h-3.5 border-2 border-blue-200 border-t-[#1a7fe0] rounded-full animate-spin" />
                             : <Edit size={14} />}
                         </button>
+                        <button onClick={() => copyLink(quiz.id)}
+                          className="p-1.5 text-[#1a7fe0] hover:bg-blue-50 rounded-lg transition-all"
+                          title="Linki kopyala">
+                          {copiedId === quiz.id
+                            ? <Check size={14} className="text-green-500" />
+                            : <Share2 size={14} />}
+                        </button>
                         <button onClick={() => deleteQuiz(quiz.id)}
-                          className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-all">
+                          className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                          title="Sil">
                           <Trash2 size={14} />
                         </button>
                       </div>

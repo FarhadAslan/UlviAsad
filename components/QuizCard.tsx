@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Lock, Trophy, Clock, HelpCircle } from "lucide-react";
 import { getCategoryLabel, getTypeLabel } from "@/lib/utils";
 import { GlowCard } from "@/components/ui/glow-card";
+import ShareButton from "@/components/ShareButton";
 
 function QuizCard({ quiz, userRole }: { quiz: any; userRole?: string }) {
   const isLocked = quiz.visibility === "STUDENT_ONLY" && (!userRole || userRole === "USER");
@@ -78,7 +79,14 @@ function QuizCard({ quiz, userRole }: { quiz: any; userRole?: string }) {
         {isLocked ? (
           <Link href="/auth/giris" className="btn-secondary text-center text-sm">Giriş et</Link>
         ) : (
-          <Link href={`/quizler/${quiz.id}`} className="btn-primary text-center text-sm">Başla</Link>
+          <div className="flex gap-2">
+            <Link href={`/quizler/${quiz.id}`} className="btn-primary text-center text-sm flex-1">Başla</Link>
+            <ShareButton
+              title={quiz.title}
+              url={`${typeof window !== "undefined" ? window.location.origin : ""}/quizler/${quiz.id}`}
+              variant="icon"
+            />
+          </div>
         )}
       </GlowCard>
     </div>

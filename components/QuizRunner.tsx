@@ -16,6 +16,7 @@ import {
   ArrowLeft,
 } from "lucide-react";
 import { getCategoryLabel, getTypeLabel } from "@/lib/utils";
+import ShareButton from "@/components/ShareButton";
 
 interface QuizRunnerProps {
   quiz: any;
@@ -201,9 +202,12 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
           <button onClick={handleStart} className="btn-primary w-full text-lg py-4">
             Başla
           </button>
-          <Link href="/quizler" className="block mt-3 text-slate-500 hover:text-slate-900 transition-colors text-sm">
-            Geri qayıt
-          </Link>
+          <div className="flex items-center justify-between mt-3">
+            <Link href="/quizler" className="text-slate-500 hover:text-slate-900 transition-colors text-sm">
+              Geri qayıt
+            </Link>
+            <ShareButton title={quiz.title} variant="default" />
+          </div>
         </div>
       </div>
     );
