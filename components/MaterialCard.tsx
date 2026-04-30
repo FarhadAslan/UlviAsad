@@ -56,12 +56,14 @@ function MaterialCard({ material, userRole }: { material: any; userRole?: string
           </button>
         ) : (
           <div className="flex gap-2">
+            {/* Bax — detail səhifəsinə gedir, oradan proxy ilə açılır */}
             <Link
               href={detailPath}
               className="flex-1 btn-primary text-sm flex items-center justify-center gap-1.5"
             >
               <Eye size={13} /> Bax
             </Link>
+            {/* Yüklə — birbaşa proxy-dən */}
             <a
               href={downloadUrl}
               className="flex-1 btn-secondary text-sm flex items-center justify-center gap-1.5"

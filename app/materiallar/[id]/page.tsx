@@ -18,7 +18,13 @@ export default async function MaterialDetailPage({ params }: { params: { id: str
   const userRole = (session?.user as any)?.role;
 
   const material = await getMaterial(params.id);
-  if (!material || !material.active) notFound();
+
+  // Material yoxdursa 404
+  if (!material) notFound();
+
+  // Admin hər zaman görə bilər
+  // Digər istifadəçilər üçün: deaktiv material 404
+  if (userRole !== "ADMIN" && !material.active) notFound();
 
   // STUDENT_ONLY materialı giriş etməmiş USER görə bilməz
   if (
@@ -29,6 +35,7 @@ export default async function MaterialDetailPage({ params }: { params: { id: str
   }
 
   const downloadUrl = `/api/download?url=${encodeURIComponent(material.fileUrl)}&filename=${encodeURIComponent(material.title)}`;
+  const viewUrl     = `/api/download?url=${encodeURIComponent(material.fileUrl)}&filename=${encodeURIComponent(material.title)}&inline=true`;
 
   return (
     <div className="container mx-auto py-12 max-w-3xl">
@@ -74,7 +81,7 @@ export default async function MaterialDetailPage({ params }: { params: { id: str
         {/* Actions */}
         <div className="flex flex-wrap gap-3">
           <a
-            href={material.fileUrl}
+            href={viewUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="flex-1 min-w-[120px] btn-primary flex items-center justify-center gap-2"
