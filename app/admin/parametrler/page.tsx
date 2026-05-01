@@ -65,8 +65,13 @@ export default function AdminSettingsPage() {
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify(form),
       });
-      if (res.ok) success("Parametrlər yadda saxlandı!");
-      else        error("Xəta baş verdi");
+      if (res.ok) {
+        success("Parametrlər yadda saxlandı!");
+        // Formu yenidən yüklə ki, DB-dəki dəyərləri göstərsin
+        await fetchSettings();
+      } else {
+        error("Xəta baş verdi");
+      }
     } catch { error("Xəta baş verdi"); }
     finally   { setSaving(false); }
   };

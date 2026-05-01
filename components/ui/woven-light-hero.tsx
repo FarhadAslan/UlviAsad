@@ -2,12 +2,18 @@
 
 import React, { useRef, useEffect } from "react";
 import { motion, useAnimation } from "framer-motion";
+import { useSession } from "next-auth/react";
 import * as THREE from "three";
 import Link from "next/link";
 
 // ── Module-level cache (bütün render-lər paylaşır) ──────────────
 let heroCache: { heroTitle: string; heroBadge: string; heroSubtitle: string } | null = null;
 let statsCache: { quizCount: number; matCount: number; userCount: number } | null = null;
+
+// Settings yenilənəndə cache-i sıfırla
+export function clearHeroCache() {
+  heroCache = null;
+}
 
 // ── Three.js Canvas ──────────────────────────────────────────────
 const WovenCanvas = () => {
@@ -131,6 +137,8 @@ const WovenCanvas = () => {
 export const WovenLightHero = () => {
   const textCtrl = useAnimation();
   const btnCtrl  = useAnimation();
+  const { data: session, status } = useSession();
+  const isLoggedIn = status === "authenticated";
 
   const [settings, setSettings] = React.useState({
     heroTitle:    heroCache?.heroTitle    || "Biliklərinizi Test Edin",
@@ -148,20 +156,18 @@ export const WovenLightHero = () => {
     }));
     btnCtrl.start({ opacity: 1, transition: { delay: 2, duration: 0.8 } });
 
-    // Cache varsa fetch etmə
-    if (!heroCache) {
-      fetch("/api/settings")
-        .then((r) => r.json())
-        .then((d) => {
-          heroCache = {
-            heroTitle:    d.heroTitle    || settings.heroTitle,
-            heroBadge:    d.heroBadge    || settings.heroBadge,
-            heroSubtitle: d.heroSubtitle || settings.heroSubtitle,
-          };
-          setSettings((p) => ({ ...p, ...heroCache }));
-        })
-        .catch(() => {});
-    }
+    // Cache varsa fetch etmə — amma settings dəyişə biləcəyi üçün hər dəfə fetch et
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((d) => {
+        heroCache = {
+          heroTitle:    d.heroTitle    || settings.heroTitle,
+          heroBadge:    d.heroBadge    || settings.heroBadge,
+          heroSubtitle: d.heroSubtitle || settings.heroSubtitle,
+        };
+        setSettings((p) => ({ ...p, ...heroCache }));
+      })
+      .catch(() => {});
 
     if (!statsCache) {
       fetch("/api/stats")
@@ -231,11 +237,19 @@ export const WovenLightHero = () => {
           <Link href="/quizler" className="btn-primary px-10 py-3.5 text-base">
             Quizlərə Başla
           </Link>
-          <Link href="/auth/qeydiyyat"
-            className="inline-flex items-center justify-center gap-2 px-10 py-3.5 rounded-[10px] font-semibold text-base transition-all duration-200 hover:-translate-y-0.5"
-            style={{ background: "rgba(147,204,255,0.1)", color: "rgb(147,204,255)", border: "1.5px solid rgba(147,204,255,0.35)" }}>
-            Pulsuz Qeydiyyat
-          </Link>
+          {isLoggedIn ? (
+            <Link href="/materiallar"
+              className="inline-flex items-center justify-center gap-2 px-10 py-3.5 rounded-[10px] font-semibold text-base transition-all duration-200 hover:-translate-y-0.5"
+              style={{ background: "rgba(147,204,255,0.1)", color: "rgb(147,204,255)", border: "1.5px solid rgba(147,204,255,0.35)" }}>
+              Materiallara Bax
+            </Link>
+          ) : (
+            <Link href="/auth/qeydiyyat"
+              className="inline-flex items-center justify-center gap-2 px-10 py-3.5 rounded-[10px] font-semibold text-base transition-all duration-200 hover:-translate-y-0.5"
+              style={{ background: "rgba(147,204,255,0.1)", color: "rgb(147,204,255)", border: "1.5px solid rgba(147,204,255,0.35)" }}>
+              Pulsuz Qeydiyyat
+            </Link>
+          )}
         </motion.div>
 
         <motion.div initial={{ opacity: 0 }}

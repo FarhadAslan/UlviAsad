@@ -20,7 +20,7 @@ export default function Footer() {
   const [s, setS] = useState(cachedSettings || DEFAULT);
 
   useEffect(() => {
-    if (cachedSettings) { setS(cachedSettings); return; }
+    // Hər dəfə fetch et — settings dəyişə bilər
     fetch("/api/settings")
       .then((r) => r.json())
       .then((d) => {

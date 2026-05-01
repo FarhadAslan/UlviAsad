@@ -6,17 +6,19 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 // Intl formatters-i bir dəfə yarat, hər çağırışda yenidən yaratma
+// Format: "15 yanvar 2026" (gün ay il)
 const dateFormatter = new Intl.DateTimeFormat("az-AZ", {
-  year: "numeric",
+  day:   "numeric",
   month: "long",
-  day: "numeric",
+  year:  "numeric",
 });
 
+// Format: "15 yan 2026, 14:30"
 const dateTimeFormatter = new Intl.DateTimeFormat("az-AZ", {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-  hour: "2-digit",
+  day:    "numeric",
+  month:  "short",
+  year:   "numeric",
+  hour:   "2-digit",
   minute: "2-digit",
 });
 

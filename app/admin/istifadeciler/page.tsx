@@ -29,6 +29,14 @@ export default function AdminUsersPage() {
   const [resultsLoading,   setResultsLoading]   = useState(false);
   const [selectedResultId, setSelectedResultId] = useState<string | null>(null);
   const [copiedId,         setCopiedId]         = useState<string | null>(null);
+  const [resultsPage,      setResultsPage]      = useState(1);
+
+  const RESULTS_PAGE_SIZE = 8;
+  const totalResultPages  = Math.ceil(userResults.length / RESULTS_PAGE_SIZE);
+  const paginatedResults  = useMemo(
+    () => userResults.slice((resultsPage - 1) * RESULTS_PAGE_SIZE, resultsPage * RESULTS_PAGE_SIZE),
+    [userResults, resultsPage]
+  );
 
   const copyResultLink = async (e: React.MouseEvent, resultId: string) => {
     e.stopPropagation();
@@ -60,6 +68,7 @@ export default function AdminUsersPage() {
     setSelectedUser(user);
     setResultsLoading(true);
     setUserResults([]);
+    setResultsPage(1); // yeni istifadəçi açılanda 1-ci səhifəyə qayıt
     try {
       const res  = await fetch(`/api/results?userId=${user.id}`);
       const data = await res.json();
@@ -146,6 +155,7 @@ export default function AdminUsersPage() {
               Bu istifadəçi hələ heç bir quiz işləməyib
             </div>
           ) : (
+            <>
             <div className="table-scroll">
               <table className="w-full">
                 <thead>
@@ -156,7 +166,7 @@ export default function AdminUsersPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {userResults.map((r: any) => (
+                  {paginatedResults.map((r: any) => (
                     <tr
                       key={r.id}
                       className="hover:bg-slate-50 transition-colors cursor-pointer"
@@ -210,6 +220,12 @@ export default function AdminUsersPage() {
                 </tbody>
               </table>
             </div>
+            <Pagination
+              page={resultsPage}
+              totalPages={totalResultPages}
+              onPageChange={(p) => setResultsPage(p)}
+            />
+            </>
           )}
         </div>
 

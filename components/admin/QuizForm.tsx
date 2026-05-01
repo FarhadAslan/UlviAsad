@@ -101,7 +101,7 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
     if (questions.some((q) => q.options.some((o: any) => !o.text))) {
       error("Bütün cavab seçimlərini doldurun"); return;
     }
-    if (form.type === "SINAQ" && (!form.duration || form.duration < 1)) {
+    if (form.type === "SINAQ" && (!form.duration || Number(form.duration) < 1)) {
       error("Sınaq üçün müddət daxil edin (minimum 1 dəqiqə)"); return;
     }
     setLoading(true);
@@ -189,9 +189,13 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
                 required={form.type === "SINAQ"} disabled={form.type !== "SINAQ"}
                 placeholder={form.type === "SINAQ" ? "Məs: 30" : "Yalnız Sınaq üçün"}
                 className={`input-field ${form.type !== "SINAQ" ? "opacity-40 cursor-not-allowed" : ""}`}
-                onChange={(e) => setForm((p) => ({ ...p, duration: parseInt(e.target.value) || 1 }))} />
-              {form.type === "SINAQ" && (
-                <p className="text-xs text-[#1a7fe0] mt-1">⏱ {form.duration} dəq = {form.duration * 60} saniyə</p>
+                onChange={(e) => {
+                  const val = e.target.value;
+                  // Boş olduqda boş saxla, dəyər varsa parse et
+                  setForm((p) => ({ ...p, duration: val === "" ? "" as any : parseInt(val) || 1 }));
+                }} />
+              {form.type === "SINAQ" && form.duration && (
+                <p className="text-xs text-[#1a7fe0] mt-1">⏱ {form.duration} dəq = {Number(form.duration) * 60} saniyə</p>
               )}
               {form.type !== "SINAQ" && (
                 <p className="text-xs text-slate-400 mt-1">Test tipində vaxt məhdudiyyəti yoxdur</p>
@@ -226,10 +230,6 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-slate-800">Suallar ({questions.length})</h2>
-            <button type="button" onClick={() => setQuestions((p) => [...p, emptyQuestion()])}
-              className="btn-secondary flex items-center gap-2 text-sm">
-              <Plus size={15} /> Sual Əlavə Et
-            </button>
           </div>
 
           {questions.map((q, qi) => (
@@ -367,6 +367,15 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
               </div>
             </div>
           ))}
+
+          {/* Sual Əlavə Et — sualların altında */}
+          <button
+            type="button"
+            onClick={() => setQuestions((p) => [...p, emptyQuestion()])}
+            className="w-full py-3 rounded-xl border-2 border-dashed border-[rgba(147,204,255,0.4)] text-[#1a7fe0] hover:border-[rgb(147,204,255)] hover:bg-blue-50/30 transition-all flex items-center justify-center gap-2 text-sm font-medium"
+          >
+            <Plus size={16} /> Sual Əlavə Et
+          </button>
         </div>
 
         <div className="flex gap-4">

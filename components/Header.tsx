@@ -2,15 +2,23 @@
 
 import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { LogOut, User, LayoutDashboard, BookOpen, Menu, X } from "lucide-react";
 import { useState, useEffect } from "react";
 
 export default function Header() {
   const { data: session } = useSession();
   const pathname = usePathname();
+  const router   = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+
+  const handleSignOut = async () => {
+    await signOut({ redirect: false });
+    // Session tamamilə silinsin, sonra yönləndir
+    router.push("/");
+    router.refresh();
+  };
 
   useEffect(() => {
     let ticking = false;
@@ -104,7 +112,7 @@ export default function Header() {
                   <User size={15} />
                   <span className="max-w-[100px] truncate">{session.user?.name}</span>
                 </Link>
-                <button onClick={() => signOut({ callbackUrl: "/" })}
+                <button onClick={handleSignOut}
                   className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-red-500 hover:bg-red-50 transition-all">
                   <LogOut size={15} />
                   <span>Çıxış</span>
@@ -155,7 +163,7 @@ export default function Header() {
                     className="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-600">
                     <User size={15} /> {session.user?.name}
                   </Link>
-                  <button onClick={() => signOut({ callbackUrl: "/" })}
+                  <button onClick={handleSignOut}
                     className="flex items-center gap-2 px-4 py-2.5 text-sm text-red-500 text-left">
                     <LogOut size={15} /> Çıxış
                   </button>

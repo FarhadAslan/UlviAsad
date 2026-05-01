@@ -1,16 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { formatDate, getCategoryLabel, getTypeLabel, getRoleLabel } from "@/lib/utils";
 import Link from "next/link";
 import { User, Trophy, Target, Star, Zap, Calendar, Eye, Share2, Check } from "lucide-react";
 import ResultDetailModal from "@/components/ResultDetailModal";
+import Pagination from "@/components/Pagination";
 
 interface ProfileData {
   user: any;
   stats: any;
   results: any[];
 }
+
+const RESULTS_PAGE_SIZE = 8;
 
 const roleBadge: Record<string, { bg: string; color: string; border: string }> = {
   ADMIN:   { bg: "#fee2e2", color: "#dc2626", border: "#fecaca" },
@@ -23,6 +26,13 @@ export default function ProfileClient({ data }: { data: ProfileData }) {
   const rb = roleBadge[user.role] || roleBadge.USER;
   const [selectedResultId, setSelectedResultId] = useState<string | null>(null);
   const [copiedId,          setCopiedId]         = useState<string | null>(null);
+  const [resultsPage,       setResultsPage]       = useState(1);
+
+  const totalResultPages = Math.ceil(results.length / RESULTS_PAGE_SIZE);
+  const paginatedResults = useMemo(
+    () => results.slice((resultsPage - 1) * RESULTS_PAGE_SIZE, resultsPage * RESULTS_PAGE_SIZE),
+    [results, resultsPage]
+  );
 
   const copyResultLink = async (e: React.MouseEvent, resultId: string) => {
     e.stopPropagation();
@@ -85,7 +95,12 @@ export default function ProfileClient({ data }: { data: ProfileData }) {
 
       {/* History */}
       <div className="card-static">
-        <h3 className="text-xl font-bold text-slate-900 mb-6">Quiz Tarixçəsi</h3>
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-xl font-bold text-slate-900">Quiz Tarixçəsi</h3>
+          {results.length > 0 && (
+            <span className="text-sm text-slate-400">{results.length} nəticə</span>
+          )}
+        </div>
 
         {results.length > 0 ? (
           <>
@@ -100,7 +115,7 @@ export default function ProfileClient({ data }: { data: ProfileData }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {results.map((r) => (
+                  {paginatedResults.map((r) => (
                     <tr
                       key={r.id}
                       className="hover:bg-slate-50 transition-colors cursor-pointer"
@@ -148,7 +163,7 @@ export default function ProfileClient({ data }: { data: ProfileData }) {
 
             {/* Mobile cards */}
             <div className="sm:hidden space-y-3">
-              {results.map((r) => (
+              {paginatedResults.map((r) => (
                 <div
                   key={r.id}
                   className="p-4 rounded-xl border border-slate-100 bg-slate-50 cursor-pointer hover:border-[rgba(147,204,255,0.4)] transition-all"
@@ -189,6 +204,12 @@ export default function ProfileClient({ data }: { data: ProfileData }) {
                 </div>
               ))}
             </div>
+
+            <Pagination
+              page={resultsPage}
+              totalPages={totalResultPages}
+              onPageChange={(p) => setResultsPage(p)}
+            />
           </>
         ) : (
           <div className="text-center py-12">

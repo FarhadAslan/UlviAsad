@@ -11,11 +11,7 @@ export async function GET() {
   try {
     let s = await prisma.siteSettings.findUnique({ where: { id: "main" } });
     if (!s) s = await prisma.siteSettings.create({ data: DEFAULT_SETTINGS });
-    return NextResponse.json(s, {
-      headers: {
-        "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=300",
-      },
-    });
+    return NextResponse.json(s);
   } catch {
     return NextResponse.json(DEFAULT_SETTINGS);
   }
@@ -41,7 +37,12 @@ export async function PUT(req: NextRequest) {
       create: { id: "main", heroTitle, heroBadge, heroSubtitle, contactEmail, contactPhone, contactAddress, facebook, instagram, youtube },
     });
 
-    return NextResponse.json(s);
+    return NextResponse.json(s, {
+      headers: {
+        // Cache-i söndür ki, dəyişikliklər dərhal görünsün
+        "Cache-Control": "no-store",
+      },
+    });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Server xətası" }, { status: 500 });
