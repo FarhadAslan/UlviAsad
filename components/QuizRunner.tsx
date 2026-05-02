@@ -281,7 +281,7 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
         {/* Navigation — HƏM SINAQ HƏM TEST üçün əvvəlki/növbəti */}
         <div className="flex items-center justify-between gap-3">
           <button
-            onClick={() => setCurrentIndex((prev) => Math.max(0, prev - 1))}
+            onClick={() => { setCurrentIndex((prev) => Math.max(0, prev - 1)); window.scrollTo({ top: 0, behavior: "smooth" }); }}
             disabled={isFirst}
             className="btn-secondary flex items-center gap-2 disabled:opacity-30"
           >
@@ -291,7 +291,7 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
 
           {!isLast ? (
             <button
-              onClick={() => setCurrentIndex((prev) => prev + 1)}
+              onClick={() => { setCurrentIndex((prev) => prev + 1); window.scrollTo({ top: 0, behavior: "smooth" }); }}
               className="btn-primary flex items-center gap-2"
             >
               Növbəti
@@ -313,7 +313,7 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
           {questions.map((_: any, i: number) => (
             <button
               key={i}
-              onClick={() => setCurrentIndex(i)}
+              onClick={() => { setCurrentIndex(i); window.scrollTo({ top: 0, behavior: "smooth" }); }}
               className={`w-9 h-9 rounded-lg text-sm font-medium transition-all ${
                 i === currentIndex
                   ? "bg-[#1f6f43] text-white shadow-sm"
