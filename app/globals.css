@@ -440,3 +440,27 @@
 .rich-content strong { font-weight:700; color:#0f172a; }
 .rich-content em { font-style:italic; }
 .rich-content a  { color:#1a7fe0; text-decoration:underline; }
+
+/* ── Quiz sual mətni HTML render ───────────────────────────── */
+.quiz-render b,
+.quiz-render strong { font-weight: 700; }
+
+.quiz-render i,
+.quiz-render em { font-style: italic; }
+
+.quiz-render u { text-decoration: underline; }
+
+.quiz-render sup { font-size: 0.75em; vertical-align: super; line-height: 0; }
+.quiz-render sub { font-size: 0.75em; vertical-align: sub;   line-height: 0; }
+
+.quiz-render ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+  margin: 0.25rem 0;
+}
+.quiz-render ol {
+  list-style: decimal;
+  padding-left: 1.25rem;
+  margin: 0.25rem 0;
+}
+.quiz-render li { margin: 0.1rem 0; }

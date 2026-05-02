@@ -252,7 +252,10 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
             </div>
           )}
           {question.text && (
-            <p className="text-slate-900 text-xl font-medium leading-relaxed">{question.text}</p>
+            <p
+              className="text-slate-900 text-xl font-medium leading-relaxed quiz-render"
+              dangerouslySetInnerHTML={{ __html: question.text }}
+            />
           )}
         </div>
 
@@ -422,7 +425,10 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
                       </div>
                     )}
                     {q.text ? (
-                      <p className="text-slate-900 font-medium">{i + 1}. {q.text}</p>
+                      <p
+                        className="text-slate-900 font-medium quiz-render"
+                        dangerouslySetInnerHTML={{ __html: `${i + 1}. ${q.text}` }}
+                      />
                     ) : (
                       <p className="text-slate-500 text-sm font-medium">{i + 1}. (şəkilli sual)</p>
                     )}

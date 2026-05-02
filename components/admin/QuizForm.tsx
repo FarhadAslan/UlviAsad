@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import { Plus, Trash2, X, ImagePlus, Loader2, XCircle } from "lucide-react";
 import { useToast } from "@/components/ui/toast-1";
 import Image from "next/image";
+import QuizQuestionEditor, { stripHtml } from "@/components/ui/quiz-question-editor";
 
 const CATEGORIES = [
   { value: "QANUNVERICILIK", label: "Qanunvericilik" },
@@ -94,7 +95,7 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     // Validate: each question must have text OR image (or both)
-    const invalid = questions.find((q) => !q.text.trim() && !q.imageUrl);
+    const invalid = questions.find((q) => !stripHtml(q.text) && !q.imageUrl);
     if (invalid) {
       error("Hər sualda ya mətn, ya şəkil, ya da hər ikisi olmalıdır"); return;
     }
@@ -252,12 +253,10 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
                   {!q.imageUrl && <span className="text-red-500 ml-1">*</span>}
                   {q.imageUrl && <span className="text-slate-400 text-xs ml-1">(şəkil varsa mətn isteğe bağlıdır)</span>}
                 </label>
-                <textarea
+                <QuizQuestionEditor
                   value={q.text}
-                  rows={2}
+                  onChange={(val) => setQuestions((p) => p.map((x, i) => i === qi ? { ...x, text: val } : x))}
                   placeholder="Sual mətni... (şəkil əlavə etsəniz boş qoya bilərsiniz)"
-                  className="input-field resize-none"
-                  onChange={(e) => setQuestions((p) => p.map((x, i) => i === qi ? { ...x, text: e.target.value } : x))}
                 />
               </div>
 

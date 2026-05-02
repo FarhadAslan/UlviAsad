@@ -192,7 +192,10 @@ export default async function ResultPage({ params }: { params: { id: string } })
                       </span>
                       <div className="flex-1">
                         {q.text ? (
-                          <p className="text-slate-900 font-medium">{q.text}</p>
+                          <p
+                            className="text-slate-900 font-medium quiz-render"
+                            dangerouslySetInnerHTML={{ __html: q.text }}
+                          />
                         ) : (
                           <p className="text-slate-500 text-sm">(şəkilli sual)</p>
                         )}

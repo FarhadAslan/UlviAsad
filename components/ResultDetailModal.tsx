@@ -162,7 +162,10 @@ export default function ResultDetailModal({ resultId, onClose, userName }: Resul
                             </div>
                           )}
                           {q.text && (
-                            <p className="text-xs sm:text-sm font-medium text-slate-800 leading-relaxed">{q.text}</p>
+                            <p
+                              className="text-xs sm:text-sm font-medium text-slate-800 leading-relaxed quiz-render"
+                              dangerouslySetInnerHTML={{ __html: q.text }}
+                            />
                           )}
                           {!q.text && q.imageUrl && (
                             <p className="text-xs text-slate-500">(şəkilli sual)</p>
