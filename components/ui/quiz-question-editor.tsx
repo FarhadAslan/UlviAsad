@@ -1,123 +1,212 @@
 "use client";
 
-import { useRef, useEffect, useCallback } from "react";
-import {
-  Bold, Italic, Underline, List,
-  Superscript, Subscript, RemoveFormatting,
-} from "lucide-react";
+import dynamic from "next/dynamic";
+import { useMemo } from "react";
+
+// SSR-də Quill işləmir — dynamic import məcburidir
+const ReactQuill = dynamic(() => import("react-quill"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-24 rounded-xl border border-slate-200 bg-slate-50 animate-pulse" />
+  ),
+});
+
+// react-quill CSS-i
+import "react-quill/dist/quill.snow.css";
 
 interface QuizQuestionEditorProps {
   value: string;
   onChange: (val: string) => void;
   placeholder?: string;
-  required?: boolean;
 }
 
 // HTML-dən düz mətn çıxarır — boşluq yoxlaması üçün
 export function stripHtml(html: string): string {
-  return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+  return html
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .trim();
 }
+
+// Quill toolbar konfiqurasiyası
+const TOOLBAR = [
+  // Mətn formatı
+  [{ header: [1, 2, 3, false] }],
+  // Əsas formatlar
+  ["bold", "italic", "underline", "strike"],
+  // Rəng
+  [{ color: [] }, { background: [] }],
+  // Üst/alt indeks
+  [{ script: "super" }, { script: "sub" }],
+  // Siyahılar
+  [{ list: "ordered" }, { list: "bullet" }],
+  // Girinti
+  [{ indent: "-1" }, { indent: "+1" }],
+  // Hizalama
+  [{ align: [] }],
+  // Xətt, blok sitat
+  ["blockquote", "code-block"],
+  // Təmizlə
+  ["clean"],
+];
+
+const FORMATS = [
+  "header",
+  "bold", "italic", "underline", "strike",
+  "color", "background",
+  "script",
+  "list", "bullet",
+  "indent",
+  "align",
+  "blockquote", "code-block",
+];
 
 export default function QuizQuestionEditor({
   value,
   onChange,
-  placeholder = "Sual mətni... (şəkil əlavə etsəniz boş qoya bilərsiniz)",
-  required = false,
+  placeholder = "Sual mətni...",
 }: QuizQuestionEditorProps) {
-  const editorRef = useRef<HTMLDivElement>(null);
-  const isInternal = useRef(false);
-
-  // Xarici value dəyişdikdə (edit mode) editor-u yenilə
-  useEffect(() => {
-    if (!editorRef.current) return;
-    if (isInternal.current) { isInternal.current = false; return; }
-    if (editorRef.current.innerHTML !== value) {
-      editorRef.current.innerHTML = value || "";
-    }
-  }, [value]);
-
-  const handleInput = useCallback(() => {
-    if (!editorRef.current) return;
-    isInternal.current = true;
-    onChange(editorRef.current.innerHTML);
-  }, [onChange]);
-
-  const exec = (cmd: string, val?: string) => {
-    editorRef.current?.focus();
-    document.execCommand(cmd, false, val);
-    handleInput();
-  };
-
-  const tools: Array<{
-    icon: React.ElementType;
-    title: string;
-    action: () => void;
-    cmd?: string;
-  } | null> = [
-    { icon: Bold,             title: "Qalın (Ctrl+B)",        action: () => exec("bold"),            cmd: "bold" },
-    { icon: Italic,           title: "Kursiv (Ctrl+I)",        action: () => exec("italic"),          cmd: "italic" },
-    { icon: Underline,        title: "Altı xəttli (Ctrl+U)",   action: () => exec("underline"),       cmd: "underline" },
-    null,
-    { icon: Superscript,      title: "Üst indeks (x²)",        action: () => exec("superscript") },
-    { icon: Subscript,        title: "Alt indeks (H₂O)",       action: () => exec("subscript") },
-    null,
-    { icon: List,             title: "Siyahı",                 action: () => exec("insertUnorderedList") },
-    null,
-    { icon: RemoveFormatting, title: "Formatı sil",            action: () => exec("removeFormat") },
-  ];
+  const modules = useMemo(
+    () => ({
+      toolbar: TOOLBAR,
+    }),
+    []
+  );
 
   return (
-    <div
-      className="rounded-xl border border-slate-200 overflow-hidden bg-white focus-within:border-[rgb(147,204,255)] transition-colors"
-      style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}
-    >
-      {/* Toolbar */}
-      <div className="flex items-center flex-wrap gap-0.5 px-2 py-1.5 border-b border-slate-100 bg-slate-50">
-        {tools.map((tool, i) =>
-          tool === null ? (
-            <div key={i} className="w-px h-4 bg-slate-200 mx-1" />
-          ) : (
-            <button
-              key={i}
-              type="button"
-              title={tool.title}
-              onMouseDown={(e) => { e.preventDefault(); tool.action(); }}
-              className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-slate-900 hover:bg-white transition-all"
-            >
-              <tool.icon size={14} />
-            </button>
-          )
-        )}
-      </div>
-
-      {/* Editable area */}
-      <div
-        ref={editorRef}
-        contentEditable
-        suppressContentEditableWarning
-        onInput={handleInput}
-        onBlur={handleInput}
-        data-placeholder={placeholder}
-        className="quiz-editor-content outline-none px-3 py-2.5 text-slate-800 text-sm leading-relaxed"
-        style={{ minHeight: 72 }}
+    <div className="quiz-quill-wrapper">
+      <ReactQuill
+        theme="snow"
+        value={value}
+        onChange={onChange}
+        modules={modules}
+        formats={FORMATS}
+        placeholder={placeholder}
       />
 
-      <style jsx>{`
-        .quiz-editor-content:empty:before {
-          content: attr(data-placeholder);
-          color: #94a3b8;
-          pointer-events: none;
-          display: block;
+      <style jsx global>{`
+        /* ── Wrapper ─────────────────────────────────────────── */
+        .quiz-quill-wrapper .ql-container.ql-snow {
+          border: none;
+          font-family: "Inter", system-ui, sans-serif;
+          font-size: 14px;
         }
-        .quiz-editor-content b,
-        .quiz-editor-content strong { font-weight: 700; }
-        .quiz-editor-content i,
-        .quiz-editor-content em { font-style: italic; }
-        .quiz-editor-content u { text-decoration: underline; }
-        .quiz-editor-content sup { font-size: 0.75em; vertical-align: super; }
-        .quiz-editor-content sub { font-size: 0.75em; vertical-align: sub; }
-        .quiz-editor-content ul { list-style: disc; padding-left: 1.25rem; margin: 0.25rem 0; }
-        .quiz-editor-content ol { list-style: decimal; padding-left: 1.25rem; margin: 0.25rem 0; }
+
+        .quiz-quill-wrapper .ql-toolbar.ql-snow {
+          border: none;
+          border-bottom: 1px solid #e2e8f0;
+          background: #f8fafc;
+          border-radius: 12px 12px 0 0;
+          padding: 6px 8px;
+          flex-wrap: wrap;
+        }
+
+        .quiz-quill-wrapper {
+          border: 1px solid #e2e8f0;
+          border-radius: 12px;
+          overflow: hidden;
+          background: #fff;
+          transition: border-color 0.15s;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        }
+
+        .quiz-quill-wrapper:focus-within {
+          border-color: rgb(147, 204, 255);
+        }
+
+        /* ── Editor area ─────────────────────────────────────── */
+        .quiz-quill-wrapper .ql-editor {
+          min-height: 90px;
+          max-height: 320px;
+          overflow-y: auto;
+          padding: 10px 12px;
+          color: #1e293b;
+          line-height: 1.7;
+        }
+
+        .quiz-quill-wrapper .ql-editor.ql-blank::before {
+          color: #94a3b8;
+          font-style: normal;
+          left: 12px;
+        }
+
+        /* ── Toolbar butonları ───────────────────────────────── */
+        .quiz-quill-wrapper .ql-toolbar.ql-snow .ql-formats {
+          margin-right: 6px;
+        }
+
+        .quiz-quill-wrapper .ql-snow .ql-stroke {
+          stroke: #64748b;
+        }
+        .quiz-quill-wrapper .ql-snow .ql-fill {
+          fill: #64748b;
+        }
+        .quiz-quill-wrapper .ql-snow .ql-picker {
+          color: #64748b;
+        }
+
+        .quiz-quill-wrapper .ql-snow.ql-toolbar button:hover .ql-stroke,
+        .quiz-quill-wrapper .ql-snow .ql-toolbar button:hover .ql-stroke {
+          stroke: #1a7fe0;
+        }
+        .quiz-quill-wrapper .ql-snow.ql-toolbar button.ql-active .ql-stroke,
+        .quiz-quill-wrapper .ql-snow .ql-toolbar button.ql-active .ql-stroke {
+          stroke: #1a7fe0;
+        }
+        .quiz-quill-wrapper .ql-snow.ql-toolbar button:hover .ql-fill,
+        .quiz-quill-wrapper .ql-snow .ql-toolbar button:hover .ql-fill {
+          fill: #1a7fe0;
+        }
+        .quiz-quill-wrapper .ql-snow.ql-toolbar button.ql-active .ql-fill,
+        .quiz-quill-wrapper .ql-snow .ql-toolbar button.ql-active .ql-fill {
+          fill: #1a7fe0;
+        }
+        .quiz-quill-wrapper .ql-snow.ql-toolbar button:hover,
+        .quiz-quill-wrapper .ql-snow .ql-toolbar button:hover {
+          color: #1a7fe0;
+        }
+        .quiz-quill-wrapper .ql-snow.ql-toolbar button.ql-active,
+        .quiz-quill-wrapper .ql-snow .ql-toolbar button.ql-active {
+          color: #1a7fe0;
+        }
+
+        /* ── Picker (header, color, align) ──────────────────── */
+        .quiz-quill-wrapper .ql-snow .ql-picker-label:hover,
+        .quiz-quill-wrapper .ql-snow .ql-picker-label.ql-active {
+          color: #1a7fe0;
+        }
+        .quiz-quill-wrapper .ql-snow .ql-picker-label:hover .ql-stroke,
+        .quiz-quill-wrapper .ql-snow .ql-picker-label.ql-active .ql-stroke {
+          stroke: #1a7fe0;
+        }
+        .quiz-quill-wrapper .ql-snow .ql-picker-options {
+          border-radius: 8px;
+          border-color: #e2e8f0;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+          z-index: 100;
+        }
+
+        /* ── Content stilləri ────────────────────────────────── */
+        .quiz-quill-wrapper .ql-editor h1 { font-size: 1.4em; font-weight: 700; margin: 0.3em 0; }
+        .quiz-quill-wrapper .ql-editor h2 { font-size: 1.2em; font-weight: 700; margin: 0.3em 0; }
+        .quiz-quill-wrapper .ql-editor h3 { font-size: 1.05em; font-weight: 600; margin: 0.3em 0; }
+        .quiz-quill-wrapper .ql-editor blockquote {
+          border-left: 3px solid rgb(147,204,255);
+          padding-left: 10px;
+          color: #475569;
+          margin: 4px 0;
+        }
+        .quiz-quill-wrapper .ql-editor pre.ql-syntax {
+          background: #f1f5f9;
+          border-radius: 6px;
+          padding: 8px 12px;
+          font-size: 13px;
+          color: #334155;
+        }
+        .quiz-quill-wrapper .ql-editor ul,
+        .quiz-quill-wrapper .ql-editor ol {
+          padding-left: 1.5em;
+        }
       `}</style>
     </div>
   );
