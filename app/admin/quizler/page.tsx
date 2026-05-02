@@ -19,6 +19,34 @@ export default function AdminQuizzesPage() {
   const [page,         setPage]         = useState(1);
   const [copiedId,     setCopiedId]     = useState<string | null>(null);
 
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  const toggleActive = async (quiz: any) => {
+    setTogglingId(quiz.id);
+    try {
+      const res = await fetch(`/api/quizzes/${quiz.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ active: !quiz.active }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        success(quiz.active ? "Quiz deaktiv edildi" : "Quiz aktiv edildi");
+        setQuizzes((prev) =>
+          prev.map((q) => q.id === quiz.id ? { ...q, active: !quiz.active } : q)
+        );
+      } else {
+        error(data?.error || "Status dəyişdirilmədi");
+      }
+    } catch {
+      error("Şəbəkə xətası baş verdi");
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
   const copyLink = async (quizId: string) => {
     const url = `${window.location.origin}/quizler/${quizId}`;
     try {
@@ -36,7 +64,10 @@ export default function AdminQuizzesPage() {
   const fetchQuizzes = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/quizzes?adminAll=true");
+      const res = await fetch("/api/quizzes?adminAll=true", {
+        cache: "no-store",
+        headers: { "Cache-Control": "no-cache" },
+      });
       const data = await res.json();
       setQuizzes(Array.isArray(data) ? data : []);
     } catch { error("Xəta baş verdi"); }
@@ -55,17 +86,25 @@ export default function AdminQuizzesPage() {
 
   const deleteQuiz = async (id: string) => {
     if (!confirm("Bu quizi silmək istədiyinizə əminsiniz?")) return;
+    setDeletingId(id);
     try {
-      const res = await fetch(`/api/quizzes/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/quizzes/${id}`, {
+        method: "DELETE",
+        cache: "no-store",
+      });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         success("Quiz silindi");
-        fetchQuizzes();
+        // Optimistic update: siyahıdan dərhal çıxar, sonra server-dən yenilə
+        setQuizzes((prev) => prev.filter((q) => q.id !== id));
+        await fetchQuizzes();
       } else {
-        const data = await res.json().catch(() => ({}));
         error(data?.error || "Quiz silinərkən xəta baş verdi");
       }
     } catch {
       error("Şəbəkə xətası baş verdi");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -129,14 +168,21 @@ export default function AdminQuizzesPage() {
                       </span>
                     </td>
                     <td className="py-3 pr-4">
-                      <span className={`text-xs px-2.5 py-1 rounded-full font-medium inline-flex items-center gap-1 ${
-                        quiz.active !== false
-                          ? "bg-green-50 text-green-700 border border-green-100"
-                          : "bg-slate-100 text-slate-500 border border-slate-200"
-                      }`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${quiz.active !== false ? "bg-green-500" : "bg-slate-400"}`} />
+                      <button
+                        onClick={() => toggleActive(quiz)}
+                        disabled={togglingId === quiz.id}
+                        title="Klikləyin: aktiv/deaktiv et"
+                        className={`text-xs px-2.5 py-1 rounded-full font-medium inline-flex items-center gap-1 transition-all cursor-pointer hover:opacity-80 disabled:opacity-50 ${
+                          quiz.active !== false
+                            ? "bg-green-50 text-green-700 border border-green-100"
+                            : "bg-slate-100 text-slate-500 border border-slate-200"
+                        }`}>
+                        {togglingId === quiz.id
+                          ? <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                          : <span className={`w-1.5 h-1.5 rounded-full ${quiz.active !== false ? "bg-green-500" : "bg-slate-400"}`} />
+                        }
                         {quiz.active !== false ? "Aktiv" : "Deaktiv"}
-                      </span>
+                      </button>
                     </td>
                     <td className="py-3">
                       <div className="flex items-center gap-1.5">
@@ -155,9 +201,12 @@ export default function AdminQuizzesPage() {
                             : <Share2 size={14} />}
                         </button>
                         <button onClick={() => deleteQuiz(quiz.id)}
-                          className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                          disabled={deletingId === quiz.id}
+                          className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-all disabled:opacity-50"
                           title="Sil">
-                          <Trash2 size={14} />
+                          {deletingId === quiz.id
+                            ? <div className="w-3.5 h-3.5 border-2 border-red-200 border-t-red-500 rounded-full animate-spin" />
+                            : <Trash2 size={14} />}
                         </button>
                       </div>
                     </td>

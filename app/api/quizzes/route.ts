@@ -74,8 +74,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(quizzes, {
       headers: {
-        // Public quizlər üçün 60 saniyə browser cache, 300 saniyə CDN cache
-        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60",
+        "Cache-Control": "no-store, no-cache, must-revalidate",
       },
     });
   } catch (error) {

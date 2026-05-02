@@ -15,7 +15,9 @@ const nextConfig = {
   transpilePackages: ["three"],
   swcMinify: true,
   compiler: {
-    removeConsole: process.env.NODE_ENV === "production",
+    removeConsole: process.env.NODE_ENV === "production"
+      ? { exclude: ["error", "warn"] }
+      : false,
   },
   // Static asset-lər üçün uzunmüddətli cache
   async headers() {

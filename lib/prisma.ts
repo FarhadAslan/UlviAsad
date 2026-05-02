@@ -1,13 +1,43 @@
 import { PrismaClient } from "@prisma/client";
 
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
-};
+declare global {
+  // eslint-disable-next-line no-var
+  var __prisma: PrismaClient | undefined;
+}
 
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
+function buildUrl(base: string | undefined): string | undefined {
+  if (!base) return undefined;
+  // Serverless mühitdə connection_limit=1 vacibdir —
+  // hər function invocation-ı üçün yalnız 1 connection açılır,
+  // bu PgBouncer/Supabase pooler ilə uyğundur.
+  if (base.includes("connection_limit")) return base;
+  const sep = base.includes("?") ? "&" : "?";
+  return `${base}${sep}connection_limit=1&pool_timeout=10`;
+}
+
+function createPrismaClient(): PrismaClient {
+  const isProduction = process.env.NODE_ENV === "production";
+
+  // Production-da $transaction üçün birbaşa connection (DIRECT_URL) istifadə et.
+  // PgBouncer "transaction mode"-da Prisma $transaction ilə uyğunsuzluq yaradır.
+  // Development-də DATABASE_URL istifadə et.
+  const url = isProduction
+    ? (process.env.DIRECT_URL ?? process.env.DATABASE_URL)
+    : process.env.DATABASE_URL;
+
+  return new PrismaClient({
+    log: isProduction ? ["error"] : ["error", "warn"],
+    datasources: {
+      db: { url: buildUrl(url) },
+    },
   });
+}
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+// Development-də hot-reload zamanı çoxlu connection açılmasının qarşısını al.
+// Production serverless-də global cache işləmir — hər invocation yeni client yaradır,
+// amma connection_limit=1 sayəsində pool overflow olmur.
+export const prisma = global.__prisma ?? createPrismaClient();
+
+if (process.env.NODE_ENV !== "production") {
+  global.__prisma = prisma;
+}

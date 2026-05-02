@@ -88,30 +88,74 @@ export async function PUT(
     const body = await req.json();
     const { title, category, type, duration, visibility, questions, active } = body;
 
-    await prisma.question.deleteMany({ where: { quizId: params.id } });
+    if (!title || !category || !type || !questions?.length) {
+      return NextResponse.json({ error: "Bütün sahələr tələb olunur" }, { status: 400 });
+    }
+
+    // Transaction ilə köhnə sualları sil və yenilərini yarat
+    const quiz = await prisma.$transaction(async (tx) => {
+      await tx.question.deleteMany({ where: { quizId: params.id } });
+      return tx.quiz.update({
+        where: { id: params.id },
+        data: {
+          title, category, type,
+          duration: type === "SINAQ" ? (duration || null) : null,
+          visibility,
+          active: active !== undefined ? Boolean(active) : true,
+          questions: {
+            create: questions.map((q: any, index: number) => ({
+              text: q.text,
+              imageUrl: q.imageUrl || null,
+              options: JSON.stringify(q.options),
+              correctOption: q.correctOption,
+              order: index + 1,
+            })),
+          },
+        },
+      });
+    });
+
+    return NextResponse.json(quiz, {
+      headers: { "Cache-Control": "no-store" },
+    });
+  } catch (err: any) {
+    console.error("Quiz PUT error:", err?.message ?? err);
+    return NextResponse.json({ error: "Server xətası: " + (err?.message ?? "bilinməyən xəta") }, { status: 500 });
+  }
+}
+
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session || (session.user as any)?.role !== "ADMIN") {
+      return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
+    }
+
+    const body = await req.json();
+    const updateData: any = {};
+
+    if (body.active !== undefined) updateData.active = Boolean(body.active);
+    if (body.visibility !== undefined) updateData.visibility = body.visibility;
+    if (body.title !== undefined) updateData.title = body.title;
+
+    if (Object.keys(updateData).length === 0) {
+      return NextResponse.json({ error: "Yenilənəcək sahə yoxdur" }, { status: 400 });
+    }
 
     const quiz = await prisma.quiz.update({
       where: { id: params.id },
-      data: {
-        title, category, type,
-        duration: type === "SINAQ" ? duration : null,
-        visibility,
-        active: active !== undefined ? active : true,
-        questions: {
-          create: questions.map((q: any, index: number) => ({
-            text: q.text,
-            imageUrl: q.imageUrl || null,
-            options: JSON.stringify(q.options),
-            correctOption: q.correctOption,
-            order: index + 1,
-          })),
-        },
-      },
+      data: updateData,
     });
 
-    return NextResponse.json(quiz);
-  } catch (error) {
-    return NextResponse.json({ error: "Server xətası" }, { status: 500 });
+    return NextResponse.json(quiz, {
+      headers: { "Cache-Control": "no-store" },
+    });
+  } catch (err: any) {
+    console.error("Quiz PATCH error:", err?.message ?? err);
+    return NextResponse.json({ error: "Server xətası: " + (err?.message ?? "bilinməyən xəta") }, { status: 500 });
   }
 }
 
@@ -125,13 +169,30 @@ export async function DELETE(
       return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
     }
 
-    // Əvvəlcə bağlı result-ları sil (cascade olmadıqda foreign key xətasının qarşısını alır)
-    await prisma.result.deleteMany({ where: { quizId: params.id } });
-    await prisma.quiz.delete({ where: { id: params.id } });
+    const { id } = params;
 
-    return NextResponse.json({ message: "Quiz silindi" });
-  } catch (error) {
-    console.error("Quiz DELETE error:", error);
-    return NextResponse.json({ error: "Server xətası" }, { status: 500 });
+    // Quiz mövcudluğunu yoxla
+    const existing = await prisma.quiz.findUnique({ where: { id } });
+    if (!existing) {
+      return NextResponse.json({ error: "Quiz tapılmadı" }, { status: 404 });
+    }
+
+    // Transaction ilə əvvəlcə result-ları, sonra question-ları, sonra quiz-i sil
+    await prisma.$transaction([
+      prisma.result.deleteMany({ where: { quizId: id } }),
+      prisma.question.deleteMany({ where: { quizId: id } }),
+      prisma.quiz.delete({ where: { id } }),
+    ]);
+
+    return NextResponse.json(
+      { message: "Quiz silindi" },
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  } catch (err: any) {
+    console.error("Quiz DELETE error:", err?.message ?? err);
+    return NextResponse.json(
+      { error: "Server xətası: " + (err?.message ?? "bilinməyən xəta") },
+      { status: 500 }
+    );
   }
 }
