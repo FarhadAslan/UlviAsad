@@ -125,9 +125,13 @@ export async function DELETE(
       return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
     }
 
+    // Əvvəlcə bağlı result-ları sil (cascade olmadıqda foreign key xətasının qarşısını alır)
+    await prisma.result.deleteMany({ where: { quizId: params.id } });
     await prisma.quiz.delete({ where: { id: params.id } });
+
     return NextResponse.json({ message: "Quiz silindi" });
   } catch (error) {
+    console.error("Quiz DELETE error:", error);
     return NextResponse.json({ error: "Server xətası" }, { status: 500 });
   }
 }

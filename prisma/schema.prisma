@@ -59,7 +59,7 @@ model Result {
   userId    String
   user      User     @relation(fields: [userId], references: [id])
   quizId    String
-  quiz      Quiz     @relation(fields: [quizId], references: [id])
+  quiz      Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
   score     Int
   correct   Int
   wrong     Int

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { Plus, Trash2, Edit, Share2, Check } from "lucide-react";
 import { useToast } from "@/components/ui/toast-1";
 import { getCategoryLabel, getTypeLabel } from "@/lib/utils";
@@ -57,8 +57,16 @@ export default function AdminQuizzesPage() {
     if (!confirm("Bu quizi silmək istədiyinizə əminsiniz?")) return;
     try {
       const res = await fetch(`/api/quizzes/${id}`, { method: "DELETE" });
-      if (res.ok) { success("Quiz silindi"); fetchQuizzes(); }
-    } catch { error("Xəta baş verdi"); }
+      if (res.ok) {
+        success("Quiz silindi");
+        fetchQuizzes();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        error(data?.error || "Quiz silinərkən xəta baş verdi");
+      }
+    } catch {
+      error("Şəbəkə xətası baş verdi");
+    }
   };
 
   if (showForm || editingQuiz) {
