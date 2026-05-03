@@ -98,12 +98,12 @@ export default function Header() {
           <div className="hidden md:flex items-center gap-2">
             {session ? (
               <>
-                {(session.user as any)?.role === "ADMIN" && (
+                {((session.user as any)?.role === "ADMIN" || (session.user as any)?.role === "TEACHER") && (
                   <Link href="/admin"
                     className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all"
                     style={{ background: "rgba(147,204,255,0.15)", color: "#1a7fe0" }}>
                     <LayoutDashboard size={15} />
-                    <span>Admin</span>
+                    <span>{(session.user as any)?.role === "TEACHER" ? "Panel" : "Admin"}</span>
                   </Link>
                 )}
                 <Link href="/profil"
@@ -152,11 +152,12 @@ export default function Header() {
               style={{ borderColor: "rgba(147,204,255,0.15)" }}>
               {session ? (
                 <>
-                  {(session.user as any)?.role === "ADMIN" && (
+                  {((session.user as any)?.role === "ADMIN" || (session.user as any)?.role === "TEACHER") && (
                     <Link href="/admin" onClick={() => setMobileOpen(false)}
                       className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl transition-all"
                       style={{ color: "#1a7fe0", background: "rgba(147,204,255,0.1)" }}>
-                      <LayoutDashboard size={15} /> Admin Panel
+                      <LayoutDashboard size={15} />
+                      {(session.user as any)?.role === "TEACHER" ? "Müəllim Paneli" : "Admin Panel"}
                     </Link>
                   )}
                   <Link href="/profil" onClick={() => setMobileOpen(false)}
