@@ -36,6 +36,29 @@ export async function GET(req: NextRequest) {
       where.active = true;
     }
 
+    // STUDENT: yalnız öz müəlliminin + adminin quizlərini görür
+    if (userRole === "STUDENT" && userId) {
+      const student = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { teacherId: true },
+      });
+      if (student?.teacherId) {
+        // Müəllimi var: admin (createdById=null) + öz müəlliminin quizləri
+        where.OR = [
+          { createdById: null },
+          { createdById: student.teacherId },
+        ];
+      } else {
+        // Müəllimi yoxdur: yalnız admin quizləri (createdById=null)
+        where.createdById = null;
+      }
+    }
+
+    // USER (giriş etməmiş və ya adi user): yalnız admin quizləri
+    if (!userRole || userRole === "USER") {
+      where.createdById = null;
+    }
+
     if (category && category !== "ALL") {
       where.category = category;
     }

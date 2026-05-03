@@ -7,17 +7,18 @@ import { useSession } from "next-auth/react";
 import {
   LayoutDashboard, Users, BookOpen, FileText,
   Newspaper, Home, BookMarked, Settings,
-  ChevronLeft, ChevronRight, Menu, X, MessageSquare,
+  ChevronLeft, ChevronRight, Menu, X, MessageSquare, Tag,
 } from "lucide-react";
 
 const adminNavItems = [
-  { href: "/admin",               label: "Dashboard",     icon: LayoutDashboard },
-  { href: "/admin/istifadeciler", label: "İstifadəçilər", icon: Users },
-  { href: "/admin/quizler",       label: "Quizlər",       icon: BookOpen },
-  { href: "/admin/materiallar",   label: "Materiallar",   icon: FileText },
-  { href: "/admin/meqaleler",     label: "Məqalələr",     icon: Newspaper },
-  { href: "/admin/sorqular",      label: "Sorğular",      icon: MessageSquare },
-  { href: "/admin/parametrler",   label: "Parametrlər",   icon: Settings },
+  { href: "/admin",               label: "Dashboard",      icon: LayoutDashboard },
+  { href: "/admin/istifadeciler", label: "İstifadəçilər",  icon: Users },
+  { href: "/admin/quizler",       label: "Quizlər",        icon: BookOpen },
+  { href: "/admin/materiallar",   label: "Materiallar",    icon: FileText },
+  { href: "/admin/meqaleler",     label: "Məqalələr",      icon: Newspaper },
+  { href: "/admin/kateqoriyalar", label: "Kateqoriyalar",  icon: Tag },
+  { href: "/admin/sorqular",      label: "Sorğular",       icon: MessageSquare },
+  { href: "/admin/parametrler",   label: "Parametrlər",    icon: Settings },
 ];
 
 // Müəllim yalnız öz tələbələrini və quizlərini idarə edə bilər

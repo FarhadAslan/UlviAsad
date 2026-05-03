@@ -1,18 +1,10 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Plus, Trash2, X, ImagePlus, Loader2, XCircle } from "lucide-react";
+import { useSession } from "next-auth/react";
 import { useToast } from "@/components/ui/toast-1";
-import Image from "next/image";
 import QuizQuestionEditor, { stripHtml } from "@/components/ui/quiz-question-editor";
-
-const CATEGORIES = [
-  { value: "QANUNVERICILIK", label: "Qanunvericilik" },
-  { value: "MANTIQ", label: "Məntiq" },
-  { value: "AZERBAYCAN_DILI", label: "Azərbaycan Dili" },
-  { value: "INFORMATIKA", label: "İnformatika" },
-  { value: "DQ_QEBUL", label: "DQ Qəbul" },
-];
 
 const emptyQuestion = () => ({
   text: "",
@@ -33,15 +25,36 @@ interface QuizFormProps {
 }
 
 export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
+  const { data: session } = useSession();
+  const isTeacher = (session?.user as any)?.role === "TEACHER";
+
   const { success, error } = useToast();
+
+  // Kateqoriyaları API-dən yüklə
+  const [categories, setCategories] = useState<{ value: string; label: string }[]>([]);
+  useEffect(() => {
+    fetch("/api/categories")
+      .then((r) => r.json())
+      .then((d) => Array.isArray(d) && setCategories(d))
+      .catch(() => {});
+  }, []);
+
   const [form, setForm] = useState({
     title:      quiz?.title      || "",
-    category:   quiz?.category   || "QANUNVERICILIK",
+    category:   quiz?.category   || "",
     type:       quiz?.type       || "TEST",
     duration:   quiz?.duration   || 10,
     visibility: quiz?.visibility || "PUBLIC",
     active:     quiz?.active !== undefined ? quiz.active : true,
   });
+
+  // Kateqoriyalar yüklənəndə default seç
+  useEffect(() => {
+    if (!form.category && categories.length > 0) {
+      setForm((p) => ({ ...p, category: categories[0].value }));
+    }
+  }, [categories]);
+
   const [questions, setQuestions] = useState<any[]>(
     quiz?.questions?.length
       ? quiz.questions.map((q: any) => ({
@@ -52,14 +65,12 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
         }))
       : [emptyQuestion()]
   );
-  const [loading, setLoading] = useState(false);
-  // Track uploading state per question index
+  const [loading,      setLoading]      = useState(false);
   const [uploadingIdx, setUploadingIdx] = useState<number | null>(null);
-  const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const fileInputRefs  = useRef<(HTMLInputElement | null)[]>([]);
 
   const handleImageUpload = async (qi: number, file: File) => {
     if (!file) return;
-    // Validate image type
     if (!file.type.startsWith("image/")) {
       error("Yalnız şəkil faylı yükləyə bilərsiniz (JPG, PNG, GIF)");
       return;
@@ -68,17 +79,14 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
       error("Şəkil ölçüsü 10MB-dan çox ola bilməz");
       return;
     }
-
     setUploadingIdx(qi);
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      const res  = await fetch("/api/upload", { method: "POST", body: formData });
       const data = await res.json();
       if (!res.ok) { error(data.error || "Yükləmə xətası"); return; }
-      setQuestions((p) =>
-        p.map((x, i) => (i === qi ? { ...x, imageUrl: data.url } : x))
-      );
+      setQuestions((p) => p.map((x, i) => (i === qi ? { ...x, imageUrl: data.url } : x)));
       success("Şəkil yükləndi");
     } catch {
       error("Şəkil yüklənərkən xəta baş verdi");
@@ -94,11 +102,8 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Validate: each question must have text OR image (or both)
     const invalid = questions.find((q) => !stripHtml(q.text) && !q.imageUrl);
-    if (invalid) {
-      error("Hər sualda ya mətn, ya şəkil, ya da hər ikisi olmalıdır"); return;
-    }
+    if (invalid) { error("Hər sualda ya mətn, ya şəkil, ya da hər ikisi olmalıdır"); return; }
     if (questions.some((q) => q.options.some((o: any) => !o.text))) {
       error("Bütün cavab seçimlərini doldurun"); return;
     }
@@ -107,10 +112,13 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
     }
     setLoading(true);
     try {
+      const payload = isTeacher
+        ? { ...form, questions, active: undefined }  // müəllim active göndərmir
+        : { ...form, questions };
       const res = await fetch(quiz ? `/api/quizzes/${quiz.id}` : "/api/quizzes", {
         method: quiz ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, questions }),
+        body: JSON.stringify(payload),
       });
       if (res.ok) { success(quiz ? "Quiz yeniləndi" : "Quiz yaradıldı"); onSuccess(); }
       else { const d = await res.json(); error(d.error || "Xəta baş verdi"); }
@@ -118,10 +126,12 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
     finally { setLoading(false); }
   };
 
-  const labelCls = "block text-sm font-medium text-slate-700 mb-1.5";
+  const labelCls  = "block text-sm font-medium text-slate-700 mb-1.5";
   const toggleBtn = (active: boolean) =>
     `flex-1 py-2.5 rounded-xl font-medium text-sm transition-all ${
-      active ? "bg-[#1f6f43] text-white shadow-sm" : "bg-white border border-slate-200 text-slate-600 hover:border-[rgb(147,204,255)]"
+      active
+        ? "bg-[#1f6f43] text-white shadow-sm"
+        : "bg-white border border-slate-200 text-slate-600 hover:border-[rgb(147,204,255)]"
     }`;
 
   return (
@@ -136,7 +146,7 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Basic info */}
+        {/* Əsas məlumatlar */}
         <div className="card-static space-y-4">
           <h2 className="text-lg font-semibold text-slate-800 mb-2">Əsas Məlumatlar</h2>
 
@@ -150,10 +160,18 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={labelCls}>Kateqoriya *</label>
-              <select value={form.category} className="select-field"
-                onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))}>
-                {CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-              </select>
+              {categories.length === 0 ? (
+                <div className="input-field flex items-center gap-2 text-slate-400">
+                  <Loader2 size={14} className="animate-spin" /> Yüklənir...
+                </div>
+              ) : (
+                <select value={form.category} className="select-field"
+                  onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))}>
+                  {categories.map((c) => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
+                  ))}
+                </select>
+              )}
             </div>
             <div>
               <label className={labelCls}>Tip *</label>
@@ -192,7 +210,6 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
                 className={`input-field ${form.type !== "SINAQ" ? "opacity-40 cursor-not-allowed" : ""}`}
                 onChange={(e) => {
                   const val = e.target.value;
-                  // Boş olduqda boş saxla, dəyər varsa parse et
                   setForm((p) => ({ ...p, duration: val === "" ? "" as any : parseInt(val) || 1 }));
                 }} />
               {form.type === "SINAQ" && form.duration && (
@@ -204,38 +221,49 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
             </div>
           </div>
 
-          <div>
-            <label className={labelCls}>Status</label>
-            <div className="flex gap-2">
-              <button type="button" onClick={() => setForm((p) => ({ ...p, active: true }))}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-                  form.active
-                    ? "bg-green-600 text-white shadow-sm"
-                    : "bg-white border border-slate-200 text-slate-600 hover:border-green-400"
-                }`}>
-                <span className="w-2 h-2 rounded-full bg-current" /> Aktiv
-              </button>
-              <button type="button" onClick={() => setForm((p) => ({ ...p, active: false }))}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-                  !form.active
-                    ? "bg-slate-500 text-white shadow-sm"
-                    : "bg-white border border-slate-200 text-slate-600 hover:border-slate-400"
-                }`}>
-                <span className="w-2 h-2 rounded-full bg-current" /> Deaktiv
-              </button>
+          {/* Status — yalnız ADMIN görür */}
+          {!isTeacher && (
+            <div>
+              <label className={labelCls}>Status</label>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setForm((p) => ({ ...p, active: true }))}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                    form.active
+                      ? "bg-green-600 text-white shadow-sm"
+                      : "bg-white border border-slate-200 text-slate-600 hover:border-green-400"
+                  }`}>
+                  <span className="w-2 h-2 rounded-full bg-current" /> Aktiv
+                </button>
+                <button type="button" onClick={() => setForm((p) => ({ ...p, active: false }))}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                    !form.active
+                      ? "bg-slate-500 text-white shadow-sm"
+                      : "bg-white border border-slate-200 text-slate-600 hover:border-slate-400"
+                  }`}>
+                  <span className="w-2 h-2 rounded-full bg-current" /> Deaktiv
+                </button>
+              </div>
+              {isTeacher && (
+                <p className="text-xs text-slate-400 mt-1">
+                  ℹ️ Quiz yaradıldıqdan sonra admin tərəfindən aktivləşdiriləcək.
+                </p>
+              )}
             </div>
-          </div>
+          )}
+
+          {isTeacher && (
+            <div className="rounded-xl p-3 text-xs text-amber-700 border border-amber-200 bg-amber-50">
+              ℹ️ Quiz yaradıldıqdan sonra admin tərəfindən aktivləşdiriləcək. Sorğular bölməsindən aktivləşdirmə sorğusu göndərə bilərsiniz.
+            </div>
+          )}
         </div>
 
-        {/* Questions */}
+        {/* Suallar */}
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-800">Suallar ({questions.length})</h2>
-          </div>
+          <h2 className="text-lg font-semibold text-slate-800">Suallar ({questions.length})</h2>
 
           {questions.map((q, qi) => (
             <div key={qi} className="card-static">
-              {/* Question header */}
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-semibold text-[#1a7fe0]">Sual {qi + 1}</span>
                 {questions.length > 1 && (
@@ -246,7 +274,6 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
                 )}
               </div>
 
-              {/* Question text */}
               <div className="mb-3">
                 <label className={labelCls}>
                   Sual mətni
@@ -256,81 +283,45 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
                 <QuizQuestionEditor
                   value={q.text}
                   onChange={(val) => setQuestions((p) => p.map((x, i) => i === qi ? { ...x, text: val } : x))}
-                  placeholder="Sual mətni... (şəkil əlavə etsəniz boş qoya bilərsiniz)"
+                  placeholder="Sual mətni..."
                 />
               </div>
 
-              {/* Image section */}
               <div className="mb-4">
                 <label className={labelCls}>
-                  Sual şəkli
-                  <span className="text-slate-400 text-xs ml-1">(isteğe bağlı)</span>
+                  Sual şəkli <span className="text-slate-400 text-xs ml-1">(isteğe bağlı)</span>
                 </label>
-
                 {q.imageUrl ? (
-                  /* Image preview */
                   <div className="relative inline-block">
-                    <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-50"
-                      style={{ maxWidth: 420 }}>
+                    <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-50" style={{ maxWidth: 420 }}>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={q.imageUrl}
-                        alt={`Sual ${qi + 1} şəkli`}
-                        className="w-full object-contain max-h-64"
-                      />
+                      <img src={q.imageUrl} alt={`Sual ${qi + 1}`} className="w-full object-contain max-h-64" />
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => removeImage(qi)}
-                      className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-0.5 shadow-md transition-colors"
-                      title="Şəkli sil"
-                    >
+                    <button type="button" onClick={() => removeImage(qi)}
+                      className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-0.5 shadow-md transition-colors">
                       <XCircle size={18} />
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => fileInputRefs.current[qi]?.click()}
-                      className="mt-2 flex items-center gap-1.5 text-xs text-[#1a7fe0] hover:underline"
-                    >
+                    <button type="button" onClick={() => fileInputRefs.current[qi]?.click()}
+                      className="mt-2 flex items-center gap-1.5 text-xs text-[#1a7fe0] hover:underline">
                       <ImagePlus size={13} /> Şəkli dəyiş
                     </button>
                   </div>
                 ) : (
-                  /* Upload area */
-                  <div
-                    onClick={() => fileInputRefs.current[qi]?.click()}
+                  <div onClick={() => fileInputRefs.current[qi]?.click()}
                     className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-slate-200 hover:border-[rgb(147,204,255)] rounded-xl p-6 cursor-pointer transition-colors bg-slate-50 hover:bg-blue-50/30"
-                    style={{ maxWidth: 420 }}
-                  >
+                    style={{ maxWidth: 420 }}>
                     {uploadingIdx === qi ? (
-                      <>
-                        <Loader2 size={24} className="text-[#1a7fe0] animate-spin" />
-                        <span className="text-sm text-slate-500">Yüklənir...</span>
-                      </>
+                      <><Loader2 size={24} className="text-[#1a7fe0] animate-spin" /><span className="text-sm text-slate-500">Yüklənir...</span></>
                     ) : (
-                      <>
-                        <ImagePlus size={24} className="text-slate-400" />
-                        <span className="text-sm text-slate-500">Şəkil yükləmək üçün klikləyin</span>
-                        <span className="text-xs text-slate-400">JPG, PNG, GIF — maks. 10MB</span>
-                      </>
+                      <><ImagePlus size={24} className="text-slate-400" /><span className="text-sm text-slate-500">Şəkil yükləmək üçün klikləyin</span><span className="text-xs text-slate-400">JPG, PNG, GIF — maks. 10MB</span></>
                     )}
                   </div>
                 )}
-
-                {/* Hidden file input */}
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
+                <input type="file" accept="image/*" className="hidden"
                   ref={(el) => { fileInputRefs.current[qi] = el; }}
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) handleImageUpload(qi, file);
-                  }}
-                />
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageUpload(qi, f); }} />
               </div>
 
-              {/* Options */}
               <div className="space-y-2 mb-4">
                 {q.options.map((opt: any, oi: number) => (
                   <div key={opt.label} className="flex items-center gap-3">
@@ -347,7 +338,6 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
                 ))}
               </div>
 
-              {/* Correct answer */}
               <div>
                 <label className={labelCls}>Düzgün Cavab</label>
                 <div className="flex gap-2">
@@ -367,12 +357,8 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
             </div>
           ))}
 
-          {/* Sual Əlavə Et — sualların altında */}
-          <button
-            type="button"
-            onClick={() => setQuestions((p) => [...p, emptyQuestion()])}
-            className="w-full py-3 rounded-xl border-2 border-dashed border-[rgba(147,204,255,0.4)] text-[#1a7fe0] hover:border-[rgb(147,204,255)] hover:bg-blue-50/30 transition-all flex items-center justify-center gap-2 text-sm font-medium"
-          >
+          <button type="button" onClick={() => setQuestions((p) => [...p, emptyQuestion()])}
+            className="w-full py-3 rounded-xl border-2 border-dashed border-[rgba(147,204,255,0.4)] text-[#1a7fe0] hover:border-[rgb(147,204,255)] hover:bg-blue-50/30 transition-all flex items-center justify-center gap-2 text-sm font-medium">
             <Plus size={16} /> Sual Əlavə Et
           </button>
         </div>

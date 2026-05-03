@@ -118,6 +118,15 @@ model Article {
   @@index([active, createdAt])
 }
 
+// Dinamik kateqoriyalar — admin tərəfindən idarə olunur
+model Category {
+  id        String   @id @default(cuid())
+  value     String   @unique  // e.g. "QANUNVERICILIK"
+  label     String            // e.g. "Qanunvericilik"
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
 model Request {
   id          String   @id @default(cuid())
   teacherId   String
