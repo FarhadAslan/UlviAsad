@@ -51,12 +51,31 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger }) {
+      // İlk login zamanı user məlumatlarını token-ə yaz
       if (user) {
         token.role = (user as any).role;
         token.id = user.id;
         token.teacherId = (user as any).teacherId ?? null;
       }
+
+      // Hər session yenilənməsində (və ya "update" trigger-ında)
+      // database-dən cari rolu oxu — admin tərəfindən dəyişdirilmiş ola bilər
+      if (trigger === "update" || (!user && token.id)) {
+        try {
+          const dbUser = await prisma.user.findUnique({
+            where: { id: token.id as string },
+            select: { role: true, active: true, teacherId: true },
+          });
+          if (dbUser) {
+            token.role = dbUser.role;
+            token.teacherId = (dbUser as any).teacherId ?? null;
+          }
+        } catch {
+          // DB xətası olsa köhnə token-i saxla
+        }
+      }
+
       return token;
     },
     async session({ session, token }) {
