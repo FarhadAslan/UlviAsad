@@ -25,8 +25,8 @@ interface QuizFormProps {
 }
 
 export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
-  const { data: session } = useSession();
-  const isTeacher = (session?.user as any)?.role === "TEACHER";
+  const { data: session, status } = useSession();
+  const isTeacher = status !== "loading" && (session?.user as any)?.role === "TEACHER";
 
   const { success, error } = useToast();
 

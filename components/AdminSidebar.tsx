@@ -112,18 +112,43 @@ function Logo({ role }: { role: string }) {
 
 export default function AdminSidebar() {
   const pathname = usePathname();
-  const { data: session } = useSession();
-  const role = (session?.user as any)?.role ?? "ADMIN";
+  const { data: session, status } = useSession();
+  const role = (session?.user as any)?.role;
 
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  // Session yüklənənə qədər navItems-i müəyyən etmə
   const navItems = role === "TEACHER" ? teacherNavItems : adminNavItems;
 
   // Route dəyişdikdə mobil menyu bağlansın
   useEffect(() => {
     setMobileOpen(false);
   }, [pathname]);
+
+  // Session hələ yüklənir — skeleton göstər, heç bir nav render etmə
+  if (status === "loading" || !role) {
+    return (
+      <>
+        {/* Mobile hamburger skeleton */}
+        <div className="md:hidden fixed top-3 left-3 z-50 w-10 h-10 rounded-xl"
+          style={{ background: "linear-gradient(135deg,#1f6f43,#2e8b57)", opacity: 0.5 }} />
+        {/* Desktop sidebar skeleton */}
+        <aside className="hidden md:flex flex-col flex-shrink-0 h-screen sticky top-0 w-64"
+          style={sidebarStyle}>
+          <div className="p-4 border-b border-slate-100">
+            <div className="h-8 rounded-xl animate-pulse" style={{ background: "rgba(147,204,255,0.15)" }} />
+          </div>
+          <div className="p-2 space-y-1 flex-1">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="h-10 rounded-xl animate-pulse"
+                style={{ background: "rgba(147,204,255,0.08)" }} />
+            ))}
+          </div>
+        </aside>
+      </>
+    );
+  }
 
   return (
     <>

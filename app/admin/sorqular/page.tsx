@@ -357,9 +357,23 @@ function AdminDetailModal({
 
 // ── Əsas səhifə ─────────────────────────────────────────────
 export default function RequestsPage() {
-  const { data: session } = useSession();
-  const currentRole = (session?.user as any)?.role ?? "ADMIN";
+  const { data: session, status } = useSession();
+  const currentRole = (session?.user as any)?.role;
   const isTeacher   = currentRole === "TEACHER";
+
+  // Session yüklənənə qədər heç nə göstərmə
+  if (status === "loading" || !currentRole) {
+    return (
+      <div className="space-y-4">
+        <div className="h-10 w-48 rounded-xl animate-pulse" style={{ background: "rgba(147,204,255,0.1)" }} />
+        <div className="card-static space-y-3">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="h-12 rounded-xl animate-pulse" style={{ background: "rgba(147,204,255,0.08)" }} />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   const { error } = useToast();
   const [requests,     setRequests]     = useState<any[]>([]);
