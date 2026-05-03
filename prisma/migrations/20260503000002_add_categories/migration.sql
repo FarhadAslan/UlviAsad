@@ -12,10 +12,11 @@ CREATE TABLE "Category" (
 -- CreateIndex
 CREATE UNIQUE INDEX "Category_value_key" ON "Category"("value");
 
--- Mövcud default kateqoriyaları əlavə et
+-- Mövcud default kateqoriyaları əlavə et (sabit id-lər istifadə edilir)
 INSERT INTO "Category" ("id", "value", "label", "order", "createdAt") VALUES
-  (gen_random_uuid()::text, 'QANUNVERICILIK', 'Qanunvericilik', 1, NOW()),
-  (gen_random_uuid()::text, 'MANTIQ',         'Məntiq',         2, NOW()),
-  (gen_random_uuid()::text, 'AZERBAYCAN_DILI','Azərbaycan Dili',3, NOW()),
-  (gen_random_uuid()::text, 'INFORMATIKA',    'İnformatika',    4, NOW()),
-  (gen_random_uuid()::text, 'DQ_QEBUL',       'DQ Qəbul',       5, NOW());
+  ('cat_qanunvericilik', 'QANUNVERICILIK', 'Qanunvericilik', 1, NOW()),
+  ('cat_mantiq',         'MANTIQ',         'Məntiq',         2, NOW()),
+  ('cat_azerbaycan',     'AZERBAYCAN_DILI','Azərbaycan Dili',3, NOW()),
+  ('cat_informatika',    'INFORMATIKA',    'İnformatika',    4, NOW()),
+  ('cat_dq_qebul',       'DQ_QEBUL',       'DQ Qəbul',       5, NOW())
+ON CONFLICT ("value") DO NOTHING;
