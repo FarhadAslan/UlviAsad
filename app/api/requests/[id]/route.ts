@@ -6,7 +6,7 @@ import { authOptions } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// Admin sorğunun statusunu dəyişdirir
+// Admin sorğunun statusunu dəyişdirir, Müəllim PENDING sorğusunu redaktə edir
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -14,14 +14,42 @@ export async function PATCH(
   try {
     const session = await getServerSession(authOptions);
     const userRole = (session?.user as any)?.role;
+    const userId   = (session?.user as any)?.id;
 
-    if (!session || userRole !== "ADMIN") {
-      return NextResponse.json({ error: "Yalnız admin sorğu statusunu dəyişə bilər" }, { status: 403 });
+    if (!session || (userRole !== "ADMIN" && userRole !== "TEACHER")) {
+      return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
     }
 
     const body = await req.json();
-    const { status, adminNote } = body;
 
+    // TEACHER yalnız öz PENDING sorğusunu redaktə edə bilər
+    if (userRole === "TEACHER") {
+      const existing = await prisma.request.findUnique({ where: { id: params.id } });
+      if (!existing) {
+        return NextResponse.json({ error: "Sorğu tapılmadı" }, { status: 404 });
+      }
+      if (existing.teacherId !== userId) {
+        return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
+      }
+      if (existing.status !== "PENDING") {
+        return NextResponse.json({ error: "Yalnız 'Gözləmədə' statusundakı sorğular redaktə edilə bilər" }, { status: 400 });
+      }
+      const { title, message, type } = body;
+      const updateData: any = {};
+      if (title?.trim())   updateData.title   = title.trim();
+      if (message?.trim()) updateData.message = message.trim();
+      if (type)            updateData.type    = type;
+
+      const updated = await prisma.request.update({
+        where: { id: params.id },
+        data:  updateData,
+        include: { teacher: { select: { id: true, name: true } } },
+      });
+      return NextResponse.json(updated);
+    }
+
+    // ADMIN: status və adminNote dəyişdirir
+    const { status, adminNote } = body;
     const validStatuses = ["PENDING", "IN_PROGRESS", "RESOLVED"];
     if (status && !validStatuses.includes(status)) {
       return NextResponse.json({ error: "Yanlış status" }, { status: 400 });
@@ -34,9 +62,7 @@ export async function PATCH(
     const request = await prisma.request.update({
       where: { id: params.id },
       data:  updateData,
-      include: {
-        teacher: { select: { id: true, name: true } },
-      },
+      include: { teacher: { select: { id: true, name: true } } },
     });
 
     return NextResponse.json(request);
