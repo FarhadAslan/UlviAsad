@@ -3,13 +3,14 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
 import {
   LayoutDashboard, Users, BookOpen, FileText,
   Newspaper, Home, BookMarked, Settings,
   ChevronLeft, ChevronRight, Menu, X,
 } from "lucide-react";
 
-const navItems = [
+const adminNavItems = [
   { href: "/admin",               label: "Dashboard",     icon: LayoutDashboard },
   { href: "/admin/istifadeciler", label: "İstifadəçilər", icon: Users },
   { href: "/admin/quizler",       label: "Quizlər",       icon: BookOpen },
@@ -18,27 +19,55 @@ const navItems = [
   { href: "/admin/parametrler",   label: "Parametrlər",   icon: Settings },
 ];
 
+// Müəllim yalnız öz tələbələrini və quizlərini idarə edə bilər
+const teacherNavItems = [
+  { href: "/admin",               label: "Dashboard",     icon: LayoutDashboard },
+  { href: "/admin/istifadeciler", label: "Tələbələrim",   icon: Users },
+  { href: "/admin/quizler",       label: "Quizlərim",     icon: BookOpen },
+];
+
 const sidebarStyle = {
   background: "linear-gradient(180deg,rgba(223,244,255,0.98) 0%,rgba(238,249,255,0.99) 100%)",
   borderRight: "1px solid rgba(147,204,255,0.25)",
 };
 
-function NavLinks({ pathname, onClick }: { pathname: string; onClick?: () => void }) {
+function NavLinks({
+  pathname,
+  role,
+  onClick,
+}: {
+  pathname: string;
+  role: string;
+  onClick?: () => void;
+}) {
+  const navItems = role === "TEACHER" ? teacherNavItems : adminNavItems;
   return (
     <>
       <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
         {navItems.map(({ href, label, icon: Icon }) => {
-          const active = href === "/admin"
-            ? pathname === "/admin"
-            : pathname.startsWith(href);
+          const active =
+            href === "/admin"
+              ? pathname === "/admin"
+              : pathname.startsWith(href);
           return (
-            <Link key={href} href={href} onClick={onClick}
+            <Link
+              key={href}
+              href={href}
+              onClick={onClick}
               className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 ${
                 active
                   ? "text-[#1a7fe0] font-semibold"
                   : "text-slate-600 hover:text-slate-900 hover:bg-white/70"
               }`}
-              style={active ? { background: "rgba(147,204,255,0.15)", borderLeft: "3px solid rgb(147,204,255)" } : {}}>
+              style={
+                active
+                  ? {
+                      background: "rgba(147,204,255,0.15)",
+                      borderLeft: "3px solid rgb(147,204,255)",
+                    }
+                  : {}
+              }
+            >
               <Icon size={17} className="flex-shrink-0" />
               <span>{label}</span>
             </Link>
@@ -46,8 +75,11 @@ function NavLinks({ pathname, onClick }: { pathname: string; onClick?: () => voi
         })}
       </nav>
       <div className="p-2 border-t border-slate-100">
-        <Link href="/" onClick={onClick}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-slate-500 hover:text-slate-900 hover:bg-white/70 transition-all">
+        <Link
+          href="/"
+          onClick={onClick}
+          className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-slate-500 hover:text-slate-900 hover:bg-white/70 transition-all"
+        >
           <Home size={16} className="flex-shrink-0" />
           <span>Sayta Qayıt</span>
         </Link>
@@ -56,16 +88,20 @@ function NavLinks({ pathname, onClick }: { pathname: string; onClick?: () => voi
   );
 }
 
-function Logo() {
+function Logo({ role }: { role: string }) {
   return (
     <div className="flex items-center gap-2.5">
-      <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-        style={{ background: "linear-gradient(135deg,#1f6f43,#2e8b57)" }}>
+      <div
+        className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
+        style={{ background: "linear-gradient(135deg,#1f6f43,#2e8b57)" }}
+      >
         <BookMarked size={15} className="text-white" />
       </div>
       <div>
         <p className="font-bold text-sm text-slate-900 leading-tight">Ulvi Asad</p>
-        <p className="text-xs text-[#1a7fe0] font-medium">Admin Panel</p>
+        <p className="text-xs text-[#1a7fe0] font-medium">
+          {role === "TEACHER" ? "Müəllim Paneli" : "Admin Panel"}
+        </p>
       </div>
     </div>
   );
@@ -73,11 +109,18 @@ function Logo() {
 
 export default function AdminSidebar() {
   const pathname = usePathname();
-  const [collapsed,   setCollapsed]   = useState(false);
-  const [mobileOpen,  setMobileOpen]  = useState(false);
+  const { data: session } = useSession();
+  const role = (session?.user as any)?.role ?? "ADMIN";
+
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  const navItems = role === "TEACHER" ? teacherNavItems : adminNavItems;
 
   // Route dəyişdikdə mobil menyu bağlansın
-  useEffect(() => { setMobileOpen(false); }, [pathname]);
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
 
   return (
     <>
@@ -100,10 +143,13 @@ export default function AdminSidebar() {
             onClick={() => setMobileOpen(false)}
           />
           {/* Drawer */}
-          <div className="relative z-10 flex flex-col w-64 h-full" style={sidebarStyle}>
+          <div
+            className="relative z-10 flex flex-col w-64 h-full"
+            style={sidebarStyle}
+          >
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-slate-100">
-              <Logo />
+              <Logo role={role} />
               <button
                 onClick={() => setMobileOpen(false)}
                 className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all"
@@ -111,7 +157,11 @@ export default function AdminSidebar() {
                 <X size={16} />
               </button>
             </div>
-            <NavLinks pathname={pathname} onClick={() => setMobileOpen(false)} />
+            <NavLinks
+              pathname={pathname}
+              role={role}
+              onClick={() => setMobileOpen(false)}
+            />
           </div>
         </div>
       )}
@@ -124,13 +174,17 @@ export default function AdminSidebar() {
         style={sidebarStyle}
       >
         {/* Header */}
-        <div className={`flex items-center border-b border-slate-100 ${
-          collapsed ? "justify-center p-3" : "justify-between p-4"
-        }`}>
-          {!collapsed && <Logo />}
+        <div
+          className={`flex items-center border-b border-slate-100 ${
+            collapsed ? "justify-center p-3" : "justify-between p-4"
+          }`}
+        >
+          {!collapsed && <Logo role={role} />}
           {collapsed && (
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center"
-              style={{ background: "linear-gradient(135deg,#1f6f43,#2e8b57)" }}>
+            <div
+              className="w-8 h-8 rounded-xl flex items-center justify-center"
+              style={{ background: "linear-gradient(135deg,#1f6f43,#2e8b57)" }}
+            >
               <BookMarked size={15} className="text-white" />
             </div>
           )}
@@ -149,29 +203,41 @@ export default function AdminSidebar() {
           <>
             <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
               {navItems.map(({ href, label, icon: Icon }) => {
-                const active = href === "/admin"
-                  ? pathname === "/admin"
-                  : pathname.startsWith(href);
+                const active =
+                  href === "/admin"
+                    ? pathname === "/admin"
+                    : pathname.startsWith(href);
                 return (
-                  <Link key={href} href={href} title={label}
+                  <Link
+                    key={href}
+                    href={href}
+                    title={label}
                     className={`flex items-center justify-center p-2.5 rounded-xl transition-all duration-150 ${
-                      active ? "text-[#1a7fe0]" : "text-slate-500 hover:text-slate-900 hover:bg-white/70"
+                      active
+                        ? "text-[#1a7fe0]"
+                        : "text-slate-500 hover:text-slate-900 hover:bg-white/70"
                     }`}
-                    style={active ? { background: "rgba(147,204,255,0.15)" } : {}}>
+                    style={
+                      active ? { background: "rgba(147,204,255,0.15)" } : {}
+                    }
+                  >
                     <Icon size={18} />
                   </Link>
                 );
               })}
             </nav>
             <div className="p-2 border-t border-slate-100">
-              <Link href="/" title="Sayta Qayıt"
-                className="flex items-center justify-center p-2.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-white/70 transition-all">
+              <Link
+                href="/"
+                title="Sayta Qayıt"
+                className="flex items-center justify-center p-2.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-white/70 transition-all"
+              >
                 <Home size={17} />
               </Link>
             </div>
           </>
         ) : (
-          <NavLinks pathname={pathname} />
+          <NavLinks pathname={pathname} role={role} />
         )}
       </aside>
     </>

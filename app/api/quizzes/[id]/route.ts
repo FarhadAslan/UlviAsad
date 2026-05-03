@@ -6,6 +6,23 @@ import { authOptions } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+// Müəllimin quizə sahibliyini yoxla
+async function checkQuizOwnership(
+  quizId: string,
+  userId: string,
+  role: string
+): Promise<{ allowed: boolean; quiz: any }> {
+  const quiz = await prisma.quiz.findUnique({
+    where: { id: quizId },
+    select: { id: true, createdById: true },
+  });
+  if (!quiz) return { allowed: false, quiz: null };
+  if (role === "ADMIN") return { allowed: true, quiz };
+  // TEACHER yalnız öz quizini dəyişə bilər
+  if (role === "TEACHER" && quiz.createdById === userId) return { allowed: true, quiz };
+  return { allowed: false, quiz };
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -25,6 +42,8 @@ export async function GET(
         visibility: true,
         active: true,
         createdAt: true,
+        createdById: true,
+        createdBy: { select: { id: true, name: true } },
         questions: {
           orderBy: { order: "asc" },
           select: {
@@ -59,7 +78,6 @@ export async function GET(
       return NextResponse.json({ error: "Bu quizə giriş icazəniz yoxdur" }, { status: 403 });
     }
 
-    // Parse options for each question
     const quizWithParsedOptions = {
       ...quiz,
       questions: quiz.questions.map((q) => ({
@@ -81,8 +99,16 @@ export async function PUT(
 ) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session || (session.user as any)?.role !== "ADMIN") {
+    const userRole = (session?.user as any)?.role;
+    const userId = (session?.user as any)?.id;
+
+    if (!session || (userRole !== "ADMIN" && userRole !== "TEACHER")) {
       return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
+    }
+
+    const { allowed } = await checkQuizOwnership(params.id, userId, userRole);
+    if (!allowed) {
+      return NextResponse.json({ error: "Bu quizi dəyişdirmək icazəniz yoxdur" }, { status: 403 });
     }
 
     const body = await req.json();
@@ -92,7 +118,6 @@ export async function PUT(
       return NextResponse.json({ error: "Bütün sahələr tələb olunur" }, { status: 400 });
     }
 
-    // Transaction ilə köhnə sualları sil və yenilərini yarat
     const quiz = await prisma.$transaction(async (tx) => {
       await tx.question.deleteMany({ where: { quizId: params.id } });
       return tx.quiz.update({
@@ -130,8 +155,16 @@ export async function PATCH(
 ) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session || (session.user as any)?.role !== "ADMIN") {
+    const userRole = (session?.user as any)?.role;
+    const userId = (session?.user as any)?.id;
+
+    if (!session || (userRole !== "ADMIN" && userRole !== "TEACHER")) {
       return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
+    }
+
+    const { allowed } = await checkQuizOwnership(params.id, userId, userRole);
+    if (!allowed) {
+      return NextResponse.json({ error: "Bu quizi dəyişdirmək icazəniz yoxdur" }, { status: 403 });
     }
 
     const body = await req.json();
@@ -165,23 +198,25 @@ export async function DELETE(
 ) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session || (session.user as any)?.role !== "ADMIN") {
+    const userRole = (session?.user as any)?.role;
+    const userId = (session?.user as any)?.id;
+
+    if (!session || (userRole !== "ADMIN" && userRole !== "TEACHER")) {
       return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
     }
 
-    const { id } = params;
-
-    // Quiz mövcudluğunu yoxla
-    const existing = await prisma.quiz.findUnique({ where: { id } });
+    const { allowed, quiz: existing } = await checkQuizOwnership(params.id, userId, userRole);
     if (!existing) {
       return NextResponse.json({ error: "Quiz tapılmadı" }, { status: 404 });
     }
+    if (!allowed) {
+      return NextResponse.json({ error: "Bu quizi silmək icazəniz yoxdur" }, { status: 403 });
+    }
 
-    // Transaction ilə əvvəlcə result-ları, sonra question-ları, sonra quiz-i sil
     await prisma.$transaction([
-      prisma.result.deleteMany({ where: { quizId: id } }),
-      prisma.question.deleteMany({ where: { quizId: id } }),
-      prisma.quiz.delete({ where: { id } }),
+      prisma.result.deleteMany({ where: { quizId: params.id } }),
+      prisma.question.deleteMany({ where: { quizId: params.id } }),
+      prisma.quiz.delete({ where: { id: params.id } }),
     ]);
 
     return NextResponse.json(

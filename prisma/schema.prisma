@@ -8,8 +8,8 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// Role: USER | STUDENT | ADMIN
-// Category: QANUNVERICILIK | MANTIQ | AZERBAYCAN_DILI | INFORMATIKA
+// Role: USER | STUDENT | TEACHER | ADMIN
+// Category: QANUNVERICILIK | MANTIQ | AZERBAYCAN_DILI | INFORMATIKA | DQ_QEBUL
 // QuizType: SINAQ | TEST
 // Visibility: PUBLIC | STUDENT_ONLY
 
@@ -23,6 +23,18 @@ model User {
   active    Boolean  @default(true)
   results   Result[]
   createdAt DateTime @default(now())
+
+  // TEACHER → STUDENT əlaqəsi
+  // Tələbənin müəllimi (yalnız STUDENT rolunda olan userlər üçün)
+  teacherId   String?
+  teacher     User?   @relation("TeacherStudents", fields: [teacherId], references: [id])
+  // Müəllimin tələbələri (yalnız TEACHER rolunda olan userlər üçün)
+  students    User[]  @relation("TeacherStudents")
+
+  // Müəllimin yaratdığı quizlər
+  createdQuizzes Quiz[] @relation("QuizCreator")
+
+  @@index([teacherId])
 }
 
 model Quiz {
@@ -37,10 +49,15 @@ model Quiz {
   results    Result[]
   createdAt  DateTime   @default(now())
 
+  // Quizi yaradan müəllim/admin (null = köhnə quizlər, admin tərəfindən yaradılmış)
+  createdById String?
+  createdBy   User?   @relation("QuizCreator", fields: [createdById], references: [id])
+
   @@index([active, createdAt])
   @@index([category, active])
   @@index([type, active])
   @@index([visibility, active])
+  @@index([createdById])
 }
 
 model Question {

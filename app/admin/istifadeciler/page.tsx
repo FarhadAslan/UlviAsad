@@ -2,13 +2,20 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { Search, UserCheck, UserX, ArrowLeft, Eye, Loader2, Share2, Check } from "lucide-react";
+import { useSession } from "next-auth/react";
 import { useToast } from "@/components/ui/toast-1";
 import { formatDate, getCategoryLabel, getTypeLabel } from "@/lib/utils";
 import Pagination from "@/components/Pagination";
 import ResultDetailModal from "@/components/ResultDetailModal";
 
-const ROLES = ["USER", "STUDENT", "ADMIN"];
-const roleLabels: Record<string, string> = { USER: "İstifadəçi", STUDENT: "Tələbə", ADMIN: "Admin" };
+// ADMIN bütün rolları dəyişə bilər, TEACHER heç bir rol dəyişdirə bilməz
+const ADMIN_ROLES = ["USER", "STUDENT", "TEACHER", "ADMIN"];
+const roleLabels: Record<string, string> = {
+  USER: "İstifadəçi",
+  STUDENT: "Tələbə",
+  TEACHER: "Müəllim",
+  ADMIN: "Admin",
+};
 const PAGE_SIZE = 10;
 
 function isActive(val: any): boolean {
@@ -18,8 +25,13 @@ function isActive(val: any): boolean {
 }
 
 export default function AdminUsersPage() {
+  const { data: session } = useSession();
+  const currentRole = (session?.user as any)?.role ?? "ADMIN";
+  const isTeacher = currentRole === "TEACHER";
+
   const { success, error } = useToast();
   const [users,   setUsers]   = useState<any[]>([]);
+  const [teachers, setTeachers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search,  setSearch]  = useState("");
   const [page,    setPage]    = useState(1);
@@ -52,6 +64,16 @@ export default function AdminUsersPage() {
 
   useEffect(() => { fetchUsers(); }, [search]);
 
+  // Admin üçün müəllim siyahısını yüklə (tələbəyə müəllim təyin etmək üçün)
+  useEffect(() => {
+    if (!isTeacher) {
+      fetch("/api/users/teachers")
+        .then((r) => r.json())
+        .then((d) => setTeachers(Array.isArray(d) ? d : []))
+        .catch(() => {});
+    }
+  }, [isTeacher]);
+
   const fetchUsers = async () => {
     setLoading(true);
     try {
@@ -68,7 +90,7 @@ export default function AdminUsersPage() {
     setSelectedUser(user);
     setResultsLoading(true);
     setUserResults([]);
-    setResultsPage(1); // yeni istifadəçi açılanda 1-ci səhifəyə qayıt
+    setResultsPage(1);
     try {
       const res  = await fetch(`/api/results?userId=${user.id}`);
       const data = await res.json();
@@ -104,7 +126,7 @@ export default function AdminUsersPage() {
           onClick={() => { setSelectedUser(null); setUserResults([]); }}
           className="flex items-center gap-2 text-slate-500 hover:text-slate-900 transition-colors mb-6 text-sm font-medium"
         >
-          <ArrowLeft size={16} /> İstifadəçilərə qayıt
+          <ArrowLeft size={16} /> {isTeacher ? "Tələbələrə qayıt" : "İstifadəçilərə qayıt"}
         </button>
 
         {/* User info */}
@@ -119,7 +141,7 @@ export default function AdminUsersPage() {
               <p className="text-sm text-slate-500">{selectedUser.email}</p>
               <div className="flex items-center gap-2 mt-1">
                 <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-slate-100 text-slate-600">
-                  {roleLabels[selectedUser.role]}
+                  {roleLabels[selectedUser.role] ?? selectedUser.role}
                 </span>
                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                   isActive(selectedUser.active)
@@ -132,6 +154,11 @@ export default function AdminUsersPage() {
                   Qeydiyyat: {formatDate(selectedUser.createdAt)}
                 </span>
               </div>
+              {selectedUser.teacher && (
+                <p className="text-xs text-slate-400 mt-1">
+                  Müəllim: <span className="font-medium text-slate-600">{selectedUser.teacher.name}</span>
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -229,7 +256,6 @@ export default function AdminUsersPage() {
           )}
         </div>
 
-        {/* Result Detail Modal */}
         {selectedResultId && (
           <ResultDetailModal
             resultId={selectedResultId}
@@ -241,10 +267,12 @@ export default function AdminUsersPage() {
     );
   }
 
-  // ── İstifadəçilər siyahısı ─────────────────────────────────
+  // ── İstifadəçilər / Tələbələr siyahısı ─────────────────────────────────
   return (
     <div>
-      <h1 className="text-3xl font-bold text-slate-900 mb-8">İstifadəçilər</h1>
+      <h1 className="text-3xl font-bold text-slate-900 mb-8">
+        {isTeacher ? "Tələbələrim" : "İstifadəçilər"}
+      </h1>
 
       <div className="card-static mb-6">
         <div className="relative">
@@ -269,7 +297,11 @@ export default function AdminUsersPage() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-100">
-                    {["Ad","Email","Rol","Status","Qeydiyyat","Əməliyyatlar"].map((h) => (
+                    {[
+                      "Ad", "Email", "Rol",
+                      ...(isTeacher ? [] : ["Müəllim"]),
+                      "Status", "Qeydiyyat", "Əməliyyatlar"
+                    ].map((h) => (
                       <th key={h} className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 pr-4">{h}</th>
                     ))}
                   </tr>
@@ -293,14 +325,44 @@ export default function AdminUsersPage() {
                           </div>
                         </td>
                         <td className="py-3 pr-4 text-sm text-slate-500">{user.email}</td>
+
+                        {/* Rol — yalnız ADMIN dəyişə bilər */}
                         <td className="py-3 pr-4" onClick={(e) => e.stopPropagation()}>
-                          <select value={user.role}
-                            onChange={(e) => updateUser(user.id, { role: e.target.value })}
-                            className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 bg-white focus:outline-none focus:border-[rgb(147,204,255)] min-w-[100px]"
-                            style={{ fontSize: "max(14px, 0.75rem)", WebkitAppearance: "none", appearance: "none", paddingRight: "1.5rem", backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 0.4rem center" }}>
-                            {ROLES.map((r) => <option key={r} value={r}>{roleLabels[r]}</option>)}
-                          </select>
+                          {isTeacher ? (
+                            <span className="text-xs px-2.5 py-1 rounded-full font-medium bg-slate-100 text-slate-600">
+                              {roleLabels[user.role] ?? user.role}
+                            </span>
+                          ) : (
+                            <select value={user.role}
+                              onChange={(e) => updateUser(user.id, { role: e.target.value })}
+                              className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 bg-white focus:outline-none focus:border-[rgb(147,204,255)] min-w-[110px]"
+                              style={{ fontSize: "max(14px, 0.75rem)", WebkitAppearance: "none", appearance: "none", paddingRight: "1.5rem", backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 0.4rem center" }}>
+                              {ADMIN_ROLES.map((r) => <option key={r} value={r}>{roleLabels[r]}</option>)}
+                            </select>
+                          )}
                         </td>
+
+                        {/* Müəllim sütunu — yalnız ADMIN görür */}
+                        {!isTeacher && (
+                          <td className="py-3 pr-4" onClick={(e) => e.stopPropagation()}>
+                            {user.role === "STUDENT" ? (
+                              <select
+                                value={user.teacherId ?? ""}
+                                onChange={(e) => updateUser(user.id, { teacherId: e.target.value || null })}
+                                className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 bg-white focus:outline-none focus:border-[rgb(147,204,255)] min-w-[130px]"
+                                style={{ fontSize: "max(14px, 0.75rem)", WebkitAppearance: "none", appearance: "none", paddingRight: "1.5rem", backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 0.4rem center" }}
+                              >
+                                <option value="">— Müəllim yoxdur —</option>
+                                {teachers.map((t: any) => (
+                                  <option key={t.id} value={t.id}>{t.name}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span className="text-xs text-slate-400">—</span>
+                            )}
+                          </td>
+                        )}
+
                         <td className="py-3 pr-4">
                           <span className={`text-xs px-2.5 py-1 rounded-full font-medium inline-flex items-center gap-1 ${
                             active ? "bg-green-50 text-green-700 border border-green-100" : "bg-slate-100 text-slate-500 border border-slate-200"
@@ -327,7 +389,9 @@ export default function AdminUsersPage() {
                 </tbody>
               </table>
               {users.length === 0 && (
-                <div className="text-center py-12 text-slate-400">İstifadəçi tapılmadı</div>
+                <div className="text-center py-12 text-slate-400">
+                  {isTeacher ? "Hələ tələbəniz yoxdur" : "İstifadəçi tapılmadı"}
+                </div>
               )}
             </div>
             <Pagination page={page} totalPages={totalPages} onPageChange={(p) => { setPage(p); window.scrollTo({ top: 0, behavior: "smooth" }); }} />

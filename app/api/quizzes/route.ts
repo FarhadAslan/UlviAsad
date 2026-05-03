@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
     const limit = searchParams.get("limit");
 
     const userRole = (session?.user as any)?.role;
+    const userId = (session?.user as any)?.id;
     const adminAll = searchParams.get("adminAll");
 
     const where: any = {};
@@ -25,9 +26,12 @@ export async function GET(req: NextRequest) {
       where.visibility = "PUBLIC";
     }
 
-    // Active filter — admin "adminAll=true" ilə hamısını görür
+    // Active filter
     if (userRole === "ADMIN" && adminAll === "true") {
       // admin all — active filter yoxdur
+    } else if (userRole === "TEACHER" && adminAll === "true") {
+      // TEACHER öz quizlərinin hamısını görür (aktiv + deaktiv)
+      where.createdById = userId;
     } else if (!userRole || userRole === "USER" || userRole === "STUDENT") {
       where.active = true;
     }
@@ -55,6 +59,10 @@ export async function GET(req: NextRequest) {
         visibility: true,
         active: true,
         createdAt: true,
+        createdById: true,
+        createdBy: {
+          select: { id: true, name: true },
+        },
         _count: {
           select: { questions: true, results: true },
         },
@@ -86,7 +94,10 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session || (session.user as any)?.role !== "ADMIN") {
+    const userRole = (session?.user as any)?.role;
+    const userId = (session?.user as any)?.id;
+
+    if (!session || (userRole !== "ADMIN" && userRole !== "TEACHER")) {
       return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
     }
 
@@ -108,6 +119,7 @@ export async function POST(req: NextRequest) {
         duration: type === "SINAQ" ? duration : null,
         visibility: visibility || "PUBLIC",
         active: active !== undefined ? active : true,
+        createdById: userId,
         questions: {
           create: questions.map((q: any, index: number) => ({
             text: q.text,

@@ -1,4 +1,4 @@
-export type Role = "USER" | "STUDENT" | "ADMIN";
+export type Role = "USER" | "STUDENT" | "TEACHER" | "ADMIN";
 export type Category =
   | "QANUNVERICILIK"
   | "MANTIQ"

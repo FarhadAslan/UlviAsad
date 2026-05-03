@@ -9,7 +9,10 @@ export const runtime = "nodejs";
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session || (session.user as any)?.role !== "ADMIN") {
+    const userRole = (session?.user as any)?.role;
+    const userId = (session?.user as any)?.id;
+
+    if (!session || (userRole !== "ADMIN" && userRole !== "TEACHER")) {
       return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
     }
 
@@ -17,6 +20,12 @@ export async function GET(req: NextRequest) {
     const search = searchParams.get("search");
 
     const where: any = {};
+
+    // TEACHER yalnız öz tələbələrini görür
+    if (userRole === "TEACHER") {
+      where.teacherId = userId;
+    }
+
     if (search) {
       where.OR = [
         { name:  { contains: search, mode: "insensitive" } },
@@ -33,6 +42,10 @@ export async function GET(req: NextRequest) {
         role: true,
         active: true,
         createdAt: true,
+        teacherId: true,
+        teacher: {
+          select: { id: true, name: true },
+        },
         _count: { select: { results: true } },
       },
       orderBy: { createdAt: "desc" },

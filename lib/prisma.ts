@@ -25,11 +25,14 @@ function createPrismaClient(): PrismaClient {
     ? (process.env.DIRECT_URL ?? process.env.DATABASE_URL)
     : process.env.DATABASE_URL;
 
+  const builtUrl = buildUrl(url);
+
+  // Build zamanı env variable-lar mövcud olmaya bilər.
+  // datasources yalnız url mövcud olduqda ötürülür,
+  // əks halda Prisma schema-dakı env() oxuyur.
   return new PrismaClient({
     log: isProduction ? ["error"] : ["error", "warn"],
-    datasources: {
-      db: { url: buildUrl(url) },
-    },
+    ...(builtUrl ? { datasources: { db: { url: builtUrl } } } : {}),
   });
 }
 
