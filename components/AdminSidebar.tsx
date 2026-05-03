@@ -16,7 +16,7 @@ const adminNavItems = [
   { href: "/admin/quizler",       label: "Quizlər",       icon: BookOpen },
   { href: "/admin/materiallar",   label: "Materiallar",   icon: FileText },
   { href: "/admin/meqaleler",     label: "Məqalələr",     icon: Newspaper },
-  { href: "/admin/sorğular",      label: "Sorğular",      icon: MessageSquare },
+  { href: "/admin/sorqular",      label: "Sorğular",      icon: MessageSquare },
   { href: "/admin/parametrler",   label: "Parametrlər",   icon: Settings },
 ];
 
@@ -25,7 +25,7 @@ const teacherNavItems = [
   { href: "/admin",               label: "Dashboard",     icon: LayoutDashboard },
   { href: "/admin/istifadeciler", label: "Tələbələrim",   icon: Users },
   { href: "/admin/quizler",       label: "Quizlərim",     icon: BookOpen },
-  { href: "/admin/sorğular",      label: "Sorğularım",    icon: MessageSquare },
+  { href: "/admin/sorqular",      label: "Sorğularım",    icon: MessageSquare },
 ];
 
 const sidebarStyle = {
