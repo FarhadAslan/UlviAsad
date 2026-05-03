@@ -9,18 +9,32 @@ export const runtime = "nodejs";
 // Bütün kateqoriyaları qaytarır (hamı üçün açıqdır — form-larda lazımdır)
 export async function GET() {
   try {
-    const categories = await prisma.category.findMany({
+    let categories = await prisma.category.findMany({
       orderBy: { order: "asc" },
     });
+
+    // Cədvəl boşdursa default kateqoriyaları seed et
+    if (categories.length === 0) {
+      const defaults = [
+        { id: "cat_qanunvericilik", value: "QANUNVERICILIK", label: "Qanunvericilik", order: 1 },
+        { id: "cat_mantiq",         value: "MANTIQ",         label: "Məntiq",         order: 2 },
+        { id: "cat_azerbaycan",     value: "AZERBAYCAN_DILI",label: "Azərbaycan Dili",order: 3 },
+        { id: "cat_informatika",    value: "INFORMATIKA",    label: "İnformatika",    order: 4 },
+        { id: "cat_dq_qebul",       value: "DQ_QEBUL",       label: "DQ Qəbul",       order: 5 },
+      ];
+      await prisma.category.createMany({ data: defaults, skipDuplicates: true });
+      categories = await prisma.category.findMany({ orderBy: { order: "asc" } });
+    }
+
     return NextResponse.json(categories);
   } catch {
     // DB-də cədvəl hələ yoxdursa default qaytarır
     return NextResponse.json([
-      { id: "1", value: "QANUNVERICILIK", label: "Qanunvericilik", order: 1 },
-      { id: "2", value: "MANTIQ",         label: "Məntiq",         order: 2 },
-      { id: "3", value: "AZERBAYCAN_DILI",label: "Azərbaycan Dili",order: 3 },
-      { id: "4", value: "INFORMATIKA",    label: "İnformatika",    order: 4 },
-      { id: "5", value: "DQ_QEBUL",       label: "DQ Qəbul",       order: 5 },
+      { id: "cat_qanunvericilik", value: "QANUNVERICILIK", label: "Qanunvericilik", order: 1 },
+      { id: "cat_mantiq",         value: "MANTIQ",         label: "Məntiq",         order: 2 },
+      { id: "cat_azerbaycan",     value: "AZERBAYCAN_DILI",label: "Azərbaycan Dili",order: 3 },
+      { id: "cat_informatika",    value: "INFORMATIKA",    label: "İnformatika",    order: 4 },
+      { id: "cat_dq_qebul",       value: "DQ_QEBUL",       label: "DQ Qəbul",       order: 5 },
     ]);
   }
 }
