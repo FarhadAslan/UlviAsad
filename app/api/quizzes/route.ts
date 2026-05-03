@@ -118,7 +118,8 @@ export async function POST(req: NextRequest) {
         type,
         duration: type === "SINAQ" ? duration : null,
         visibility: visibility || "PUBLIC",
-        active: active !== undefined ? active : true,
+        // Müəllim yaratdıqda default deaktiv, admin yaratdıqda aktiv
+        active: userRole === "TEACHER" ? false : (active !== undefined ? active : true),
         createdById: userId,
         questions: {
           create: questions.map((q: any, index: number) => ({

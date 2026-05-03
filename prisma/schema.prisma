@@ -34,6 +34,9 @@ model User {
   // Müəllimin yaratdığı quizlər
   createdQuizzes Quiz[] @relation("QuizCreator")
 
+  // Müəllimin adminə göndərdiyi sorğular
+  requests       Request[] @relation("TeacherRequests")
+
   @@index([teacherId])
 }
 
@@ -113,6 +116,27 @@ model Article {
   createdAt DateTime @default(now())
 
   @@index([active, createdAt])
+}
+
+model Request {
+  id          String   @id @default(cuid())
+  teacherId   String
+  teacher     User     @relation("TeacherRequests", fields: [teacherId], references: [id])
+  title       String
+  message     String
+  type        String   @default("GENERAL")
+  // Status: PENDING | IN_PROGRESS | RESOLVED
+  status      String   @default("PENDING")
+  // Admin cavabı (isteğe bağlı)
+  adminNote   String?
+  // Əlaqəli quiz və ya user (isteğe bağlı)
+  relatedQuizId String?
+  relatedUserId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([teacherId])
+  @@index([status])
 }
 
 model SiteSettings {
