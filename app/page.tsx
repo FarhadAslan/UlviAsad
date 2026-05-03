@@ -56,17 +56,38 @@ async function getStats() {
 }
 
 // Quizzes - ayrıca yüklənir
-async function getQuizzes(userRole?: string) {
+async function getQuizzes(userRole?: string, userId?: string) {
   try {
-    const isAdmin = userRole === "ADMIN";
+    const isAdmin   = userRole === "ADMIN";
+    const isTeacher = userRole === "TEACHER";
     const isStudent = userRole === "STUDENT";
+    const isUser    = !userRole || userRole === "USER";
 
-    const baseWhere = isAdmin || isStudent
-      ? { active: true }
-      : { visibility: "PUBLIC" as const, active: true };
+    const where: any = { active: true };
+
+    if (isUser) {
+      where.visibility = "PUBLIC";
+    }
+
+    if (!isAdmin && !isTeacher) {
+      // Admin id-lərini tap
+      const admins   = await prisma.user.findMany({ where: { role: "ADMIN" }, select: { id: true } });
+      const adminIds = admins.map((a) => a.id);
+
+      if (isStudent && userId) {
+        const student = await prisma.user.findUnique({ where: { id: userId }, select: { teacherId: true } });
+        if (student?.teacherId) {
+          where.OR = [{ createdById: null }, { createdById: { in: adminIds } }, { createdById: student.teacherId }];
+        } else {
+          where.OR = [{ createdById: null }, { createdById: { in: adminIds } }];
+        }
+      } else if (isUser) {
+        where.OR = [{ createdById: null }, { createdById: { in: adminIds } }];
+      }
+    }
 
     return prisma.quiz.findMany({
-      where: baseWhere,
+      where,
       select: {
         id: true, title: true, category: true, type: true,
         duration: true, visibility: true, active: true, createdAt: true,
@@ -120,8 +141,8 @@ async function getArticles() {
 }
 
 // Quizzes Section Component
-async function QuizzesSection({ userRole }: { userRole?: string }) {
-  const quizzes = await getQuizzes(userRole);
+async function QuizzesSection({ userRole, userId }: { userRole?: string; userId?: string }) {
+  const quizzes = await getQuizzes(userRole, userId);
   
   return (
     <section className="py-16" style={{ background: "rgba(255,255,255,0.5)" }}>
@@ -180,8 +201,9 @@ async function ArticlesSection() {
 }
 
 export default async function HomePage() {
-  const session = await getServerSession(authOptions);
+  const session  = await getServerSession(authOptions);
   const userRole = (session?.user as any)?.role;
+  const userId   = (session?.user as any)?.id;
   
   // Stats sürətli yüklənir
   const statsData = await getStats();
@@ -203,7 +225,7 @@ export default async function HomePage() {
           </div>
         </section>
       }>
-        <QuizzesSection userRole={userRole} />
+        <QuizzesSection userRole={userRole} userId={userId} />
       </Suspense>
 
       {/* Materials — streaming ilə yüklənir */}

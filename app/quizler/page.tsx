@@ -10,13 +10,34 @@ export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 9;
 
-async function getQuizzes(category: string, type: string, search: string, userRole?: string, page = 1) {
+async function getQuizzes(category: string, type: string, search: string, userRole?: string, userId?: string, page = 1) {
   const isAdmin   = userRole === "ADMIN";
+  const isTeacher = userRole === "TEACHER";
   const isStudent = userRole === "STUDENT";
+  const isUser    = !userRole || userRole === "USER";
 
-  const where: any = {};
-  if (!isAdmin && !isStudent) where.visibility = "PUBLIC";
-  where.active = true;
+  const where: any = { active: true };
+
+  if (isUser) {
+    where.visibility = "PUBLIC";
+  }
+
+  if (!isAdmin && !isTeacher) {
+    const admins   = await prisma.user.findMany({ where: { role: "ADMIN" }, select: { id: true } });
+    const adminIds = admins.map((a) => a.id);
+
+    if (isStudent && userId) {
+      const student = await prisma.user.findUnique({ where: { id: userId }, select: { teacherId: true } });
+      if (student?.teacherId) {
+        where.OR = [{ createdById: null }, { createdById: { in: adminIds } }, { createdById: student.teacherId }];
+      } else {
+        where.OR = [{ createdById: null }, { createdById: { in: adminIds } }];
+      }
+    } else if (isUser) {
+      where.OR = [{ createdById: null }, { createdById: { in: adminIds } }];
+    }
+  }
+
   if (category && category !== "ALL") where.category = category;
   if (type     && type     !== "ALL") where.type     = type;
   if (search) where.title = { contains: search, mode: "insensitive" };
@@ -49,13 +70,14 @@ function buildParams(current: Record<string, string>, overrides: Record<string, 
 export default async function QuizzesPage({ searchParams }: { searchParams: Record<string, string> }) {
   const session  = await getServerSession(authOptions);
   const userRole = (session?.user as any)?.role;
+  const userId   = (session?.user as any)?.id;
 
   const category = searchParams.category || "ALL";
   const type     = searchParams.type     || "ALL";
   const search   = searchParams.search   || "";
   const page     = Math.max(1, parseInt(searchParams.page || "1"));
 
-  const { items: quizzes, totalPages } = await getQuizzes(category, type, search, userRole, page);
+  const { items: quizzes, totalPages } = await getQuizzes(category, type, search, userRole, userId, page);
 
   const base = { category, type, search };
 

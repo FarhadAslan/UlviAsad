@@ -42,21 +42,41 @@ export async function GET(req: NextRequest) {
         where: { id: userId },
         select: { teacherId: true },
       });
+
+      // Admin id-lərini tap
+      const admins = await prisma.user.findMany({
+        where: { role: "ADMIN" },
+        select: { id: true },
+      });
+      const adminIds = admins.map((a) => a.id);
+
       if (student?.teacherId) {
-        // Müəllimi var: admin (createdById=null) + öz müəlliminin quizləri
+        // Müəllimi var: admin quizləri + öz müəlliminin quizləri
         where.OR = [
           { createdById: null },
+          { createdById: { in: adminIds } },
           { createdById: student.teacherId },
         ];
       } else {
-        // Müəllimi yoxdur: yalnız admin quizləri (createdById=null)
-        where.createdById = null;
+        // Müəllimi yoxdur: yalnız admin quizləri
+        where.OR = [
+          { createdById: null },
+          { createdById: { in: adminIds } },
+        ];
       }
     }
 
-    // USER (giriş etməmiş və ya adi user): yalnız admin quizləri
+    // USER və ya giriş etməmiş: yalnız admin quizləri
     if (!userRole || userRole === "USER") {
-      where.createdById = null;
+      const admins = await prisma.user.findMany({
+        where: { role: "ADMIN" },
+        select: { id: true },
+      });
+      const adminIds = admins.map((a) => a.id);
+      where.OR = [
+        { createdById: null },
+        { createdById: { in: adminIds } },
+      ];
     }
 
     if (category && category !== "ALL") {
