@@ -15,7 +15,33 @@ export default function AdminQuizzesPage() {
   const currentRole = (session?.user as any)?.role;
   const isTeacher   = currentRole === "TEACHER";
 
-  // Session yüklənənə qədər heç nə göstərmə
+  const { success, error } = useToast();
+  const [quizzes,        setQuizzes]        = useState<any[]>([]);
+  const [teachers,       setTeachers]       = useState<any[]>([]);
+  const [categories,     setCategories]     = useState<any[]>([]);
+  const [loading,        setLoading]        = useState(true);
+  const [showForm,       setShowForm]       = useState(false);
+  const [editingQuiz,    setEditingQuiz]    = useState<any>(null);
+  const [editLoading,    setEditLoading]    = useState<string | null>(null);
+  const [page,           setPage]           = useState(1);
+  const [copiedId,       setCopiedId]       = useState<string | null>(null);
+  const [deletingId,     setDeletingId]     = useState<string | null>(null);
+  const [togglingId,     setTogglingId]     = useState<string | null>(null);
+  const [search,         setSearch]         = useState("");
+  const [filterTeacher,  setFilterTeacher]  = useState("ALL");
+  const [filterType,     setFilterType]     = useState("ALL");
+  const [filterCategory, setFilterCategory] = useState("ALL");
+
+  useEffect(() => {
+    if (status === "loading" || !currentRole) return;
+    fetchQuizzes();
+    if (!isTeacher) {
+      fetch("/api/users/teachers").then((r) => r.json()).then((d) => setTeachers(Array.isArray(d) ? d : [])).catch(() => {});
+      fetch("/api/categories").then((r) => r.json()).then((d) => setCategories(Array.isArray(d) ? d : [])).catch(() => {});
+    }
+  }, [status, currentRole]);
+
+  // Session yüklənir — skeleton
   if (status === "loading" || !currentRole) {
     return (
       <div className="space-y-4">
@@ -28,33 +54,6 @@ export default function AdminQuizzesPage() {
       </div>
     );
   }
-
-  const { success, error } = useToast();
-  const [quizzes,     setQuizzes]     = useState<any[]>([]);
-  const [teachers,    setTeachers]    = useState<any[]>([]);
-  const [categories,  setCategories]  = useState<any[]>([]);
-  const [loading,     setLoading]     = useState(true);
-  const [showForm,    setShowForm]    = useState(false);
-  const [editingQuiz, setEditingQuiz] = useState<any>(null);
-  const [editLoading, setEditLoading] = useState<string | null>(null);
-  const [page,        setPage]        = useState(1);
-  const [copiedId,    setCopiedId]    = useState<string | null>(null);
-  const [deletingId,  setDeletingId]  = useState<string | null>(null);
-  const [togglingId,  setTogglingId]  = useState<string | null>(null);
-
-  // Filterlər — yalnız ADMIN üçün
-  const [search,          setSearch]          = useState("");
-  const [filterTeacher,   setFilterTeacher]   = useState("ALL");
-  const [filterType,      setFilterType]      = useState("ALL");
-  const [filterCategory,  setFilterCategory]  = useState("ALL");
-
-  useEffect(() => {
-    fetchQuizzes();
-    if (!isTeacher) {
-      fetch("/api/users/teachers").then((r) => r.json()).then((d) => setTeachers(Array.isArray(d) ? d : [])).catch(() => {});
-      fetch("/api/categories").then((r) => r.json()).then((d) => setCategories(Array.isArray(d) ? d : [])).catch(() => {});
-    }
-  }, []);
 
   const fetchQuizzes = async () => {
     setLoading(true);

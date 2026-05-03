@@ -8,7 +8,6 @@ import { formatDate, getCategoryLabel, getTypeLabel } from "@/lib/utils";
 import Pagination from "@/components/Pagination";
 import ResultDetailModal from "@/components/ResultDetailModal";
 
-// ADMIN bütün rolları dəyişə bilər, TEACHER heç bir rol dəyişdirə bilməz
 const ADMIN_ROLES = ["USER", "STUDENT", "TEACHER", "ADMIN"];
 const roleLabels: Record<string, string> = {
   USER: "İstifadəçi",
@@ -27,29 +26,16 @@ function isActive(val: any): boolean {
 export default function AdminUsersPage() {
   const { data: session, status } = useSession();
   const currentRole = (session?.user as any)?.role;
-  const isTeacher = currentRole === "TEACHER";
-
-  // Session yüklənənə qədər heç nə göstərmə
-  if (status === "loading" || !currentRole) {
-    return (
-      <div className="space-y-4">
-        <div className="h-10 w-48 rounded-xl animate-pulse" style={{ background: "rgba(147,204,255,0.1)" }} />
-        <div className="card-static space-y-3">
-          {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-12 rounded-xl animate-pulse" style={{ background: "rgba(147,204,255,0.08)" }} />
-          ))}
-        </div>
-      </div>
-    );
-  }
+  const isTeacher   = currentRole === "TEACHER";
 
   const { success, error } = useToast();
-  const [users,   setUsers]   = useState<any[]>([]);
-  const [teachers, setTeachers] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search,  setSearch]  = useState("");
-  const [page,    setPage]    = useState(1);
 
+  // ── Bütün state-lər hook qaydalarına uyğun olaraq şərtsiz çağırılır ──
+  const [users,            setUsers]            = useState<any[]>([]);
+  const [teachers,         setTeachers]         = useState<any[]>([]);
+  const [loading,          setLoading]          = useState(true);
+  const [search,           setSearch]           = useState("");
+  const [page,             setPage]             = useState(1);
   const [selectedUser,     setSelectedUser]     = useState<any>(null);
   const [userResults,      setUserResults]      = useState<any[]>([]);
   const [resultsLoading,   setResultsLoading]   = useState(false);
@@ -64,29 +50,24 @@ export default function AdminUsersPage() {
     [userResults, resultsPage]
   );
 
-  const copyResultLink = async (e: React.MouseEvent, resultId: string) => {
-    e.stopPropagation();
-    const url = `${window.location.origin}/neticeler/${resultId}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopiedId(resultId);
-      setTimeout(() => setCopiedId(null), 2000);
-    } catch {
-      prompt("Linki kopyalayın:", url);
-    }
-  };
+  const totalPages = Math.ceil(users.length / PAGE_SIZE);
+  const paginated  = useMemo(
+    () => users.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [users, page]
+  );
 
-  useEffect(() => { fetchUsers(); }, [search]);
-
-  // Admin üçün müəllim siyahısını yüklə (tələbəyə müəllim təyin etmək üçün)
   useEffect(() => {
-    if (!isTeacher) {
-      fetch("/api/users/teachers")
-        .then((r) => r.json())
-        .then((d) => setTeachers(Array.isArray(d) ? d : []))
-        .catch(() => {});
-    }
-  }, [isTeacher]);
+    if (status === "loading" || !currentRole) return;
+    fetchUsers();
+  }, [search, status, currentRole]);
+
+  useEffect(() => {
+    if (status === "loading" || !currentRole || isTeacher) return;
+    fetch("/api/users/teachers")
+      .then((r) => r.json())
+      .then((d) => setTeachers(Array.isArray(d) ? d : []))
+      .catch(() => {});
+  }, [isTeacher, status, currentRole]);
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -113,6 +94,18 @@ export default function AdminUsersPage() {
     finally   { setResultsLoading(false); }
   };
 
+  const copyResultLink = async (e: React.MouseEvent, resultId: string) => {
+    e.stopPropagation();
+    const url = `${window.location.origin}/neticeler/${resultId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedId(resultId);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      prompt("Linki kopyalayın:", url);
+    }
+  };
+
   const updateUser = async (id: string, data: any) => {
     try {
       const res = await fetch(`/api/users/${id}`, {
@@ -129,10 +122,21 @@ export default function AdminUsersPage() {
     updateUser(user.id, { active: !isActive(user.active) });
   };
 
-  const totalPages = Math.ceil(users.length / PAGE_SIZE);
-  const paginated  = useMemo(() => users.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [users, page]);
+  // ── Session yüklənir — skeleton ──────────────────────────
+  if (status === "loading" || !currentRole) {
+    return (
+      <div className="space-y-4">
+        <div className="h-10 w-48 rounded-xl animate-pulse" style={{ background: "rgba(147,204,255,0.1)" }} />
+        <div className="card-static space-y-3">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="h-12 rounded-xl animate-pulse" style={{ background: "rgba(147,204,255,0.08)" }} />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
-  // ── İstifadəçi detay görünüşü ──────────────────────────────
+  // ── İstifadəçi detay görünüşü ────────────────────────────
   if (selectedUser) {
     return (
       <div>
@@ -143,7 +147,6 @@ export default function AdminUsersPage() {
           <ArrowLeft size={16} /> {isTeacher ? "Tələbələrə qayıt" : "İstifadəçilərə qayıt"}
         </button>
 
-        {/* User info */}
         <div className="card-static mb-6">
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-xl font-bold text-white flex-shrink-0"
@@ -158,9 +161,7 @@ export default function AdminUsersPage() {
                   {roleLabels[selectedUser.role] ?? selectedUser.role}
                 </span>
                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                  isActive(selectedUser.active)
-                    ? "bg-green-50 text-green-700"
-                    : "bg-slate-100 text-slate-500"
+                  isActive(selectedUser.active) ? "bg-green-50 text-green-700" : "bg-slate-100 text-slate-500"
                 }`}>
                   {isActive(selectedUser.active) ? "Aktiv" : "Deaktiv"}
                 </span>
@@ -177,7 +178,6 @@ export default function AdminUsersPage() {
           </div>
         </div>
 
-        {/* Quiz results */}
         <div className="card-static">
           <h3 className="text-lg font-bold text-slate-900 mb-5">
             Quiz Tarixçəsi
@@ -197,75 +197,71 @@ export default function AdminUsersPage() {
             </div>
           ) : (
             <>
-            <div className="table-scroll">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-slate-100">
-                    {["Quiz Adı", "Kateqoriya", "Tip", "Nəticə", "Xal", "Tarix", "Əməliyyatlar"].map((h) => (
-                      <th key={h} className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 pr-4">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {paginatedResults.map((r: any) => (
-                    <tr
-                      key={r.id}
-                      className="hover:bg-slate-50 transition-colors cursor-pointer"
-                      onClick={() => setSelectedResultId(r.id)}
-                    >
-                      <td className="py-3 pr-4 font-medium text-sm text-slate-800 max-w-[180px] truncate">
-                        {r.quiz?.title ?? "—"}
-                      </td>
-                      <td className="py-3 pr-4">
-                        <span className="badge-category">{getCategoryLabel(r.quiz?.category ?? "")}</span>
-                      </td>
-                      <td className="py-3 pr-4">
-                        <span className={r.quiz?.type === "SINAQ" ? "badge-type-sinaq" : "badge-type-test"}>
-                          {getTypeLabel(r.quiz?.type ?? "TEST")}
-                        </span>
-                      </td>
-                      <td className="py-3 pr-4 text-sm">
-                        <span className="font-bold text-green-600">{r.correct}</span>
-                        <span className="text-slate-400 mx-1">/</span>
-                        <span className="text-red-500">{r.wrong}</span>
-                        <span className="text-slate-400 mx-1">/</span>
-                        <span className="text-slate-400">{r.skipped}</span>
-                        <span className="text-xs text-slate-400 ml-1">(d/s/k)</span>
-                      </td>
-                      <td className="py-3 pr-4">
-                        <span className="font-bold text-[#1a7fe0]">{r.score} xal</span>
-                      </td>
-                      <td className="py-3 pr-4 text-sm text-slate-400">{formatDate(r.createdAt)}</td>
-                      <td className="py-3">
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setSelectedResultId(r.id); }}
-                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-[#1a7fe0] hover:bg-blue-50 border border-[rgba(147,204,255,0.4)] transition-all"
-                            title="Detaylı bax"
-                          >
-                            <Eye size={13} /> Detay
-                          </button>
-                          <button
-                            onClick={(e) => copyResultLink(e, r.id)}
-                            className="p-1.5 rounded-lg text-[#1a7fe0] hover:bg-blue-50 transition-all"
-                            title="Nəticə linkini kopyala"
-                          >
-                            {copiedId === r.id
-                              ? <Check size={13} className="text-green-500" />
-                              : <Share2 size={13} />}
-                          </button>
-                        </div>
-                      </td>
+              <div className="table-scroll">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-slate-100">
+                      {["Quiz Adı", "Kateqoriya", "Tip", "Nəticə", "Xal", "Tarix", "Əməliyyatlar"].map((h) => (
+                        <th key={h} className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 pr-4">{h}</th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <Pagination
-              page={resultsPage}
-              totalPages={totalResultPages}
-              onPageChange={(p) => setResultsPage(p)}
-            />
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {paginatedResults.map((r: any) => (
+                      <tr key={r.id}
+                        className="hover:bg-slate-50 transition-colors cursor-pointer"
+                        onClick={() => setSelectedResultId(r.id)}>
+                        <td className="py-3 pr-4 font-medium text-sm text-slate-800 max-w-[180px] truncate">
+                          {r.quiz?.title ?? "—"}
+                        </td>
+                        <td className="py-3 pr-4">
+                          <span className="badge-category">{getCategoryLabel(r.quiz?.category ?? "")}</span>
+                        </td>
+                        <td className="py-3 pr-4">
+                          <span className={r.quiz?.type === "SINAQ" ? "badge-type-sinaq" : "badge-type-test"}>
+                            {getTypeLabel(r.quiz?.type ?? "TEST")}
+                          </span>
+                        </td>
+                        <td className="py-3 pr-4 text-sm">
+                          <span className="font-bold text-green-600">{r.correct}</span>
+                          <span className="text-slate-400 mx-1">/</span>
+                          <span className="text-red-500">{r.wrong}</span>
+                          <span className="text-slate-400 mx-1">/</span>
+                          <span className="text-slate-400">{r.skipped}</span>
+                          <span className="text-xs text-slate-400 ml-1">(d/s/k)</span>
+                        </td>
+                        <td className="py-3 pr-4">
+                          <span className="font-bold text-[#1a7fe0]">{r.score} xal</span>
+                        </td>
+                        <td className="py-3 pr-4 text-sm text-slate-400">{formatDate(r.createdAt)}</td>
+                        <td className="py-3">
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setSelectedResultId(r.id); }}
+                              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-[#1a7fe0] hover:bg-blue-50 border border-[rgba(147,204,255,0.4)] transition-all"
+                              title="Detaylı bax">
+                              <Eye size={13} /> Detay
+                            </button>
+                            <button
+                              onClick={(e) => copyResultLink(e, r.id)}
+                              className="p-1.5 rounded-lg text-[#1a7fe0] hover:bg-blue-50 transition-all"
+                              title="Nəticə linkini kopyala">
+                              {copiedId === r.id
+                                ? <Check size={13} className="text-green-500" />
+                                : <Share2 size={13} />}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <Pagination
+                page={resultsPage}
+                totalPages={totalResultPages}
+                onPageChange={(p) => setResultsPage(p)}
+              />
             </>
           )}
         </div>
@@ -281,7 +277,7 @@ export default function AdminUsersPage() {
     );
   }
 
-  // ── İstifadəçilər / Tələbələr siyahısı ─────────────────────────────────
+  // ── İstifadəçilər / Tələbələr siyahısı ──────────────────
   return (
     <div>
       <h1 className="text-3xl font-bold text-slate-900 mb-8">
@@ -314,7 +310,7 @@ export default function AdminUsersPage() {
                     {[
                       "Ad", "Email", "Rol",
                       ...(isTeacher ? [] : ["Müəllim"]),
-                      "Status", "Qeydiyyat", "Əməliyyatlar"
+                      "Status", "Qeydiyyat", "Əməliyyatlar",
                     ].map((h) => (
                       <th key={h} className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 pr-4">{h}</th>
                     ))}
@@ -324,11 +320,9 @@ export default function AdminUsersPage() {
                   {paginated.map((user) => {
                     const active = isActive(user.active);
                     return (
-                      <tr
-                        key={user.id}
+                      <tr key={user.id}
                         className="hover:bg-slate-50 transition-colors cursor-pointer"
-                        onClick={() => openUserDetail(user)}
-                      >
+                        onClick={() => openUserDetail(user)}>
                         <td className="py-3 pr-4">
                           <div className="flex items-center gap-2.5">
                             <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
@@ -340,7 +334,6 @@ export default function AdminUsersPage() {
                         </td>
                         <td className="py-3 pr-4 text-sm text-slate-500">{user.email}</td>
 
-                        {/* Rol — yalnız ADMIN dəyişə bilər */}
                         <td className="py-3 pr-4" onClick={(e) => e.stopPropagation()}>
                           {isTeacher ? (
                             <span className="text-xs px-2.5 py-1 rounded-full font-medium bg-slate-100 text-slate-600">
@@ -356,7 +349,6 @@ export default function AdminUsersPage() {
                           )}
                         </td>
 
-                        {/* Müəllim sütunu — yalnız ADMIN görür */}
                         {!isTeacher && (
                           <td className="py-3 pr-4" onClick={(e) => e.stopPropagation()}>
                             {user.role === "STUDENT" ? (
@@ -364,8 +356,7 @@ export default function AdminUsersPage() {
                                 value={user.teacherId ?? ""}
                                 onChange={(e) => updateUser(user.id, { teacherId: e.target.value || null })}
                                 className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 bg-white focus:outline-none focus:border-[rgb(147,204,255)] min-w-[130px]"
-                                style={{ fontSize: "max(14px, 0.75rem)", WebkitAppearance: "none", appearance: "none", paddingRight: "1.5rem", backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 0.4rem center" }}
-                              >
+                                style={{ fontSize: "max(14px, 0.75rem)", WebkitAppearance: "none", appearance: "none", paddingRight: "1.5rem", backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 0.4rem center" }}>
                                 <option value="">— Müəllim yoxdur —</option>
                                 {teachers.map((t: any) => (
                                   <option key={t.id} value={t.id}>{t.name}</option>
@@ -408,7 +399,8 @@ export default function AdminUsersPage() {
                 </div>
               )}
             </div>
-            <Pagination page={page} totalPages={totalPages} onPageChange={(p) => { setPage(p); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+            <Pagination page={page} totalPages={totalPages}
+              onPageChange={(p) => { setPage(p); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
           </>
         )}
       </div>

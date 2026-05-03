@@ -361,7 +361,30 @@ export default function RequestsPage() {
   const currentRole = (session?.user as any)?.role;
   const isTeacher   = currentRole === "TEACHER";
 
-  // Session yüklənənə qədər heç nə göstərmə
+  const { error } = useToast();
+  const [requests,     setRequests]     = useState<any[]>([]);
+  const [loading,      setLoading]      = useState(true);
+  const [showForm,     setShowForm]     = useState(false);
+  const [editingReq,   setEditingReq]   = useState<any>(null);
+  const [viewingReq,   setViewingReq]   = useState<any>(null);
+  const [selectedReq,  setSelectedReq]  = useState<any>(null);
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [page,         setPage]         = useState(1);
+  const [deletingId,   setDeletingId]   = useState<string | null>(null);
+
+  const totalPages   = Math.ceil(requests.length / PAGE_SIZE);
+  const paginated    = useMemo(
+    () => requests.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [requests, page]
+  );
+  const pendingCount = requests.filter((r) => r.status === "PENDING").length;
+
+  useEffect(() => {
+    if (status === "loading" || !currentRole) return;
+    fetchRequests();
+  }, [statusFilter, status, currentRole]);
+
+  // Session yüklənir — skeleton
   if (status === "loading" || !currentRole) {
     return (
       <div className="space-y-4">
@@ -374,19 +397,6 @@ export default function RequestsPage() {
       </div>
     );
   }
-
-  const { error } = useToast();
-  const [requests,     setRequests]     = useState<any[]>([]);
-  const [loading,      setLoading]      = useState(true);
-  const [showForm,     setShowForm]     = useState(false);
-  const [editingReq,   setEditingReq]   = useState<any>(null);   // müəllim redaktə
-  const [viewingReq,   setViewingReq]   = useState<any>(null);   // müəllim detay
-  const [selectedReq,  setSelectedReq]  = useState<any>(null);   // admin detay
-  const [statusFilter, setStatusFilter] = useState("ALL");
-  const [page,         setPage]         = useState(1);
-  const [deletingId,   setDeletingId]   = useState<string | null>(null);
-
-  useEffect(() => { fetchRequests(); }, [statusFilter]);
 
   const fetchRequests = async () => {
     setLoading(true);
@@ -416,13 +426,6 @@ export default function RequestsPage() {
       setDeletingId(null);
     }
   };
-
-  const totalPages   = Math.ceil(requests.length / PAGE_SIZE);
-  const paginated    = useMemo(
-    () => requests.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
-    [requests, page]
-  );
-  const pendingCount = requests.filter((r) => r.status === "PENDING").length;
 
   return (
     <div>
