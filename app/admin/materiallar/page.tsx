@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, Trash2, X, Edit, ExternalLink } from "lucide-react";
 import { useToast } from "@/components/ui/toast-1";
 import { getCategoryLabel, formatDate } from "@/lib/utils";
@@ -29,7 +28,7 @@ export default function AdminMaterialsPage() {
   const [showForm,        setShowForm]        = useState(false);
   const [editingMaterial, setEditingMaterial] = useState<any>(null);
   const [saving,          setSaving]          = useState(false);
-  const [form,            setForm,  clearMaterialDraft] = useFormDraft("material_form", emptyForm(), !!editingMaterial);
+  const [form,            setForm,  clearMaterialDraft] = useFormDraft("material_form", emptyForm(), false);
   const [uploaded,        setUploaded]        = useState<UploadResult | null>(null);
   const [page,            setPage]            = useState(1);
 

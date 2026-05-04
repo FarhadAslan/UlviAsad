@@ -5,8 +5,9 @@ import { useState, useEffect, useRef } from "react";
  * - Hər dəyişiklikdə avtomatik yadda saxlayır
  * - Uğurlu submit-dən sonra `clearDraft()` çağırılmalıdır
  * - Yalnız YENİ form üçün işləyir (edit formu üçün deyil)
+ * - Həm object, həm array tipləri üçün işləyir
  */
-export function useFormDraft<T extends object>(
+export function useFormDraft<T>(
   key: string,
   initialValue: T,
   isEditMode = false
@@ -18,7 +19,15 @@ export function useFormDraft<T extends object>(
     if (isEditMode) return initialValue;
     try {
       const saved = sessionStorage.getItem(storageKey);
-      if (saved) return { ...initialValue, ...JSON.parse(saved) };
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Array üçün birbaşa qaytar, object üçün merge et
+        if (Array.isArray(parsed)) return parsed as T;
+        if (typeof parsed === "object" && parsed !== null && typeof initialValue === "object" && !Array.isArray(initialValue)) {
+          return { ...(initialValue as object), ...parsed } as T;
+        }
+        return parsed as T;
+      }
     } catch {}
     return initialValue;
   };

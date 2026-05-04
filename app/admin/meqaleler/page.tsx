@@ -1,3 +1,5 @@
+"use client";
+
 import { useState, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, Trash2, Edit, X, ImagePlus, Loader2, XCircle } from "lucide-react";
