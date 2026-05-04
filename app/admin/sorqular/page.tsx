@@ -452,7 +452,7 @@ export default function RequestsPage() {
             </p>
           )}
         </div>
-        {isTeacher && !showForm && !editingReq && (
+        {isTeacher && action !== "create" && !editingReq && (
           <a href="/admin/sorqular?action=create" target="_blank" rel="noopener noreferrer"
             className="btn-primary flex items-center gap-2">
             <Plus size={16} /> Yeni Sorğu
