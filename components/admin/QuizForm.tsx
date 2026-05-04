@@ -78,6 +78,7 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
     }
   }, [categories, isEditMode]);
   const [uploadingIdx, setUploadingIdx] = useState<number | null>(null);
+  const [loading,      setLoading]      = useState(false);
   const fileInputRefs  = useRef<(HTMLInputElement | null)[]>([]);
 
   const handleImageUpload = async (qi: number, file: File) => {
