@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, Trash2, Edit, Share2, Check, Search, X } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useToast } from "@/components/ui/toast-1";
@@ -11,18 +12,21 @@ import Pagination from "@/components/Pagination";
 const PAGE_SIZE = 10;
 
 export default function AdminQuizzesPage() {
+  const router       = useRouter();
+  const searchParams = useSearchParams();
+  const action       = searchParams.get("action"); // "create" | "edit"
+  const editId       = searchParams.get("id");
+
   const { data: session, status } = useSession();
   const currentRole = (session?.user as any)?.role;
   const isTeacher   = currentRole === "TEACHER";
 
   const { success, error } = useToast();
 
-  // ── State-lər ────────────────────────────────────────────
   const [quizzes,        setQuizzes]        = useState<any[]>([]);
   const [teachers,       setTeachers]       = useState<any[]>([]);
   const [categories,     setCategories]     = useState<any[]>([]);
   const [loading,        setLoading]        = useState(true);
-  const [showForm,       setShowForm]       = useState(false);
   const [editingQuiz,    setEditingQuiz]    = useState<any>(null);
   const [editLoading,    setEditLoading]    = useState<string | null>(null);
   const [page,           setPage]           = useState(1);
@@ -34,7 +38,6 @@ export default function AdminQuizzesPage() {
   const [filterType,     setFilterType]     = useState("ALL");
   const [filterCategory, setFilterCategory] = useState("ALL");
 
-  // ── Funksiyalar (hook-lardan əvvəl, useCallback ilə) ─────
   const fetchQuizzes = useCallback(async () => {
     setLoading(true);
     try {
@@ -45,33 +48,33 @@ export default function AdminQuizzesPage() {
     finally { setLoading(false); }
   }, [error]);
 
-  // ── Effects ───────────────────────────────────────────────
+  // Edit üçün quiz yüklə
+  useEffect(() => {
+    if (action === "edit" && editId && !editingQuiz) {
+      fetch(`/api/quizzes/${editId}`)
+        .then((r) => r.json())
+        .then((d) => setEditingQuiz(d))
+        .catch(() => error("Quiz yüklənmədi"));
+    }
+    if (!action) setEditingQuiz(null);
+  }, [action, editId]);
+
   useEffect(() => {
     if (status === "loading" || !currentRole) return;
     fetchQuizzes();
     if (!isTeacher) {
-      fetch("/api/users/teachers")
-        .then((r) => r.json())
-        .then((d) => setTeachers(Array.isArray(d) ? d : []))
-        .catch(() => {});
-      fetch("/api/categories")
-        .then((r) => r.json())
-        .then((d) => setCategories(Array.isArray(d) ? d : []))
-        .catch(() => {});
+      fetch("/api/users/teachers").then((r) => r.json()).then((d) => setTeachers(Array.isArray(d) ? d : [])).catch(() => {});
+      fetch("/api/categories").then((r) => r.json()).then((d) => setCategories(Array.isArray(d) ? d : [])).catch(() => {});
     }
   }, [status, currentRole, fetchQuizzes, isTeacher]);
 
-  // ── Computed ──────────────────────────────────────────────
   const filtered = useMemo(() => {
     if (isTeacher) return quizzes;
     return quizzes.filter((q) => {
       if (search && !q.title.toLowerCase().includes(search.toLowerCase())) return false;
       if (filterTeacher !== "ALL") {
-        if (filterTeacher === "ADMIN") {
-          if (q.createdById !== null && q.createdById !== undefined) return false;
-        } else {
-          if (q.createdById !== filterTeacher) return false;
-        }
+        if (filterTeacher === "ADMIN") { if (q.createdById !== null && q.createdById !== undefined) return false; }
+        else { if (q.createdById !== filterTeacher) return false; }
       }
       if (filterType     !== "ALL" && q.type     !== filterType)     return false;
       if (filterCategory !== "ALL" && q.category !== filterCategory) return false;
@@ -81,7 +84,6 @@ export default function AdminQuizzesPage() {
 
   const hasFilters = !!(search || filterTeacher !== "ALL" || filterType !== "ALL" || filterCategory !== "ALL");
 
-  // ── Session yüklənir — skeleton ───────────────────────────
   if (status === "loading" || !currentRole) {
     return (
       <div className="space-y-4">
@@ -95,18 +97,17 @@ export default function AdminQuizzesPage() {
     );
   }
 
-  // ── Quiz formu ────────────────────────────────────────────
-  if (showForm || editingQuiz) {
+  // Form görünüşü — URL-dən idarə olunur
+  if (action === "create" || action === "edit") {
     return (
       <QuizForm
-        quiz={editingQuiz}
-        onSuccess={() => { setShowForm(false); setEditingQuiz(null); fetchQuizzes(); }}
-        onCancel={() => { setShowForm(false); setEditingQuiz(null); }}
+        quiz={action === "edit" ? editingQuiz : undefined}
+        onSuccess={() => { router.push("/admin/quizler"); fetchQuizzes(); }}
+        onCancel={() => router.push("/admin/quizler")}
       />
     );
   }
 
-  // ── Handlers ──────────────────────────────────────────────
   const clearFilters = () => {
     setSearch(""); setFilterTeacher("ALL"); setFilterType("ALL"); setFilterCategory("ALL"); setPage(1);
   };
@@ -115,17 +116,14 @@ export default function AdminQuizzesPage() {
     setTogglingId(quiz.id);
     try {
       const res  = await fetch(`/api/quizzes/${quiz.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ active: !quiz.active }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         success(quiz.active ? "Quiz deaktiv edildi" : "Quiz aktiv edildi");
         setQuizzes((prev) => prev.map((q) => q.id === quiz.id ? { ...q, active: !quiz.active } : q));
-      } else {
-        error(data?.error || "Status dəyişdirilmədi");
-      }
+      } else { error(data?.error || "Status dəyişdirilmədi"); }
     } catch { error("Şəbəkə xətası baş verdi"); }
     finally { setTogglingId(null); }
   };
@@ -134,8 +132,7 @@ export default function AdminQuizzesPage() {
     const url = `${window.location.origin}/quizler/${quizId}`;
     try {
       await navigator.clipboard.writeText(url);
-      success("Link kopyalandı!");
-      setCopiedId(quizId);
+      success("Link kopyalandı!"); setCopiedId(quizId);
       setTimeout(() => setCopiedId(null), 2000);
     } catch { prompt("Linki kopyalayın:", url); }
   };
@@ -146,6 +143,7 @@ export default function AdminQuizzesPage() {
       const res = await fetch(`/api/quizzes/${quiz.id}`);
       if (!res.ok) { error("Quiz məlumatları yüklənmədi"); return; }
       setEditingQuiz(await res.json());
+      router.push(`/admin/quizler?action=edit&id=${quiz.id}`);
     } catch { error("Xəta baş verdi"); }
     finally { setEditLoading(null); }
   };
@@ -156,17 +154,12 @@ export default function AdminQuizzesPage() {
     try {
       const res  = await fetch(`/api/quizzes/${id}`, { method: "DELETE" });
       const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        success("Quiz silindi");
-        setQuizzes((prev) => prev.filter((q) => q.id !== id));
-      } else {
-        error(data?.error || "Quiz silinərkən xəta baş verdi");
-      }
+      if (res.ok) { success("Quiz silindi"); setQuizzes((prev) => prev.filter((q) => q.id !== id)); }
+      else { error(data?.error || "Quiz silinərkən xəta baş verdi"); }
     } catch { error("Şəbəkə xətası baş verdi"); }
     finally { setDeletingId(null); }
   };
 
-  // ── Render ────────────────────────────────────────────────
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paginated  = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const selectCls  = "text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 bg-white focus:outline-none focus:border-[rgb(147,204,255)] cursor-pointer";
@@ -177,12 +170,13 @@ export default function AdminQuizzesPage() {
         <h1 className="text-3xl font-bold text-slate-900">
           {isTeacher ? "Quizlərim" : "Quizlər"}
         </h1>
-        <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-2">
+        {/* Yeni tab-da açmaq üçün target="_blank" */}
+        <a href="/admin/quizler?action=create" target="_blank" rel="noopener noreferrer"
+          className="btn-primary flex items-center gap-2">
           <Plus size={16} /> Yeni Quiz
-        </button>
+        </a>
       </div>
 
-      {/* Filterlər — yalnız ADMIN */}
       {!isTeacher && (
         <div className="card-static mb-5">
           <div className="flex flex-wrap items-center gap-3">
@@ -193,41 +187,25 @@ export default function AdminQuizzesPage() {
                 placeholder="Ada görə axtar..."
                 className="input-field pl-8 py-1.5 text-sm h-9" />
             </div>
-
-            <select value={filterTeacher}
-              onChange={(e) => { setFilterTeacher(e.target.value); setPage(1); }}
-              className={selectCls}>
+            <select value={filterTeacher} onChange={(e) => { setFilterTeacher(e.target.value); setPage(1); }} className={selectCls}>
               <option value="ALL">Bütün müəllimlər</option>
               <option value="ADMIN">Admin (müəllim yoxdur)</option>
-              {teachers.map((t: any) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
+              {teachers.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
-
-            <select value={filterType}
-              onChange={(e) => { setFilterType(e.target.value); setPage(1); }}
-              className={selectCls}>
+            <select value={filterType} onChange={(e) => { setFilterType(e.target.value); setPage(1); }} className={selectCls}>
               <option value="ALL">Bütün tiplər</option>
               <option value="SINAQ">⏱ Sınaq</option>
               <option value="TEST">📝 Test</option>
             </select>
-
-            <select value={filterCategory}
-              onChange={(e) => { setFilterCategory(e.target.value); setPage(1); }}
-              className={selectCls}>
+            <select value={filterCategory} onChange={(e) => { setFilterCategory(e.target.value); setPage(1); }} className={selectCls}>
               <option value="ALL">Bütün kateqoriyalar</option>
-              {categories.map((c: any) => (
-                <option key={c.value} value={c.value}>{c.label}</option>
-              ))}
+              {categories.map((c: any) => <option key={c.value} value={c.value}>{c.label}</option>)}
             </select>
-
             {hasFilters && (
-              <button onClick={clearFilters}
-                className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition-all border border-slate-200">
+              <button onClick={clearFilters} className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition-all border border-slate-200">
                 <X size={12} /> Təmizlə
               </button>
             )}
-
             <span className="text-xs text-slate-400 ml-auto">{filtered.length} quiz</span>
           </div>
         </div>
@@ -237,8 +215,7 @@ export default function AdminQuizzesPage() {
         {loading ? (
           <div className="space-y-3">
             {[...Array(5)].map((_, i) => (
-              <div key={i} className="h-12 rounded-xl animate-pulse"
-                style={{ background: "rgba(147,204,255,0.08)" }} />
+              <div key={i} className="h-12 rounded-xl animate-pulse" style={{ background: "rgba(147,204,255,0.08)" }} />
             ))}
           </div>
         ) : (
@@ -247,11 +224,7 @@ export default function AdminQuizzesPage() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-100">
-                    {[
-                      "Başlıq", "Kateqoriya", "Tip", "Suallar", "Görünürlük",
-                      ...(isTeacher ? [] : ["Müəllim"]),
-                      "Status", "Əməliyyatlar",
-                    ].map((h) => (
+                    {["Başlıq","Kateqoriya","Tip","Suallar","Görünürlük",...(isTeacher?[]:["Müəllim"]),"Status","Əməliyyatlar"].map((h) => (
                       <th key={h} className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 pr-4">{h}</th>
                     ))}
                   </tr>
@@ -260,46 +233,30 @@ export default function AdminQuizzesPage() {
                   {paginated.map((quiz) => (
                     <tr key={quiz.id} className="hover:bg-slate-50 transition-colors">
                       <td className="py-3 pr-4 font-medium text-sm text-slate-800 max-w-[180px] truncate">{quiz.title}</td>
+                      <td className="py-3 pr-4"><span className="badge-category">{getCategoryLabel(quiz.category)}</span></td>
                       <td className="py-3 pr-4">
-                        <span className="badge-category">{getCategoryLabel(quiz.category)}</span>
-                      </td>
-                      <td className="py-3 pr-4">
-                        <span className={quiz.type === "SINAQ" ? "badge-type-sinaq" : "badge-type-test"}>
-                          {getTypeLabel(quiz.type)}
-                        </span>
+                        <span className={quiz.type === "SINAQ" ? "badge-type-sinaq" : "badge-type-test"}>{getTypeLabel(quiz.type)}</span>
                       </td>
                       <td className="py-3 pr-4 text-sm text-slate-500">{quiz._count?.questions || 0}</td>
                       <td className="py-3 pr-4">
-                        <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                          quiz.visibility === "PUBLIC"
-                            ? "bg-green-50 text-green-700 border border-green-100"
-                            : "bg-amber-50 text-amber-700 border border-amber-100"
-                        }`}>
+                        <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${quiz.visibility === "PUBLIC" ? "bg-green-50 text-green-700 border border-green-100" : "bg-amber-50 text-amber-700 border border-amber-100"}`}>
                           {quiz.visibility === "PUBLIC" ? "🌐 Açıq" : "🔒 Tələbə"}
                         </span>
                       </td>
-
                       {!isTeacher && (
                         <td className="py-3 pr-4 text-sm text-slate-500">
                           {quiz.createdBy?.name ?? <span className="text-slate-300">Admin</span>}
                         </td>
                       )}
-
                       <td className="py-3 pr-4">
                         <button onClick={() => toggleActive(quiz)} disabled={togglingId === quiz.id}
-                          title="Klikləyin: aktiv/deaktiv et"
-                          className={`text-xs px-2.5 py-1 rounded-full font-medium inline-flex items-center gap-1 transition-all cursor-pointer hover:opacity-80 disabled:opacity-50 ${
-                            quiz.active !== false
-                              ? "bg-green-50 text-green-700 border border-green-100"
-                              : "bg-slate-100 text-slate-500 border border-slate-200"
-                          }`}>
+                          className={`text-xs px-2.5 py-1 rounded-full font-medium inline-flex items-center gap-1 transition-all cursor-pointer hover:opacity-80 disabled:opacity-50 ${quiz.active !== false ? "bg-green-50 text-green-700 border border-green-100" : "bg-slate-100 text-slate-500 border border-slate-200"}`}>
                           {togglingId === quiz.id
                             ? <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
                             : <span className={`w-1.5 h-1.5 rounded-full ${quiz.active !== false ? "bg-green-500" : "bg-slate-400"}`} />}
                           {quiz.active !== false ? "Aktiv" : "Deaktiv"}
                         </button>
                       </td>
-
                       <td className="py-3">
                         <div className="flex items-center gap-1.5">
                           <button onClick={() => handleEdit(quiz)} disabled={editLoading === quiz.id}
@@ -308,11 +265,8 @@ export default function AdminQuizzesPage() {
                               ? <div className="w-3.5 h-3.5 border-2 border-blue-200 border-t-[#1a7fe0] rounded-full animate-spin" />
                               : <Edit size={14} />}
                           </button>
-                          <button onClick={() => copyLink(quiz.id)}
-                            className="p-1.5 text-[#1a7fe0] hover:bg-blue-50 rounded-lg transition-all" title="Linki kopyala">
-                            {copiedId === quiz.id
-                              ? <Check size={14} className="text-green-500" />
-                              : <Share2 size={14} />}
+                          <button onClick={() => copyLink(quiz.id)} className="p-1.5 text-[#1a7fe0] hover:bg-blue-50 rounded-lg transition-all" title="Linki kopyala">
+                            {copiedId === quiz.id ? <Check size={14} className="text-green-500" /> : <Share2 size={14} />}
                           </button>
                           <button onClick={() => deleteQuiz(quiz.id)} disabled={deletingId === quiz.id}
                             className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-all disabled:opacity-50" title="Sil">
@@ -328,11 +282,7 @@ export default function AdminQuizzesPage() {
               </table>
               {filtered.length === 0 && (
                 <div className="text-center py-12 text-slate-400">
-                  {isTeacher
-                    ? "Hələ quiz yaratmamısınız"
-                    : hasFilters
-                    ? "Filtrə uyğun quiz tapılmadı"
-                    : "Hələ quiz əlavə edilməyib"}
+                  {isTeacher ? "Hələ quiz yaratmamısınız" : hasFilters ? "Filtrə uyğun quiz tapılmadı" : "Hələ quiz əlavə edilməyib"}
                 </div>
               )}
             </div>

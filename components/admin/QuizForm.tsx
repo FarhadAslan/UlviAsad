@@ -5,6 +5,7 @@ import { Plus, Trash2, X, ImagePlus, Loader2, XCircle } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useToast } from "@/components/ui/toast-1";
 import QuizQuestionEditor, { stripHtml } from "@/components/ui/quiz-question-editor";
+import { useFormDraft } from "@/lib/useFormDraft";
 
 const emptyQuestion = () => ({
   text: "",
@@ -39,33 +40,43 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
       .catch(() => {});
   }, []);
 
-  const [form, setForm] = useState({
+  const isEditMode = !!quiz;
+
+  const initialForm = {
     title:      quiz?.title      || "",
     category:   quiz?.category   || "",
     type:       quiz?.type       || "TEST",
     duration:   quiz?.duration   || 10,
     visibility: quiz?.visibility || "PUBLIC",
     active:     quiz?.active !== undefined ? quiz.active : true,
-  });
+  };
 
-  // Kateqoriyalar yüklənəndə default seç
+  const [form, setForm, clearFormDraft] = useFormDraft(
+    "quiz_form",
+    initialForm,
+    isEditMode
+  );
+
+  const initialQuestions = quiz?.questions?.length
+    ? quiz.questions.map((q: any) => ({
+        text: q.text,
+        imageUrl: q.imageUrl || "",
+        options: typeof q.options === "string" ? JSON.parse(q.options) : q.options,
+        correctOption: q.correctOption,
+      }))
+    : [emptyQuestion()];
+
+  const [questions, setQuestions, clearQuestionsDraft] = useFormDraft<any[]>(
+    "quiz_questions",
+    initialQuestions,
+    isEditMode
+  );
+  // Kateqoriyalar yüklənəndə default seç (yalnız yeni form və kateqoriya seçilməyibsə)
   useEffect(() => {
-    if (!form.category && categories.length > 0) {
+    if (!isEditMode && !form.category && categories.length > 0) {
       setForm((p) => ({ ...p, category: categories[0].value }));
     }
-  }, [categories]);
-
-  const [questions, setQuestions] = useState<any[]>(
-    quiz?.questions?.length
-      ? quiz.questions.map((q: any) => ({
-          text: q.text,
-          imageUrl: q.imageUrl || "",
-          options: typeof q.options === "string" ? JSON.parse(q.options) : q.options,
-          correctOption: q.correctOption,
-        }))
-      : [emptyQuestion()]
-  );
-  const [loading,      setLoading]      = useState(false);
+  }, [categories, isEditMode]);
   const [uploadingIdx, setUploadingIdx] = useState<number | null>(null);
   const fileInputRefs  = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -120,7 +131,12 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (res.ok) { success(quiz ? "Quiz yeniləndi" : "Quiz yaradıldı"); onSuccess(); }
+      if (res.ok) {
+        success(quiz ? "Quiz yeniləndi" : "Quiz yaradıldı");
+        clearFormDraft();
+        clearQuestionsDraft();
+        onSuccess();
+      }
       else { const d = await res.json(); error(d.error || "Xəta baş verdi"); }
     } catch { error("Xəta baş verdi"); }
     finally { setLoading(false); }

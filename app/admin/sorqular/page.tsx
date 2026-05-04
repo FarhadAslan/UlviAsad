@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useToast } from "@/components/ui/toast-1";
 import { formatDate } from "@/lib/utils";
 import Pagination from "@/components/Pagination";
+import { useFormDraft } from "@/lib/useFormDraft";
 import {
   Plus, X, Eye, Clock, Loader2,
   CheckCircle2, CircleDot, Trash2, Edit,
@@ -59,12 +61,16 @@ function RequestForm({
 }) {
   const { error, success } = useToast();
   const isEdit = !!initial;
-  const [form, setForm] = useState({
-    title:   initial?.title   ?? "",
-    message: initial?.message ?? "",
-    type:    initial?.type    ?? "GENERAL",
-  });
+  const emptyReqForm = { title: "", message: "", type: "GENERAL" };
+  const [form, setForm, clearDraft] = useFormDraft("request_form", emptyReqForm, isEdit);
   const [saving, setSaving] = useState(false);
+
+  // Edit modunda formu doldur
+  useEffect(() => {
+    if (isEdit && initial) {
+      setForm({ title: initial.title, message: initial.message, type: initial.type });
+    }
+  }, [isEdit, initial?.id]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -88,6 +94,7 @@ function RequestForm({
       const data = await res.json();
       if (res.ok) {
         success(isEdit ? "Sorğu yeniləndi" : "Sorğu göndərildi");
+        clearDraft();
         onSuccess();
       } else {
         error(data.error || "Xəta baş verdi");
@@ -357,6 +364,10 @@ function AdminDetailModal({
 
 // ── Əsas səhifə ─────────────────────────────────────────────
 export default function RequestsPage() {
+  const router       = useRouter();
+  const searchParams = useSearchParams();
+  const action       = searchParams.get("action");
+
   const { data: session, status } = useSession();
   const currentRole = (session?.user as any)?.role;
   const isTeacher   = currentRole === "TEACHER";
@@ -364,7 +375,6 @@ export default function RequestsPage() {
   const { error } = useToast();
   const [requests,     setRequests]     = useState<any[]>([]);
   const [loading,      setLoading]      = useState(true);
-  const [showForm,     setShowForm]     = useState(false);
   const [editingReq,   setEditingReq]   = useState<any>(null);
   const [viewingReq,   setViewingReq]   = useState<any>(null);
   const [selectedReq,  setSelectedReq]  = useState<any>(null);
@@ -379,26 +389,8 @@ export default function RequestsPage() {
   );
   const pendingCount = requests.filter((r) => r.status === "PENDING").length;
 
-  useEffect(() => {
-    if (status === "loading" || !currentRole) return;
-    fetchRequests();
-  }, [statusFilter, status, currentRole]);
-
-  // Session yüklənir — skeleton
-  if (status === "loading" || !currentRole) {
-    return (
-      <div className="space-y-4">
-        <div className="h-10 w-48 rounded-xl animate-pulse" style={{ background: "rgba(147,204,255,0.1)" }} />
-        <div className="card-static space-y-3">
-          {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-12 rounded-xl animate-pulse" style={{ background: "rgba(147,204,255,0.08)" }} />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  const fetchRequests = async () => {
+  // fetchRequests useCallback ilə — useEffect-dən əvvəl təyin edilməlidir
+  const fetchRequests = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -411,9 +403,9 @@ export default function RequestsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [statusFilter, error]);
 
-  const deleteRequest = async (id: string) => {
+  const deleteRequest = useCallback(async (id: string) => {
     if (!confirm("Bu sorğunu silmək istədiyinizə əminsiniz?")) return;
     setDeletingId(id);
     try {
@@ -425,7 +417,26 @@ export default function RequestsPage() {
     } finally {
       setDeletingId(null);
     }
-  };
+  }, [error]);
+
+  useEffect(() => {
+    if (status === "loading" || !currentRole) return;
+    fetchRequests();
+  }, [statusFilter, status, currentRole, fetchRequests]);
+
+  // ── Session yüklənir — skeleton ──────────────────────────
+  if (status === "loading" || !currentRole) {
+    return (
+      <div className="space-y-4">
+        <div className="h-10 w-48 rounded-xl animate-pulse" style={{ background: "rgba(147,204,255,0.1)" }} />
+        <div className="card-static space-y-3">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="h-12 rounded-xl animate-pulse" style={{ background: "rgba(147,204,255,0.08)" }} />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -442,17 +453,18 @@ export default function RequestsPage() {
           )}
         </div>
         {isTeacher && !showForm && !editingReq && (
-          <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-2">
+          <a href="/admin/sorqular?action=create" target="_blank" rel="noopener noreferrer"
+            className="btn-primary flex items-center gap-2">
             <Plus size={16} /> Yeni Sorğu
-          </button>
+          </a>
         )}
       </div>
 
       {/* Müəllim: Yeni sorğu formu */}
-      {isTeacher && showForm && (
+      {isTeacher && action === "create" && (
         <RequestForm
-          onSuccess={() => { setShowForm(false); fetchRequests(); }}
-          onCancel={() => setShowForm(false)}
+          onSuccess={() => { router.push("/admin/sorqular"); fetchRequests(); }}
+          onCancel={() => router.push("/admin/sorqular")}
         />
       )}
 
@@ -466,7 +478,7 @@ export default function RequestsPage() {
       )}
 
       {/* Status filter */}
-      {!showForm && !editingReq && (
+      {!(action === "create") && !editingReq && (
         <div className="flex items-center gap-2 mb-5 flex-wrap">
           {[{ value: "ALL", label: "Hamısı" }, ...STATUSES.map((s) => ({ value: s.value, label: s.label }))].map((f) => (
             <button key={f.value}
@@ -488,7 +500,7 @@ export default function RequestsPage() {
       )}
 
       {/* Cədvəl */}
-      {!showForm && !editingReq && (
+      {!(action === "create") && !editingReq && (
         <div className="card-static overflow-hidden">
           {loading ? (
             <div className="flex items-center justify-center py-16">
@@ -501,7 +513,7 @@ export default function RequestsPage() {
                 {isTeacher ? "Hələ sorğu göndərməmisiniz" : "Sorğu tapılmadı"}
               </p>
               {isTeacher && (
-                <button onClick={() => setShowForm(true)}
+                <button onClick={() => router.push("/admin/sorqular?action=create")}
                   className="mt-4 btn-primary text-sm px-5 py-2">
                   İlk sorğunu yarat
                 </button>

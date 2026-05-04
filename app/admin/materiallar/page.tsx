@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, Trash2, X, Edit, ExternalLink } from "lucide-react";
 import { useToast } from "@/components/ui/toast-1";
 import { getCategoryLabel, formatDate } from "@/lib/utils";
 import FileUpload from "@/components/ui/file-upload";
 import Pagination from "@/components/Pagination";
+import { useFormDraft } from "@/lib/useFormDraft";
 
 const CATEGORIES = [
   { value: "QANUNVERICILIK", label: "Qanunvericilik" },
@@ -27,7 +29,7 @@ export default function AdminMaterialsPage() {
   const [showForm,        setShowForm]        = useState(false);
   const [editingMaterial, setEditingMaterial] = useState<any>(null);
   const [saving,          setSaving]          = useState(false);
-  const [form,            setForm]            = useState(emptyForm());
+  const [form,            setForm,  clearMaterialDraft] = useFormDraft("material_form", emptyForm(), !!editingMaterial);
   const [uploaded,        setUploaded]        = useState<UploadResult | null>(null);
   const [page,            setPage]            = useState(1);
 
@@ -65,8 +67,9 @@ export default function AdminMaterialsPage() {
       });
       if (res.ok) {
         success(editingMaterial ? "Material yeniləndi" : "Material əlavə edildi");
+        clearMaterialDraft();
         closeForm();
-        fetchMaterials(); // real-time refresh
+        fetchMaterials();
       } else {
         const d = await res.json();
         error(d.error || "Xəta baş verdi");

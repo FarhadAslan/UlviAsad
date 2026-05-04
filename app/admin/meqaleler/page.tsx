@@ -1,35 +1,46 @@
-"use client";
-
 import { useState, useEffect, useRef } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, Trash2, Edit, X, ImagePlus, Loader2, XCircle } from "lucide-react";
 import { useToast } from "@/components/ui/toast-1";
 import { formatDate } from "@/lib/utils";
 import RichEditor from "@/components/ui/rich-editor";
+import { useFormDraft } from "@/lib/useFormDraft";
 
 export default function AdminArticlesPage() {
+  const router       = useRouter();
+  const searchParams = useSearchParams();
+  const action       = searchParams.get("action");
+  const editId       = searchParams.get("id");
+
   const { success, error } = useToast();
   const [articles, setArticles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [editingArticle, setEditingArticle] = useState<any>(null);
-  const [form, setForm] = useState({ title: "", summary: "", content: "", imageUrl: "", active: true });
+  const isEditMode = action === "edit";
+  const emptyArticleForm = { title: "", summary: "", content: "", imageUrl: "", active: true };
+  const [form, setForm, clearArticleDraft] = useFormDraft("article_form", emptyArticleForm, isEditMode);
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [editingArticle, setEditingArticle] = useState<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { fetchArticles(); }, []);
+
+  // Edit üçün məqaləni yüklə
   useEffect(() => {
-    if (editingArticle) {
-      setForm({ 
-        title: editingArticle.title, 
-        summary: editingArticle.summary || "", 
-        content: editingArticle.content, 
-        imageUrl: editingArticle.imageUrl || "",
-        active: editingArticle.active !== false 
-      });
-      setShowForm(true);
+    if (action === "edit" && editId) {
+      fetch(`/api/articles/${editId}`)
+        .then((r) => r.json())
+        .then((d) => {
+          setEditingArticle(d);
+          setForm({ title: d.title, summary: d.summary || "", content: d.content, imageUrl: d.imageUrl || "", active: d.active !== false });
+        })
+        .catch(() => error("Məqalə yüklənmədi"));
     }
-  }, [editingArticle]);
+    if (!action) {
+      setEditingArticle(null);
+      setForm({ title: "", summary: "", content: "", imageUrl: "", active: true });
+    }
+  }, [action, editId]);
 
   const fetchArticles = async () => {
     setLoading(true);
@@ -86,16 +97,17 @@ export default function AdminArticlesPage() {
       });
       if (res.ok) {
         success(editingArticle ? "Məqalə yeniləndi" : "Məqalə yaradıldı");
+        clearArticleDraft();
         resetForm(); fetchArticles();
       } else { const d = await res.json(); error(d.error || "Xəta baş verdi"); }
     } catch { error("Xəta baş verdi"); }
     finally { setSaving(false); }
   };
 
-  const resetForm = () => { 
-    setShowForm(false); 
-    setEditingArticle(null); 
-    setForm({ title: "", summary: "", content: "", imageUrl: "", active: true }); 
+  const resetForm = () => {
+    router.push("/admin/meqaleler");
+    setEditingArticle(null);
+    setForm({ title: "", summary: "", content: "", imageUrl: "", active: true });
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -109,7 +121,7 @@ export default function AdminArticlesPage() {
 
   const labelCls = "block text-sm font-medium text-slate-700 mb-1.5";
 
-  if (showForm) {
+  if (action === "create" || action === "edit") {
     return (
       <div>
         <div className="flex items-center justify-between mb-8">
@@ -249,9 +261,10 @@ export default function AdminArticlesPage() {
     <div>
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-3xl font-bold text-slate-900">Məqalələr</h1>
-        <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-2">
+        <a href="/admin/meqaleler?action=create" target="_blank" rel="noopener noreferrer"
+          className="btn-primary flex items-center gap-2">
           <Plus size={16} /> Yeni Məqalə
-        </button>
+        </a>
       </div>
       <div className="card-static overflow-hidden">
         {loading ? (
@@ -298,7 +311,7 @@ export default function AdminArticlesPage() {
                     <td className="py-3 pr-4 text-sm text-slate-400">{formatDate(a.createdAt)}</td>
                     <td className="py-3">
                       <div className="flex items-center gap-1.5">
-                        <button onClick={() => setEditingArticle(a)}
+                        <button onClick={() => { setEditingArticle(a); router.push(`/admin/meqaleler?action=edit&id=${a.id}`); }}
                           className="p-1.5 text-[#1a7fe0] hover:bg-blue-50 rounded-lg transition-all">
                           <Edit size={14} />
                         </button>
