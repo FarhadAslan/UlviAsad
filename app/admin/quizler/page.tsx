@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Plus, Trash2, Edit, Share2, Check, Search, X } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useToast } from "@/components/ui/toast-1";
@@ -16,6 +16,8 @@ export default function AdminQuizzesPage() {
   const isTeacher   = currentRole === "TEACHER";
 
   const { success, error } = useToast();
+
+  // ── State-lər ────────────────────────────────────────────
   const [quizzes,        setQuizzes]        = useState<any[]>([]);
   const [teachers,       setTeachers]       = useState<any[]>([]);
   const [categories,     setCategories]     = useState<any[]>([]);
@@ -32,16 +34,54 @@ export default function AdminQuizzesPage() {
   const [filterType,     setFilterType]     = useState("ALL");
   const [filterCategory, setFilterCategory] = useState("ALL");
 
+  // ── Funksiyalar (hook-lardan əvvəl, useCallback ilə) ─────
+  const fetchQuizzes = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res  = await fetch("/api/quizzes?adminAll=true", { cache: "no-store" });
+      const data = await res.json();
+      setQuizzes(Array.isArray(data) ? data : []);
+    } catch { error("Xəta baş verdi"); }
+    finally { setLoading(false); }
+  }, [error]);
+
+  // ── Effects ───────────────────────────────────────────────
   useEffect(() => {
     if (status === "loading" || !currentRole) return;
     fetchQuizzes();
     if (!isTeacher) {
-      fetch("/api/users/teachers").then((r) => r.json()).then((d) => setTeachers(Array.isArray(d) ? d : [])).catch(() => {});
-      fetch("/api/categories").then((r) => r.json()).then((d) => setCategories(Array.isArray(d) ? d : [])).catch(() => {});
+      fetch("/api/users/teachers")
+        .then((r) => r.json())
+        .then((d) => setTeachers(Array.isArray(d) ? d : []))
+        .catch(() => {});
+      fetch("/api/categories")
+        .then((r) => r.json())
+        .then((d) => setCategories(Array.isArray(d) ? d : []))
+        .catch(() => {});
     }
-  }, [status, currentRole]);
+  }, [status, currentRole, fetchQuizzes, isTeacher]);
 
-  // Session yüklənir — skeleton
+  // ── Computed ──────────────────────────────────────────────
+  const filtered = useMemo(() => {
+    if (isTeacher) return quizzes;
+    return quizzes.filter((q) => {
+      if (search && !q.title.toLowerCase().includes(search.toLowerCase())) return false;
+      if (filterTeacher !== "ALL") {
+        if (filterTeacher === "ADMIN") {
+          if (q.createdById !== null && q.createdById !== undefined) return false;
+        } else {
+          if (q.createdById !== filterTeacher) return false;
+        }
+      }
+      if (filterType     !== "ALL" && q.type     !== filterType)     return false;
+      if (filterCategory !== "ALL" && q.category !== filterCategory) return false;
+      return true;
+    });
+  }, [quizzes, search, filterTeacher, filterType, filterCategory, isTeacher]);
+
+  const hasFilters = !!(search || filterTeacher !== "ALL" || filterType !== "ALL" || filterCategory !== "ALL");
+
+  // ── Session yüklənir — skeleton ───────────────────────────
   if (status === "loading" || !currentRole) {
     return (
       <div className="space-y-4">
@@ -55,33 +95,18 @@ export default function AdminQuizzesPage() {
     );
   }
 
-  const fetchQuizzes = async () => {
-    setLoading(true);
-    try {
-      const res  = await fetch("/api/quizzes?adminAll=true", { cache: "no-store" });
-      const data = await res.json();
-      setQuizzes(Array.isArray(data) ? data : []);
-    } catch { error("Xəta baş verdi"); }
-    finally { setLoading(false); }
-  };
+  // ── Quiz formu ────────────────────────────────────────────
+  if (showForm || editingQuiz) {
+    return (
+      <QuizForm
+        quiz={editingQuiz}
+        onSuccess={() => { setShowForm(false); setEditingQuiz(null); fetchQuizzes(); }}
+        onCancel={() => { setShowForm(false); setEditingQuiz(null); }}
+      />
+    );
+  }
 
-  // Client-side filter (admin üçün)
-  const filtered = useMemo(() => {
-    if (isTeacher) return quizzes;
-    return quizzes.filter((q) => {
-      if (search && !q.title.toLowerCase().includes(search.toLowerCase())) return false;
-      if (filterTeacher !== "ALL") {
-        if (filterTeacher === "ADMIN") { if (q.createdById !== null && q.createdById !== undefined) return false; }
-        else { if (q.createdById !== filterTeacher) return false; }
-      }
-      if (filterType !== "ALL" && q.type !== filterType) return false;
-      if (filterCategory !== "ALL" && q.category !== filterCategory) return false;
-      return true;
-    });
-  }, [quizzes, search, filterTeacher, filterType, filterCategory, isTeacher]);
-
-  const hasFilters = search || filterTeacher !== "ALL" || filterType !== "ALL" || filterCategory !== "ALL";
-
+  // ── Handlers ──────────────────────────────────────────────
   const clearFilters = () => {
     setSearch(""); setFilterTeacher("ALL"); setFilterType("ALL"); setFilterCategory("ALL"); setPage(1);
   };
@@ -90,14 +115,17 @@ export default function AdminQuizzesPage() {
     setTogglingId(quiz.id);
     try {
       const res  = await fetch(`/api/quizzes/${quiz.id}`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ active: !quiz.active }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         success(quiz.active ? "Quiz deaktiv edildi" : "Quiz aktiv edildi");
         setQuizzes((prev) => prev.map((q) => q.id === quiz.id ? { ...q, active: !quiz.active } : q));
-      } else { error(data?.error || "Status dəyişdirilmədi"); }
+      } else {
+        error(data?.error || "Status dəyişdirilmədi");
+      }
     } catch { error("Şəbəkə xətası baş verdi"); }
     finally { setTogglingId(null); }
   };
@@ -106,7 +134,8 @@ export default function AdminQuizzesPage() {
     const url = `${window.location.origin}/quizler/${quizId}`;
     try {
       await navigator.clipboard.writeText(url);
-      success("Link kopyalandı!"); setCopiedId(quizId);
+      success("Link kopyalandı!");
+      setCopiedId(quizId);
       setTimeout(() => setCopiedId(null), 2000);
     } catch { prompt("Linki kopyalayın:", url); }
   };
@@ -130,23 +159,17 @@ export default function AdminQuizzesPage() {
       if (res.ok) {
         success("Quiz silindi");
         setQuizzes((prev) => prev.filter((q) => q.id !== id));
-      } else { error(data?.error || "Quiz silinərkən xəta baş verdi"); }
+      } else {
+        error(data?.error || "Quiz silinərkən xəta baş verdi");
+      }
     } catch { error("Şəbəkə xətası baş verdi"); }
     finally { setDeletingId(null); }
   };
 
-  if (showForm || editingQuiz) {
-    return (
-      <QuizForm quiz={editingQuiz}
-        onSuccess={() => { setShowForm(false); setEditingQuiz(null); fetchQuizzes(); }}
-        onCancel={() => { setShowForm(false); setEditingQuiz(null); }} />
-    );
-  }
-
+  // ── Render ────────────────────────────────────────────────
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paginated  = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-
-  const selectCls = "text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 bg-white focus:outline-none focus:border-[rgb(147,204,255)] cursor-pointer";
+  const selectCls  = "text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 bg-white focus:outline-none focus:border-[rgb(147,204,255)] cursor-pointer";
 
   return (
     <div>
@@ -163,7 +186,6 @@ export default function AdminQuizzesPage() {
       {!isTeacher && (
         <div className="card-static mb-5">
           <div className="flex flex-wrap items-center gap-3">
-            {/* Axtarış */}
             <div className="relative flex-1 min-w-[180px]">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input type="text" value={search}
@@ -172,7 +194,6 @@ export default function AdminQuizzesPage() {
                 className="input-field pl-8 py-1.5 text-sm h-9" />
             </div>
 
-            {/* Müəllim filteri */}
             <select value={filterTeacher}
               onChange={(e) => { setFilterTeacher(e.target.value); setPage(1); }}
               className={selectCls}>
@@ -183,7 +204,6 @@ export default function AdminQuizzesPage() {
               ))}
             </select>
 
-            {/* Tip filteri */}
             <select value={filterType}
               onChange={(e) => { setFilterType(e.target.value); setPage(1); }}
               className={selectCls}>
@@ -192,7 +212,6 @@ export default function AdminQuizzesPage() {
               <option value="TEST">📝 Test</option>
             </select>
 
-            {/* Kateqoriya filteri */}
             <select value={filterCategory}
               onChange={(e) => { setFilterCategory(e.target.value); setPage(1); }}
               className={selectCls}>
@@ -202,7 +221,6 @@ export default function AdminQuizzesPage() {
               ))}
             </select>
 
-            {/* Filteri təmizlə */}
             {hasFilters && (
               <button onClick={clearFilters}
                 className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition-all border border-slate-200">
@@ -210,9 +228,7 @@ export default function AdminQuizzesPage() {
               </button>
             )}
 
-            <span className="text-xs text-slate-400 ml-auto">
-              {filtered.length} quiz
-            </span>
+            <span className="text-xs text-slate-400 ml-auto">{filtered.length} quiz</span>
           </div>
         </div>
       )}
@@ -312,7 +328,11 @@ export default function AdminQuizzesPage() {
               </table>
               {filtered.length === 0 && (
                 <div className="text-center py-12 text-slate-400">
-                  {isTeacher ? "Hələ quiz yaratmamısınız" : hasFilters ? "Filtrə uyğun quiz tapılmadı" : "Hələ quiz əlavə edilməyib"}
+                  {isTeacher
+                    ? "Hələ quiz yaratmamısınız"
+                    : hasFilters
+                    ? "Filtrə uyğun quiz tapılmadı"
+                    : "Hələ quiz əlavə edilməyib"}
                 </div>
               )}
             </div>
