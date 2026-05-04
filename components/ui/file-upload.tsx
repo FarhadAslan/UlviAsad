@@ -40,12 +40,23 @@ export default function FileUpload({ onUpload, onClear, uploaded }: FileUploadPr
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = useCallback(async (file: File) => {
+    // Client-side yoxlama — 200MB
+    if (file.size > 200 * 1024 * 1024) {
+      error(`Fayl ölçüsü 200MB-dan çox ola bilməz (cari: ${(file.size / 1024 / 1024).toFixed(1)}MB)`);
+      return;
+    }
+
     setUploading(true);
     setProgress(0);
 
+    // Böyük fayllar üçün daha yavaş progress simulyasiyası
+    const isLarge    = file.size > 50 * 1024 * 1024;
+    const increment  = isLarge ? 3 : 8;
+    const intervalMs = isLarge ? 500 : 200;
+
     const interval = setInterval(() => {
-      setProgress((p) => (p < 85 ? p + 8 : p));
-    }, 200);
+      setProgress((p) => (p < 85 ? p + increment : p));
+    }, intervalMs);
 
     try {
       const fd = new FormData();
@@ -65,9 +76,13 @@ export default function FileUpload({ onUpload, onClear, uploaded }: FileUploadPr
 
       setProgress(100);
       setTimeout(() => { setUploading(false); onUpload(data); }, 400);
-    } catch {
+    } catch (e: any) {
       clearInterval(interval);
-      error("Yükləmə zamanı xəta baş verdi");
+      if (e?.name === "AbortError" || e?.message?.includes("timeout")) {
+        error("Yükləmə vaxtı bitdi. Fayl çox böyükdür və ya internet bağlantısı zəifdir.");
+      } else {
+        error("Yükləmə zamanı xəta baş verdi");
+      }
       setUploading(false);
       setProgress(0);
     }
@@ -152,7 +167,7 @@ export default function FileUpload({ onUpload, onClear, uploaded }: FileUploadPr
             <p className="text-xs text-slate-400 mb-3">və ya klikləyin seçin</p>
             <span className="inline-block px-3 py-1.5 rounded-lg text-xs font-medium"
               style={{ background: "rgba(147,204,255,0.12)", color: "#1a7fe0", border: "1px solid rgba(147,204,255,0.3)" }}>
-              PDF · DOC · DOCX · PPT · PPTX · TXT · MP4 · Şəkil · Maks 100MB
+              PDF · DOC · DOCX · PPT · PPTX · TXT · MP4 · Şəkil · Maks 200MB
             </span>
           </div>
         )}

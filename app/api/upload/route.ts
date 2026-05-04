@@ -6,6 +6,10 @@ import path from "path";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+// Vercel Pro: 60s, Hobby: 10s — böyük fayllar üçün maksimum
+export const maxDuration = 60;
+
+const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200MB
 
 const ALLOWED_MIME_TYPES = new Set([
   "application/pdf",
@@ -54,19 +58,33 @@ function getResourceType(ext: string): "image" | "video" | "raw" {
 
 function uploadStream(buffer: Buffer, options: Record<string, any>): Promise<any> {
   return new Promise((resolve, reject) => {
-    cloudinary.uploader
-      .upload_stream(options, (error, result) => {
-        if (error || !result) reject(error ?? new Error("Upload failed"));
-        else resolve(result);
-      })
-      .end(buffer);
+    const stream = cloudinary.uploader.upload_stream(options, (error, result) => {
+      if (error || !result) reject(error ?? new Error("Upload failed"));
+      else resolve(result);
+    });
+    // Böyük fayllar üçün chunk-larla yüklə
+    const chunkSize = 8 * 1024 * 1024; // 8MB chunks
+    let offset = 0;
+    const writeChunk = () => {
+      if (offset >= buffer.length) {
+        stream.end();
+        return;
+      }
+      const chunk = buffer.slice(offset, offset + chunkSize);
+      offset += chunkSize;
+      stream.write(chunk, writeChunk);
+    };
+    writeChunk();
   });
 }
 
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session || (session.user as any)?.role !== "ADMIN") {
+    const userRole = (session?.user as any)?.role;
+
+    // ADMIN və TEACHER yükləyə bilər (TEACHER quiz şəkilləri üçün)
+    if (!session || (userRole !== "ADMIN" && userRole !== "TEACHER")) {
       return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
     }
 
@@ -84,7 +102,7 @@ export async function POST(req: NextRequest) {
     try {
       formData = await req.formData();
     } catch {
-      return NextResponse.json({ error: "Fayl oxunarkən xəta baş verdi" }, { status: 400 });
+      return NextResponse.json({ error: "Fayl oxunarkən xəta baş verdi. Fayl çox böyük ola bilər." }, { status: 400 });
     }
 
     const file = formData.get("file") as File | null;
@@ -92,12 +110,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Fayl tapılmadı" }, { status: 400 });
     }
 
-    if (file.size > 100 * 1024 * 1024) {
-      return NextResponse.json({ error: "Fayl ölçüsü 100MB-dan çox ola bilməz" }, { status: 400 });
+    // 200MB limit
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json(
+        { error: `Fayl ölçüsü 200MB-dan çox ola bilməz (cari: ${(file.size / 1024 / 1024).toFixed(1)}MB)` },
+        { status: 400 }
+      );
     }
 
     const ext = path.extname(file.name).toLowerCase();
-    if (!ALLOWED_MIME_TYPES.has(file.type) && !ALLOWED_EXTENSIONS.has(ext)) {
+
+    // MIME type yoxlaması — bəzi brouzerlər yanlış MIME göndərə bilər, ext ilə də yoxla
+    const mimeOk = ALLOWED_MIME_TYPES.has(file.type);
+    const extOk  = ALLOWED_EXTENSIONS.has(ext);
+    if (!mimeOk && !extOk) {
       return NextResponse.json(
         { error: `Bu fayl tipi dəstəklənmir (${file.type || ext})` },
         { status: 400 }
@@ -105,8 +131,10 @@ export async function POST(req: NextRequest) {
     }
 
     const resourceType = getResourceType(ext);
-    const cleanName = path.basename(file.name, ext).replace(/[^a-zA-Z0-9-_]/g, "_").substring(0, 50);
-    const publicId   = `${cleanName}_${Date.now()}`;
+    const cleanName = path.basename(file.name, ext)
+      .replace(/[^a-zA-Z0-9-_]/g, "_")
+      .substring(0, 50);
+    const publicId = `${cleanName}_${Date.now()}`;
 
     const bytes  = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
@@ -118,14 +146,13 @@ export async function POST(req: NextRequest) {
       access_mode:   "public",
       type:          "upload",
       use_filename:  false,
+      // Böyük fayllar üçün chunk upload
+      chunk_size:    8 * 1024 * 1024, // 8MB
     };
 
-    // Raw fayllar üçün: PDF-i uzantısız yüklə (Cloudinary PDF delivery-ni bloklamır)
-    // Digər raw fayllar üçün format saxla
     if (resourceType === "raw" && ext !== ".pdf") {
       uploadOptions.format = ext.replace(".", "");
     }
-    // PDF üçün format əlavə etmirik — uzantısız yüklənir, proxy düzgün serve edir
 
     const result  = await uploadStream(buffer, uploadOptions);
     const fileUrl = result.secure_url as string;
@@ -138,8 +165,16 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     console.error("Upload error:", error);
+    const msg = error instanceof Error ? error.message : "Naməlum xəta";
+    // Timeout xətasını aydın göstər
+    if (msg.includes("timeout") || msg.includes("ETIMEDOUT")) {
+      return NextResponse.json(
+        { error: "Yükləmə vaxtı bitdi. Fayl çox böyükdür və ya internet bağlantısı zəifdir." },
+        { status: 504 }
+      );
+    }
     return NextResponse.json(
-      { error: `Yükləmə xətası: ${error instanceof Error ? error.message : "Naməlum xəta"}` },
+      { error: `Yükləmə xətası: ${msg}` },
       { status: 500 }
     );
   }

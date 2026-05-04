@@ -37,6 +37,10 @@ export default async function MaterialDetailPage({ params }: { params: { id: str
   const downloadUrl = `/api/download?url=${encodeURIComponent(material.fileUrl)}&filename=${encodeURIComponent(material.title)}&type=${material.fileType}`;
   const viewUrl     = `/api/download?url=${encodeURIComponent(material.fileUrl)}&filename=${encodeURIComponent(material.title)}&type=${material.fileType}&inline=true`;
 
+  // Video fayllar üçün birbaşa Cloudinary URL-i istifadə et (streaming üçün daha yaxşı)
+  const isVideo     = material.fileType === "VIDEO";
+  const finalViewUrl = isVideo ? material.fileUrl : viewUrl;
+
   return (
     <div className="container mx-auto py-12 max-w-3xl">
       <Link
@@ -81,7 +85,7 @@ export default async function MaterialDetailPage({ params }: { params: { id: str
         {/* Actions */}
         <div className="flex flex-wrap gap-3">
           <a
-            href={viewUrl}
+            href={finalViewUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="flex-1 min-w-[120px] btn-primary flex items-center justify-center gap-2"

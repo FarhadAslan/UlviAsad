@@ -124,7 +124,7 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
     const shareUrl = resultId
       ? `${base}/neticeler/${resultId}`
       : `${base}/quizler/${quiz.id}`;
-    const text = `"${quiz.title}" quizini işlədim — ${result?.score ?? 0} xal aldım! Sən də cəhd et:`;
+    const text = `"${quiz.title}" quizini işlədim — ${result?.score ?? 0} bal aldım! Sən də cəhd et:`;
 
     if (navigator.share) {
       try { await navigator.share({ title: quiz.title, text, url: shareUrl }); } catch {}
@@ -252,6 +252,16 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
 
         {/* Question */}
         <div className="card-static mb-6">
+          {/* Sualın bal dəyəri */}
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs text-slate-400 font-medium">
+              Sual {currentIndex + 1} / {questions.length}
+            </span>
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-lg"
+              style={{ background: "rgba(147,204,255,0.12)", color: "#1a7fe0" }}>
+              {question.points ?? 1} bal
+            </span>
+          </div>
           {question.imageUrl && (
             <div className="mb-4 rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -385,7 +395,7 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
             </div>
           </div>
           <p className="text-slate-500">
-            Ümumi xal: <span className="text-[#1a7fe0] font-bold text-xl">{result.score}</span>
+            Ümumi bal: <span className="text-[#1a7fe0] font-bold text-xl">{result.score}</span>
             <span className="text-slate-400 text-sm ml-1">/ {totalPossible}</span>
           </p>
         </div>
@@ -403,7 +413,7 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
                   <span className="text-slate-700">
                     {i === 0 ? "🥇" : i === 1 ? "🥈" : "🥉"} {r.user?.name}
                   </span>
-                  <span className="text-[#1a7fe0] font-bold">{r.score} xal</span>
+                  <span className="text-[#1a7fe0] font-bold">{r.score} bal</span>
                 </div>
               ))}
             </div>
@@ -443,7 +453,7 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
                       )}
                       <span className="text-xs font-semibold px-2 py-1 rounded-lg flex-shrink-0"
                         style={{ background: "rgba(147,204,255,0.12)", color: "#1a7fe0" }}>
-                        {q.points ?? 1} xal
+                        {q.points ?? 1} bal
                       </span>
                     </div>
                   </div>

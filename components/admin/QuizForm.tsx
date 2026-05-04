@@ -389,7 +389,7 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
                         setQuestions((p) => p.map((x, i) => i === qi ? { ...x, points: Math.max(1, val) } : x));
                       }}
                     />
-                    <span className="text-sm text-slate-500">xal</span>
+                    <span className="text-sm text-slate-500">bal</span>
                   </div>
                 </div>
               </div>

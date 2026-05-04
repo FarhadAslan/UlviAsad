@@ -132,7 +132,7 @@ export default function ProfileClient({ data }: { data: ProfileData }) {
                       </td>
                       <td className="py-3 pr-4">
                         <span className="font-bold text-[#1f6f43]">{r.correct}/{r.totalQuestions}</span>
-                        <span className="text-xs text-slate-400 ml-1.5">({r.score} xal)</span>
+                        <span className="text-xs text-slate-400 ml-1.5">({r.score} bal)</span>
                       </td>
                       <td className="py-3 pr-4 text-sm text-slate-400">{formatDate(r.createdAt)}</td>
                       <td className="py-3">
@@ -198,7 +198,7 @@ export default function ProfileClient({ data }: { data: ProfileData }) {
                       {getTypeLabel(r.quizType)}
                     </span>
                     <span className="font-bold text-sm text-[#1f6f43]">{r.correct}/{r.totalQuestions}</span>
-                    <span className="text-xs text-slate-400">({r.score} xal)</span>
+                    <span className="text-xs text-slate-400">({r.score} bal)</span>
                     <span className="text-xs text-slate-400 ml-auto">{formatDate(r.createdAt)}</span>
                   </div>
                 </div>

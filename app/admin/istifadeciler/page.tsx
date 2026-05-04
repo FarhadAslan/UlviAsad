@@ -261,7 +261,7 @@ export default function AdminUsersPage() {
                           <span className="text-xs text-slate-400 ml-1">(d/s/k)</span>
                         </td>
                         <td className="py-3 pr-4">
-                          <span className="font-bold text-[#1a7fe0]">{r.score} xal</span>
+                          <span className="font-bold text-[#1a7fe0]">{r.score} bal</span>
                         </td>
                         <td className="py-3 pr-4 text-sm text-slate-400">{formatDate(r.createdAt)}</td>
                         <td className="py-3">

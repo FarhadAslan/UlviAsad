@@ -159,7 +159,7 @@ export default async function ResultPage({ params }: { params: { id: string } })
           </div>
         </div>
         <p className="text-slate-500 text-sm">
-          Ümumi xal: <span className="font-bold text-xl" style={{ color: scoreColor }}>{result.score}</span>
+          Ümumi bal: <span className="font-bold text-xl" style={{ color: scoreColor }}>{result.score}</span>
         </p>
         {total > 0 && (
           <p className="text-slate-400 text-xs mt-1">{result.correct} / {total} düzgün cavab</p>
@@ -251,7 +251,7 @@ export default async function ResultPage({ params }: { params: { id: string } })
         <div className="card-static text-center py-8 text-slate-400">
           <Trophy size={32} className="mx-auto mb-3 text-amber-400" />
           <p className="font-medium text-slate-600 mb-1">
-            <span className="text-slate-800">{result.user.name}</span> bu quizə {result.score} xal topladı
+            <span className="text-slate-800">{result.user.name}</span> bu quizə {result.score} bal topladı
           </p>
           <p className="text-sm">Cavabların detayı yalnız nəticə sahibinə görünür.</p>
           <Link href={`/quizler/${result.quiz.id}`} className="btn-primary inline-flex mt-4">

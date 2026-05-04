@@ -69,7 +69,7 @@ function QuizCard({ quiz, userRole }: { quiz: any; userRole?: string }) {
                   <span className="text-slate-500">
                     {i === 0 ? "🥇" : i === 1 ? "🥈" : "🥉"} {r.user?.name || "İstifadəçi"}
                   </span>
-                  <span className="font-semibold text-[#1f6f43]">{r.score} xal</span>
+                  <span className="font-semibold text-[#1f6f43]">{r.score} bal</span>
                 </div>
               ))}
             </div>
