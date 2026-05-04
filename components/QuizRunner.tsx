@@ -75,22 +75,23 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
       const timeBonus = isSinaq && !autoSubmit ? Math.floor((totalTime - elapsed) / 10) : 0;
 
       let correct = 0, wrong = 0, skipped = 0;
+      let score = 0;
       const answerDetails: any[] = [];
 
       questions.forEach((q: any) => {
         const selected  = answers[q.id] || null;
         const isCorrect = selected === q.correctOption;
+        const pts       = q.points ?? 1;
         if (!selected) skipped++;
-        else if (isCorrect) correct++;
+        else if (isCorrect) { correct++; score += pts; }
         else wrong++;
         answerDetails.push({
           questionId: q.id, selected,
           isCorrect: selected ? isCorrect : false,
           correctOption: q.correctOption,
+          points: pts,
         });
       });
-
-      const score = correct * 1;
 
       if (session) {
         try {
@@ -145,7 +146,13 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
     return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   };
 
-  const percentage = result ? Math.round((result.correct / questions.length) * 100) : 0;
+  const percentage = result
+    ? (() => {
+        const totalPossible = questions.reduce((sum: number, q: any) => sum + (q.points ?? 1), 0);
+        return totalPossible > 0 ? Math.round((result.score / totalPossible) * 100) : 0;
+      })()
+    : 0;
+  const totalPossible = questions.reduce((sum: number, q: any) => sum + (q.points ?? 1), 0);
 
   // ── START PHASE ──────────────────────────────────────────────
   if (phase === "start") {
@@ -379,6 +386,7 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
           </div>
           <p className="text-slate-500">
             Ümumi xal: <span className="text-[#1a7fe0] font-bold text-xl">{result.score}</span>
+            <span className="text-slate-400 text-sm ml-1">/ {totalPossible}</span>
           </p>
         </div>
 
@@ -424,14 +432,20 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
                         <img src={q.imageUrl} alt={`Sual ${i + 1}`} className="w-full object-contain max-h-56" />
                       </div>
                     )}
-                    {q.text ? (
-                      <p
-                        className="text-slate-900 font-medium quiz-render"
-                        dangerouslySetInnerHTML={{ __html: `${i + 1}. ${q.text}` }}
-                      />
-                    ) : (
-                      <p className="text-slate-500 text-sm font-medium">{i + 1}. (şəkilli sual)</p>
-                    )}
+                    <div className="flex items-start justify-between gap-2">
+                      {q.text ? (
+                        <p
+                          className="text-slate-900 font-medium quiz-render"
+                          dangerouslySetInnerHTML={{ __html: `${i + 1}. ${q.text}` }}
+                        />
+                      ) : (
+                        <p className="text-slate-500 text-sm font-medium">{i + 1}. (şəkilli sual)</p>
+                      )}
+                      <span className="text-xs font-semibold px-2 py-1 rounded-lg flex-shrink-0"
+                        style={{ background: "rgba(147,204,255,0.12)", color: "#1a7fe0" }}>
+                        {q.points ?? 1} xal
+                      </span>
+                    </div>
                   </div>
                   <div className="space-y-2">
                     {q.options.map((opt: any) => {

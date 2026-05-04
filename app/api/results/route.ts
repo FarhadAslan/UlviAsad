@@ -17,7 +17,24 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { quizId, correct, wrong, skipped, answers, timeBonus } = body;
 
-    const score = correct * 1; // hər düzgün cavab 1 xal
+    // Hər sualın öz balı var — score client-dən gəlir (QuizRunner hesablayır)
+    // Amma server tərəfdən yenidən hesablayırıq etibarlılıq üçün
+    const quiz = await prisma.quiz.findUnique({
+      where: { id: quizId },
+      select: {
+        questions: { select: { id: true, correctOption: true, points: true } },
+      },
+    });
+
+    let score = 0;
+    if (quiz && Array.isArray(answers)) {
+      for (const ans of answers) {
+        const q = quiz.questions.find((x) => x.id === ans.questionId);
+        if (q && ans.selected === q.correctOption) {
+          score += q.points ?? 1;
+        }
+      }
+    }
 
     const result = await prisma.result.create({
       data: {

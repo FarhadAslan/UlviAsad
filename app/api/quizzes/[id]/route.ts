@@ -53,6 +53,7 @@ export async function GET(
             options: true,
             correctOption: true,
             order: true,
+            points: true,
           },
         },
         results: {
@@ -134,6 +135,7 @@ export async function PUT(
               options: JSON.stringify(q.options),
               correctOption: q.correctOption,
               order: index + 1,
+              points: q.points ?? 1,
             })),
           },
         },

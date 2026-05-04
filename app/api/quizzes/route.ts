@@ -171,6 +171,7 @@ export async function POST(req: NextRequest) {
             options: JSON.stringify(q.options),
             correctOption: q.correctOption,
             order: index + 1,
+            points: q.points ?? 1,
           })),
         },
       },

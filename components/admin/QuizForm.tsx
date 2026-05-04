@@ -17,6 +17,7 @@ const emptyQuestion = () => ({
     { label: "D", text: "" },
   ],
   correctOption: "A",
+  points: 1,
 });
 
 interface QuizFormProps {
@@ -63,6 +64,7 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
         imageUrl: q.imageUrl || "",
         options: typeof q.options === "string" ? JSON.parse(q.options) : q.options,
         correctOption: q.correctOption,
+        points: q.points ?? 1,
       }))
     : [emptyQuestion()];
 
@@ -355,20 +357,40 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
                 ))}
               </div>
 
-              <div>
-                <label className={labelCls}>Düzgün Cavab</label>
-                <div className="flex gap-2">
-                  {q.options.map((opt: any) => (
-                    <button key={opt.label} type="button"
-                      onClick={() => setQuestions((p) => p.map((x, i) => i === qi ? { ...x, correctOption: opt.label } : x))}
-                      className={`w-10 h-10 rounded-xl font-bold text-sm transition-all ${
-                        q.correctOption === opt.label
-                          ? "bg-green-600 text-white shadow-sm"
-                          : "bg-white border border-slate-200 text-slate-500 hover:border-green-400"
-                      }`}>
-                      {opt.label}
-                    </button>
-                  ))}
+              <div className="flex items-start gap-4">
+                <div>
+                  <label className={labelCls}>Düzgün Cavab</label>
+                  <div className="flex gap-2">
+                    {q.options.map((opt: any) => (
+                      <button key={opt.label} type="button"
+                        onClick={() => setQuestions((p) => p.map((x, i) => i === qi ? { ...x, correctOption: opt.label } : x))}
+                        className={`w-10 h-10 rounded-xl font-bold text-sm transition-all ${
+                          q.correctOption === opt.label
+                            ? "bg-green-600 text-white shadow-sm"
+                            : "bg-white border border-slate-200 text-slate-500 hover:border-green-400"
+                        }`}>
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="ml-auto">
+                  <label className={labelCls}>Bal *</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      value={q.points ?? 1}
+                      min={1}
+                      max={100}
+                      required
+                      className="input-field w-24 text-center"
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value) || 1;
+                        setQuestions((p) => p.map((x, i) => i === qi ? { ...x, points: Math.max(1, val) } : x));
+                      }}
+                    />
+                    <span className="text-sm text-slate-500">xal</span>
+                  </div>
                 </div>
               </div>
             </div>
