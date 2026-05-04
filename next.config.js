@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // CLOUDINARY_CLOUD_NAME-i client-side-a expose et (upload preset üçün lazımdır)
+  env: {
+    NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME,
+  },
   images: {
     domains: [
       "lh3.googleusercontent.com",

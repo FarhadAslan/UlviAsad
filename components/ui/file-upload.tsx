@@ -17,8 +17,12 @@ interface FileUploadProps {
   uploaded?: UploadResult | null;
 }
 
-const MAX_SIZE    = 200 * 1024 * 1024; // 200MB
-const CHUNK_SIZE  = 3.5 * 1024 * 1024; // 3.5MB — Vercel 4.5MB limitindən aşağı
+const MAX_SIZE   = 200 * 1024 * 1024; // 200MB
+// Fayllar bu limitdən böyüksə birbaşa Cloudinary-ə göndərilir
+const PROXY_LIMIT = 4 * 1024 * 1024;  // 4MB
+
+// Unsigned upload preset — Cloudinary dashboard-da yaradılmış
+const UPLOAD_PRESET = "muellim-portal-upload";
 
 const FILE_TYPE_MAP: Record<string, string> = {
   ".pdf":  "PDF",  ".doc":  "DOC",  ".docx": "DOCX",
@@ -33,6 +37,12 @@ const ALLOWED_EXTS = [
   ".mp4",".webm",".ogg",
   ".jpg",".jpeg",".png",".gif",".webp",
 ];
+
+function getResourceType(ext: string): string {
+  if ([".jpg",".jpeg",".png",".gif",".webp"].includes(ext)) return "image";
+  if ([".mp4",".webm",".ogg"].includes(ext)) return "video";
+  return "raw";
+}
 
 function formatSize(bytes: number): string {
   if (bytes === 0)         return "—";
@@ -60,11 +70,86 @@ export default function FileUpload({ onUpload, onClear, uploaded }: FileUploadPr
   const [uploading, setUploading] = useState(false);
   const [progress,  setProgress]  = useState(0);
   const [statusMsg, setStatusMsg] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-  const abortRef = useRef(false);
+  const inputRef  = useRef<HTMLInputElement>(null);
+  const xhrRef    = useRef<XMLHttpRequest | null>(null);
+
+  // ── Kiçik fayllar (≤4MB): server proxy ─────────────────────
+  const uploadViaProxy = useCallback(async (file: File): Promise<UploadResult> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res  = await fetch("/api/upload", { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Yükləmə xətası");
+    return data as UploadResult;
+  }, []);
+
+  // ── Böyük fayllar (>4MB): unsigned preset ilə birbaşa Cloudinary ──
+  // Unsigned preset CORS-u həll edir — api.cloudinary.com icazə verir
+  const uploadDirect = useCallback((
+    file: File,
+    cloudName: string,
+    onProgress: (pct: number) => void
+  ): Promise<UploadResult> => {
+    return new Promise((resolve, reject) => {
+      const ext          = getExt(file.name);
+      const resourceType = getResourceType(ext);
+      const fileType     = FILE_TYPE_MAP[ext] ?? "FILE";
+      const uploadUrl    = `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`;
+
+      const fd = new FormData();
+      fd.append("file",           file);
+      fd.append("upload_preset",  UPLOAD_PRESET);
+      fd.append("folder",         "muellim-portal");
+
+      const xhr = new XMLHttpRequest();
+      xhrRef.current = xhr;
+
+      xhr.open("POST", uploadUrl);
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          onProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      };
+
+      xhr.onload = () => {
+        xhrRef.current = null;
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const result = JSON.parse(xhr.responseText);
+            if (result.secure_url) {
+              resolve({
+                url:      result.secure_url,
+                fileType: fileType,
+                fileName: file.name,
+                size:     file.size,
+              });
+            } else {
+              reject(new Error(result.error?.message || "Cloudinary cavab xətası"));
+            }
+          } catch {
+            reject(new Error("Cavab parse xətası"));
+          }
+        } else {
+          try {
+            const err = JSON.parse(xhr.responseText);
+            reject(new Error(err.error?.message || `Cloudinary xətası (${xhr.status})`));
+          } catch {
+            reject(new Error(`Yükləmə xətası (${xhr.status})`));
+          }
+        }
+      };
+
+      xhr.onerror   = () => { xhrRef.current = null; reject(new Error("Şəbəkə xətası. İnternet bağlantınızı yoxlayın.")); };
+      xhr.onabort   = () => { xhrRef.current = null; reject(new Error("Ləğv edildi")); };
+      xhr.ontimeout = () => { xhrRef.current = null; reject(new Error("Yükləmə vaxtı bitdi")); };
+      xhr.timeout   = 600000; // 10 dəqiqə
+
+      xhr.send(fd);
+    });
+  }, []);
 
   const handleFile = useCallback(async (file: File) => {
-    // Validasiya
     if (file.size > MAX_SIZE) {
       error(`Fayl ölçüsü 200MB-dan çox ola bilməz (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
       return;
@@ -77,70 +162,58 @@ export default function FileUpload({ onUpload, onClear, uploaded }: FileUploadPr
 
     setUploading(true);
     setProgress(0);
-    abortRef.current = false;
-
-    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-    const uploadId    = `uid_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const cleanName   = file.name.replace(/[^a-zA-Z0-9-_.]/g, "_").substring(0, 60);
-    const publicId    = `muellim-portal/${cleanName.replace(ext, "")}_${Date.now()}`;
+    setStatusMsg("Hazırlanır...");
 
     try {
-      for (let i = 0; i < totalChunks; i++) {
-        if (abortRef.current) throw new Error("Ləğv edildi");
+      let result: UploadResult;
 
-        const start = i * CHUNK_SIZE;
-        const end   = Math.min(start + CHUNK_SIZE, file.size);
-        const chunk = file.slice(start, end);
-
-        setStatusMsg(
-          totalChunks === 1
-            ? "Yüklənir..."
-            : `Yüklənir... (${i + 1}/${totalChunks})`
-        );
-
-        const fd = new FormData();
-        fd.append("file",        chunk, file.name);
-        fd.append("chunkIndex",  String(i));
-        fd.append("totalChunks", String(totalChunks));
-        fd.append("totalSize",   String(file.size));
-        fd.append("uploadId",    uploadId);
-        fd.append("publicId",    publicId);
-
-        const res  = await fetch("/api/upload", { method: "POST", body: fd });
-        const data = await res.json();
-
-        if (!res.ok) {
-          throw new Error(data.error || "Yükləmə xətası");
+      if (file.size <= PROXY_LIMIT) {
+        // Kiçik fayl — server proxy
+        setStatusMsg("Yüklənir...");
+        const interval = setInterval(() => setProgress((p) => p < 85 ? p + 10 : p), 150);
+        result = await uploadViaProxy(file);
+        clearInterval(interval);
+      } else {
+        // Böyük fayl — birbaşa Cloudinary (unsigned preset)
+        // Cloud name-i environment variable-dan al
+        const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || "";
+        if (!cloudName) {
+          throw new Error("Cloudinary konfiqurasiyası tapılmadı");
         }
-
-        const pct = Math.round(((i + 1) / totalChunks) * 100);
-        setProgress(pct);
-
-        // Son chunk — URL gəldi
-        if (data.done && data.url) {
-          setStatusMsg("Tamamlandı!");
-          setTimeout(() => {
-            setUploading(false);
-            setStatusMsg("");
-            setProgress(0);
-            onUpload(data as UploadResult);
-          }, 400);
-          return;
-        }
+        setStatusMsg("Yüklənir...");
+        result = await uploadDirect(file, cloudName, (pct) => {
+          setProgress(pct);
+        });
       }
 
-      // totalChunks === 1 amma done gəlmədisə
-      throw new Error("Yükləmə tamamlanmadı");
+      setProgress(100);
+      setStatusMsg("Tamamlandı!");
+      setTimeout(() => {
+        setUploading(false);
+        setStatusMsg("");
+        setProgress(0);
+        onUpload(result);
+      }, 400);
 
     } catch (e: any) {
-      if (!abortRef.current) {
-        error(e?.message || "Yükləmə zamanı xəta baş verdi");
-      }
       setUploading(false);
       setProgress(0);
       setStatusMsg("");
+      if (e?.message !== "Ləğv edildi") {
+        error(e?.message || "Yükləmə zamanı xəta baş verdi");
+      }
     }
-  }, [onUpload, error]);
+  }, [onUpload, error, uploadViaProxy, uploadDirect]);
+
+  const cancelUpload = () => {
+    if (xhrRef.current) {
+      xhrRef.current.abort();
+      xhrRef.current = null;
+    }
+    setUploading(false);
+    setProgress(0);
+    setStatusMsg("");
+  };
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -208,11 +281,8 @@ export default function FileUpload({ onUpload, onClear, uploaded }: FileUploadPr
                 style={{ width: `${progress}%`, background: "linear-gradient(90deg,#1f6f43,#2e8b57)" }} />
             </div>
             <p className="text-xs text-slate-400 mb-3">{progress}%</p>
-            <button
-              type="button"
-              onClick={() => { abortRef.current = true; setUploading(false); setProgress(0); setStatusMsg(""); }}
-              className="text-xs text-red-400 hover:text-red-600 transition-colors"
-            >
+            <button type="button" onClick={cancelUpload}
+              className="text-xs text-red-400 hover:text-red-600 transition-colors">
               Ləğv et
             </button>
           </div>

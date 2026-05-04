@@ -30,68 +30,7 @@ function getResourceType(ext: string): "image" | "video" | "raw" {
   return "raw";
 }
 
-function configureCloudinary() {
-  cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key:    process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET,
-  });
-}
-
-// Cloudinary upload_large — chunk-based upload
-// Content-Range header ilə hissə-hissə yüklənir
-async function uploadChunkToCloudinary(
-  chunk: Buffer,
-  options: {
-    publicId: string;
-    resourceType: "image" | "video" | "raw";
-    contentRange: string; // "bytes start-end/total"
-    uploadId: string;
-  }
-): Promise<any> {
-  const { publicId, resourceType, contentRange, uploadId } = options;
-
-  const cloudName = process.env.CLOUDINARY_CLOUD_NAME!;
-  const apiKey    = process.env.CLOUDINARY_API_KEY!;
-  const apiSecret = process.env.CLOUDINARY_API_SECRET!;
-
-  const timestamp = Math.round(Date.now() / 1000);
-  const paramsToSign = {
-    timestamp,
-    public_id:   publicId,
-    access_mode: "public",
-    type:        "upload",
-  };
-
-  const signature = cloudinary.utils.api_sign_request(paramsToSign, apiSecret);
-
-  const formData = new FormData();
-  formData.append("file",        new Blob([new Uint8Array(chunk)]));
-  formData.append("api_key",     apiKey);
-  formData.append("timestamp",   String(timestamp));
-  formData.append("signature",   signature);
-  formData.append("public_id",   publicId);
-  formData.append("access_mode", "public");
-  formData.append("type",        "upload");
-
-  const uploadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`;
-
-  const res = await fetch(uploadUrl, {
-    method: "POST",
-    headers: {
-      "Content-Range": contentRange,
-      "X-Unique-Upload-Id": uploadId,
-    },
-    body: formData,
-  });
-
-  const data = await res.json();
-  if (!res.ok && res.status !== 206) {
-    throw new Error(data.error?.message || `Cloudinary chunk upload failed: ${res.status}`);
-  }
-  return data;
-}
-
+// ── POST: Kiçik fayllar üçün server proxy (≤4MB) ──────────────
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -104,15 +43,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Cloudinary konfiqurasiyası tapılmadı" }, { status: 500 });
     }
 
-    configureCloudinary();
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key:    process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET,
+    });
 
     let formData: FormData;
     try {
       formData = await req.formData();
     } catch {
-      return NextResponse.json({
-        error: "Fayl oxunarkən xəta. Chunk upload istifadə edin.",
-      }, { status: 400 });
+      return NextResponse.json({ error: "Fayl oxunarkən xəta baş verdi." }, { status: 400 });
     }
 
     const file = formData.get("file") as File | null;
@@ -131,45 +72,39 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Bu fayl tipi dəstəklənmir (${ext})` }, { status: 400 });
     }
 
-    // Chunk upload parametrləri
-    const chunkIndex  = parseInt(formData.get("chunkIndex") as string ?? "0");
-    const totalChunks = parseInt(formData.get("totalChunks") as string ?? "1");
-    const totalSize   = parseInt(formData.get("totalSize") as string ?? String(file.size));
-    const uploadId    = formData.get("uploadId") as string ?? `upload_${Date.now()}`;
-    const publicId    = formData.get("publicId") as string ?? "";
-
     const resourceType = getResourceType(ext);
+    const cleanName    = path.basename(file.name, ext).replace(/[^a-zA-Z0-9-_]/g, "_").substring(0, 50);
+    const publicId     = `${cleanName}_${Date.now()}`;
+
     const bytes  = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    // Content-Range hesabla
-    const chunkSize  = buffer.length;
-    const startByte  = chunkIndex * (totalSize / totalChunks | 0);
-    // Son chunk üçün dəqiq end byte
-    const endByte    = Math.min(startByte + chunkSize - 1, totalSize - 1);
-    const contentRange = `bytes ${startByte}-${endByte}/${totalSize}`;
+    const uploadOptions: Record<string, any> = {
+      folder:        "muellim-portal",
+      public_id:     publicId,
+      resource_type: resourceType,
+      access_mode:   "public",
+      type:          "upload",
+      use_filename:  false,
+    };
 
-    const result = await uploadChunkToCloudinary(buffer, {
-      publicId,
-      resourceType,
-      contentRange,
-      uploadId,
-    });
-
-    // Son chunk — tam URL qaytar
-    if (chunkIndex === totalChunks - 1 && result.secure_url) {
-      return NextResponse.json({
-        url:      result.secure_url,
-        fileType: FILE_TYPE_MAP[ext] ?? "FILE",
-        fileName: file.name,
-        size:     totalSize,
-        done:     true,
-      });
+    if (resourceType === "raw" && ext !== ".pdf") {
+      uploadOptions.format = ext.replace(".", "");
     }
 
-    // Aralıq chunk — davam et
-    return NextResponse.json({ done: false, chunkIndex });
+    const result = await new Promise<any>((resolve, reject) => {
+      cloudinary.uploader.upload_stream(uploadOptions, (error, result) => {
+        if (error || !result) reject(error ?? new Error("Upload failed"));
+        else resolve(result);
+      }).end(buffer);
+    });
 
+    return NextResponse.json({
+      url:      result.secure_url,
+      fileType: FILE_TYPE_MAP[ext] ?? "FILE",
+      fileName: file.name,
+      size:     file.size,
+    });
   } catch (error) {
     console.error("Upload error:", error);
     const msg = error instanceof Error ? error.message : "Naməlum xəta";
