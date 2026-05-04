@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Search, UserCheck, UserX, ArrowLeft, Eye, Loader2, Share2, Check } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useToast } from "@/components/ui/toast-1";
@@ -24,13 +25,16 @@ function isActive(val: any): boolean {
 }
 
 export default function AdminUsersPage() {
+  const router       = useRouter();
+  const searchParams = useSearchParams();
+  const userId       = searchParams.get("userId"); // detail görünüşü üçün
+
   const { data: session, status } = useSession();
   const currentRole = (session?.user as any)?.role;
   const isTeacher   = currentRole === "TEACHER";
 
   const { success, error } = useToast();
 
-  // ── Bütün state-lər hook qaydalarına uyğun olaraq şərtsiz çağırılır ──
   const [users,            setUsers]            = useState<any[]>([]);
   const [teachers,         setTeachers]         = useState<any[]>([]);
   const [loading,          setLoading]          = useState(true);
@@ -55,6 +59,47 @@ export default function AdminUsersPage() {
     () => users.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
     [users, page]
   );
+
+  // URL-dəki userId dəyişdikdə user-i yüklə
+  useEffect(() => {
+    if (!userId) {
+      setSelectedUser(null);
+      setUserResults([]);
+      return;
+    }
+    // Əvvəlcə users siyahısından tap
+    const found = users.find((u) => u.id === userId);
+    if (found) {
+      loadUserDetail(found);
+    } else {
+      // Siyahıda yoxdursa API-dən yüklə
+      fetch(`/api/users/${userId}`)
+        .then((r) => r.json())
+        .then((d) => { if (d.id) loadUserDetail(d); })
+        .catch(() => error("İstifadəçi tapılmadı"));
+    }
+  }, [userId]);
+
+  const loadUserDetail = async (user: any) => {
+    setSelectedUser(user);
+    setResultsLoading(true);
+    setUserResults([]);
+    setResultsPage(1);
+    try {
+      const res  = await fetch(`/api/results?userId=${user.id}`);
+      const data = await res.json();
+      setUserResults(Array.isArray(data) ? data : []);
+    } catch { error("Nəticələr yüklənmədi"); }
+    finally   { setResultsLoading(false); }
+  };
+
+  const openUserDetail = (user: any) => {
+    router.push(`/admin/istifadeciler?userId=${user.id}`);
+  };
+
+  const goBack = () => {
+    router.push("/admin/istifadeciler");
+  };
 
   useEffect(() => {
     if (status === "loading" || !currentRole) return;
@@ -81,19 +126,6 @@ export default function AdminUsersPage() {
     finally   { setLoading(false); }
   };
 
-  const openUserDetail = async (user: any) => {
-    setSelectedUser(user);
-    setResultsLoading(true);
-    setUserResults([]);
-    setResultsPage(1);
-    try {
-      const res  = await fetch(`/api/results?userId=${user.id}`);
-      const data = await res.json();
-      setUserResults(Array.isArray(data) ? data : []);
-    } catch { error("Nəticələr yüklənmədi"); }
-    finally   { setResultsLoading(false); }
-  };
-
   const copyResultLink = async (e: React.MouseEvent, resultId: string) => {
     e.stopPropagation();
     const url = `${window.location.origin}/neticeler/${resultId}`;
@@ -101,9 +133,7 @@ export default function AdminUsersPage() {
       await navigator.clipboard.writeText(url);
       setCopiedId(resultId);
       setTimeout(() => setCopiedId(null), 2000);
-    } catch {
-      prompt("Linki kopyalayın:", url);
-    }
+    } catch { prompt("Linki kopyalayın:", url); }
   };
 
   const updateUser = async (id: string, data: any) => {
@@ -137,11 +167,11 @@ export default function AdminUsersPage() {
   }
 
   // ── İstifadəçi detay görünüşü ────────────────────────────
-  if (selectedUser) {
+  if (userId && selectedUser) {
     return (
       <div>
         <button
-          onClick={() => { setSelectedUser(null); setUserResults([]); }}
+          onClick={goBack}
           className="flex items-center gap-2 text-slate-500 hover:text-slate-900 transition-colors mb-6 text-sm font-medium"
         >
           <ArrowLeft size={16} /> {isTeacher ? "Tələbələrə qayıt" : "İstifadəçilərə qayıt"}
