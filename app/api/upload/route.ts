@@ -66,7 +66,7 @@ async function uploadChunkToCloudinary(
   const signature = cloudinary.utils.api_sign_request(paramsToSign, apiSecret);
 
   const formData = new FormData();
-  formData.append("file",        new Blob([chunk]));
+  formData.append("file",        new Blob([new Uint8Array(chunk)]));
   formData.append("api_key",     apiKey);
   formData.append("timestamp",   String(timestamp));
   formData.append("signature",   signature);
