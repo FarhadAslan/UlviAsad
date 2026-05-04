@@ -17,9 +17,8 @@ interface FileUploadProps {
   uploaded?: UploadResult | null;
 }
 
-const MAX_SIZE = 200 * 1024 * 1024; // 200MB
-// Vercel body limit ~4.5MB — bundan böyük fayllar birbaşa Cloudinary-ə göndərilir
-const DIRECT_UPLOAD_THRESHOLD = 4 * 1024 * 1024; // 4MB
+const MAX_SIZE    = 200 * 1024 * 1024; // 200MB
+const CHUNK_SIZE  = 3.5 * 1024 * 1024; // 3.5MB — Vercel 4.5MB limitindən aşağı
 
 const FILE_TYPE_MAP: Record<string, string> = {
   ".pdf":  "PDF",  ".doc":  "DOC",  ".docx": "DOCX",
@@ -28,6 +27,12 @@ const FILE_TYPE_MAP: Record<string, string> = {
   ".jpg":  "IMAGE",".jpeg": "IMAGE",".png":  "IMAGE",
   ".gif":  "IMAGE",".webp": "IMAGE",
 };
+
+const ALLOWED_EXTS = [
+  ".pdf",".doc",".docx",".ppt",".pptx",".txt",
+  ".mp4",".webm",".ogg",
+  ".jpg",".jpeg",".png",".gif",".webp",
+];
 
 function formatSize(bytes: number): string {
   if (bytes === 0)         return "—";
@@ -56,135 +61,86 @@ export default function FileUpload({ onUpload, onClear, uploaded }: FileUploadPr
   const [progress,  setProgress]  = useState(0);
   const [statusMsg, setStatusMsg] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
-
-  // ── Kiçik fayllar (≤4MB): server proxy vasitəsilə ──────────
-  const uploadViaProxy = useCallback(async (file: File): Promise<UploadResult> => {
-    const fd = new FormData();
-    fd.append("file", file);
-    const res  = await fetch("/api/upload", { method: "POST", body: fd });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Yükləmə xətası");
-    return data as UploadResult;
-  }, []);
-
-  // ── Böyük fayllar (>4MB): birbaşa Cloudinary-ə ─────────────
-  const uploadDirectToCloudinary = useCallback(async (
-    file: File,
-    onProgress: (pct: number) => void
-  ): Promise<UploadResult> => {
-    const ext = getExt(file.name);
-
-    // 1. Server-dən imzalı parametrləri al
-    setStatusMsg("Hazırlanır...");
-    const signRes = await fetch(
-      `/api/upload?filename=${encodeURIComponent(file.name)}&type=${encodeURIComponent(ext)}`
-    );
-    const sign = await signRes.json();
-    if (!signRes.ok) throw new Error(sign.error || "İmzalama xətası");
-
-    const { signature, timestamp, publicId, cloudName, apiKey, resourceType, fileType } = sign;
-
-    // 2. Cloudinary-ə birbaşa yüklə (XMLHttpRequest — progress tracking üçün)
-    setStatusMsg("Yüklənir...");
-    const uploadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`;
-
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("api_key",      apiKey);
-    fd.append("timestamp",    String(timestamp));
-    fd.append("signature",    signature);
-    fd.append("public_id",    publicId);
-    fd.append("access_mode",  "public");
-    fd.append("type",         "upload");
-
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", uploadUrl);
-
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) {
-          onProgress(Math.round((e.loaded / e.total) * 100));
-        }
-      };
-
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          const result = JSON.parse(xhr.responseText);
-          resolve({
-            url:      result.secure_url,
-            fileType: fileType,
-            fileName: file.name,
-            size:     file.size,
-          });
-        } else {
-          try {
-            const err = JSON.parse(xhr.responseText);
-            reject(new Error(err.error?.message || `Cloudinary xətası (${xhr.status})`));
-          } catch {
-            reject(new Error(`Yükləmə xətası (${xhr.status})`));
-          }
-        }
-      };
-
-      xhr.onerror = () => reject(new Error("Şəbəkə xətası baş verdi"));
-      xhr.ontimeout = () => reject(new Error("Yükləmə vaxtı bitdi"));
-      xhr.timeout = 300000; // 5 dəqiqə
-
-      xhr.send(fd);
-    });
-  }, []);
+  const abortRef = useRef(false);
 
   const handleFile = useCallback(async (file: File) => {
-    // Client-side yoxlama
+    // Validasiya
     if (file.size > MAX_SIZE) {
-      error(`Fayl ölçüsü 200MB-dan çox ola bilməz (cari: ${(file.size / 1024 / 1024).toFixed(1)}MB)`);
+      error(`Fayl ölçüsü 200MB-dan çox ola bilməz (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
       return;
     }
-
     const ext = getExt(file.name);
-    const allowedExts = [".pdf",".doc",".docx",".ppt",".pptx",".txt",".mp4",".webm",".ogg",".jpg",".jpeg",".png",".gif",".webp"];
-    if (!allowedExts.includes(ext)) {
+    if (!ALLOWED_EXTS.includes(ext)) {
       error(`Bu fayl tipi dəstəklənmir (${ext || file.type})`);
       return;
     }
 
     setUploading(true);
     setProgress(0);
-    setStatusMsg("Başlanır...");
+    abortRef.current = false;
+
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    const uploadId    = `uid_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const cleanName   = file.name.replace(/[^a-zA-Z0-9-_.]/g, "_").substring(0, 60);
+    const publicId    = `muellim-portal/${cleanName.replace(ext, "")}_${Date.now()}`;
 
     try {
-      let result: UploadResult;
+      for (let i = 0; i < totalChunks; i++) {
+        if (abortRef.current) throw new Error("Ləğv edildi");
 
-      if (file.size > DIRECT_UPLOAD_THRESHOLD) {
-        // Böyük fayl — birbaşa Cloudinary-ə
-        result = await uploadDirectToCloudinary(file, (pct) => {
-          setProgress(pct);
-        });
-      } else {
-        // Kiçik fayl — server proxy
-        const interval = setInterval(() => {
-          setProgress((p) => (p < 85 ? p + 10 : p));
-        }, 150);
-        result = await uploadViaProxy(file);
-        clearInterval(interval);
+        const start = i * CHUNK_SIZE;
+        const end   = Math.min(start + CHUNK_SIZE, file.size);
+        const chunk = file.slice(start, end);
+
+        setStatusMsg(
+          totalChunks === 1
+            ? "Yüklənir..."
+            : `Yüklənir... (${i + 1}/${totalChunks})`
+        );
+
+        const fd = new FormData();
+        fd.append("file",        chunk, file.name);
+        fd.append("chunkIndex",  String(i));
+        fd.append("totalChunks", String(totalChunks));
+        fd.append("totalSize",   String(file.size));
+        fd.append("uploadId",    uploadId);
+        fd.append("publicId",    publicId);
+
+        const res  = await fetch("/api/upload", { method: "POST", body: fd });
+        const data = await res.json();
+
+        if (!res.ok) {
+          throw new Error(data.error || "Yükləmə xətası");
+        }
+
+        const pct = Math.round(((i + 1) / totalChunks) * 100);
+        setProgress(pct);
+
+        // Son chunk — URL gəldi
+        if (data.done && data.url) {
+          setStatusMsg("Tamamlandı!");
+          setTimeout(() => {
+            setUploading(false);
+            setStatusMsg("");
+            setProgress(0);
+            onUpload(data as UploadResult);
+          }, 400);
+          return;
+        }
       }
 
-      setProgress(100);
-      setStatusMsg("Tamamlandı!");
-      setTimeout(() => {
-        setUploading(false);
-        setStatusMsg("");
-        onUpload(result);
-      }, 400);
+      // totalChunks === 1 amma done gəlmədisə
+      throw new Error("Yükləmə tamamlanmadı");
 
     } catch (e: any) {
+      if (!abortRef.current) {
+        error(e?.message || "Yükləmə zamanı xəta baş verdi");
+      }
       setUploading(false);
       setProgress(0);
       setStatusMsg("");
-      const msg = e?.message || "Yükləmə zamanı xəta baş verdi";
-      error(msg);
     }
-  }, [onUpload, error, uploadViaProxy, uploadDirectToCloudinary]);
+  }, [onUpload, error]);
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -241,7 +197,7 @@ export default function FileUpload({ onUpload, onClear, uploaded }: FileUploadPr
         }}
       >
         {uploading ? (
-          <div className="text-center">
+          <div className="text-center" onClick={(e) => e.stopPropagation()}>
             <div className="w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-3"
               style={{ background: "rgba(147,204,255,0.12)" }}>
               <Upload size={22} className="text-[#1a7fe0] animate-bounce" />
@@ -251,7 +207,14 @@ export default function FileUpload({ onUpload, onClear, uploaded }: FileUploadPr
               <div className="h-full rounded-full transition-all duration-300"
                 style={{ width: `${progress}%`, background: "linear-gradient(90deg,#1f6f43,#2e8b57)" }} />
             </div>
-            <p className="text-xs text-slate-400">{progress}%</p>
+            <p className="text-xs text-slate-400 mb-3">{progress}%</p>
+            <button
+              type="button"
+              onClick={() => { abortRef.current = true; setUploading(false); setProgress(0); setStatusMsg(""); }}
+              className="text-xs text-red-400 hover:text-red-600 transition-colors"
+            >
+              Ləğv et
+            </button>
           </div>
         ) : (
           <div className="text-center">
