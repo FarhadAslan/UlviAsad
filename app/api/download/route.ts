@@ -70,7 +70,15 @@ export async function GET(req: NextRequest) {
   if (!url) {
     return NextResponse.json({ error: "URL tələb olunur" }, { status: 400 });
   }
-  if (!url.startsWith("https://res.cloudinary.com/")) {
+
+  // Yalnız etibarlı storage domenlərinə icazə ver
+  const ALLOWED_DOMAINS = [
+    "https://res.cloudinary.com/",  // Cloudinary (köhnə fayllar)
+    "https://utfs.io/",             // UploadThing (yeni fayllar)
+    "https://uploadthing.com/",     // UploadThing alternativ
+  ];
+  const isAllowed = ALLOWED_DOMAINS.some((d) => url.startsWith(d));
+  if (!isAllowed) {
     return NextResponse.json({ error: "İcazəsiz URL" }, { status: 403 });
   }
 
@@ -92,24 +100,19 @@ export async function GET(req: NextRequest) {
     clearTimeout(timeoutId);
 
     if (directRes.ok) {
-      // Cloudinary-dən gələn stream-i birbaşa client-ə ötür
-      // Bu RAM-ı qoruyur — böyük fayllar üçün kritikdir
       const headers: Record<string, string> = {
-        "Content-Type":        contentType,
-        "Content-Disposition": disposition,
-        "Cache-Control":       "public, max-age=3600",
+        "Content-Type":           contentType,
+        "Content-Disposition":    disposition,
+        "Cache-Control":          "public, max-age=3600",
         "X-Content-Type-Options": "nosniff",
       };
-
-      // Content-Length varsa ötür (progress bar üçün)
       const cl = directRes.headers.get("content-length");
       if (cl) headers["Content-Length"] = cl;
-
       return new NextResponse(directRes.body, { headers });
     }
 
-    // 401 aldıqda — Cloudinary ZIP API ilə al
-    if (directRes.status === 401) {
+    // 401 aldıqda — yalnız Cloudinary üçün ZIP fallback
+    if (directRes.status === 401 && url.startsWith("https://res.cloudinary.com/")) {
       const publicId = extractPublicId(url);
       if (!publicId) {
         return NextResponse.json({ error: "URL formatı tanınmadı" }, { status: 400 });
