@@ -7,6 +7,7 @@ import { useToast } from "@/components/ui/toast-1";
 import { formatDate } from "@/lib/utils";
 import Pagination from "@/components/Pagination";
 import { useFormDraft } from "@/lib/useFormDraft";
+import ConfirmModal from "@/components/ui/confirm-modal";
 import {
   Plus, X, Eye, Clock, Loader2,
   CheckCircle2, CircleDot, Trash2, Edit,
@@ -381,6 +382,7 @@ export default function RequestsPage() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [page,         setPage]         = useState(1);
   const [deletingId,   setDeletingId]   = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const totalPages   = Math.ceil(requests.length / PAGE_SIZE);
   const paginated    = useMemo(
@@ -406,8 +408,8 @@ export default function RequestsPage() {
   }, [statusFilter, error]);
 
   const deleteRequest = useCallback(async (id: string) => {
-    if (!confirm("Bu sorğunu silmək istədiyinizə əminsiniz?")) return;
     setDeletingId(id);
+    setConfirmDeleteId(null);
     try {
       const res = await fetch(`/api/requests/${id}`, { method: "DELETE" });
       if (res.ok) setRequests((prev) => prev.filter((r) => r.id !== id));
@@ -440,6 +442,15 @@ export default function RequestsPage() {
 
   return (
     <div>
+      <ConfirmModal
+        open={!!confirmDeleteId}
+        title="Sorğunu sil"
+        message="Bu sorğunu silmək istədiyinizə əminsiniz?"
+        confirmText="Sil"
+        loading={deletingId === confirmDeleteId}
+        onConfirm={() => confirmDeleteId && deleteRequest(confirmDeleteId)}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
@@ -602,7 +613,7 @@ export default function RequestsPage() {
                               </button>
                             )}
 
-                            <button onClick={() => deleteRequest(req.id)}
+                            <button onClick={() => setConfirmDeleteId(req.id)}
                               disabled={deletingId === req.id}
                               className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-all disabled:opacity-50"
                               title="Sil">

@@ -8,6 +8,7 @@ import { useToast } from "@/components/ui/toast-1";
 import { getCategoryLabel, getTypeLabel } from "@/lib/utils";
 import QuizForm from "@/components/admin/QuizForm";
 import Pagination from "@/components/Pagination";
+import ConfirmModal from "@/components/ui/confirm-modal";
 
 const PAGE_SIZE = 10;
 
@@ -33,6 +34,7 @@ export default function AdminQuizzesPage() {
   const [copiedId,       setCopiedId]       = useState<string | null>(null);
   const [deletingId,     setDeletingId]     = useState<string | null>(null);
   const [togglingId,     setTogglingId]     = useState<string | null>(null);
+  const [confirmDelete,  setConfirmDelete]  = useState<string | null>(null); // quiz id
   const [search,         setSearch]         = useState("");
   const [filterTeacher,  setFilterTeacher]  = useState("ALL");
   const [filterType,     setFilterType]     = useState("ALL");
@@ -149,8 +151,8 @@ export default function AdminQuizzesPage() {
   };
 
   const deleteQuiz = async (id: string) => {
-    if (!confirm("Bu quizi silmək istədiyinizə əminsiniz?")) return;
     setDeletingId(id);
+    setConfirmDelete(null);
     try {
       const res  = await fetch(`/api/quizzes/${id}`, { method: "DELETE" });
       const data = await res.json().catch(() => ({}));
@@ -166,6 +168,15 @@ export default function AdminQuizzesPage() {
 
   return (
     <div>
+      <ConfirmModal
+        open={!!confirmDelete}
+        title="Quizi sil"
+        message="Bu quizi silmək istədiyinizə əminsiniz? Bu əməliyyat geri alına bilməz."
+        confirmText="Sil"
+        loading={deletingId === confirmDelete}
+        onConfirm={() => confirmDelete && deleteQuiz(confirmDelete)}
+        onCancel={() => setConfirmDelete(null)}
+      />
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold text-slate-900">
           {isTeacher ? "Quizlərim" : "Quizlər"}
@@ -268,7 +279,7 @@ export default function AdminQuizzesPage() {
                           <button onClick={() => copyLink(quiz.id)} className="p-1.5 text-[#1a7fe0] hover:bg-blue-50 rounded-lg transition-all" title="Linki kopyala">
                             {copiedId === quiz.id ? <Check size={14} className="text-green-500" /> : <Share2 size={14} />}
                           </button>
-                          <button onClick={() => deleteQuiz(quiz.id)} disabled={deletingId === quiz.id}
+                          <button onClick={() => setConfirmDelete(quiz.id)} disabled={deletingId === quiz.id}
                             className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-all disabled:opacity-50" title="Sil">
                             {deletingId === quiz.id
                               ? <div className="w-3.5 h-3.5 border-2 border-red-200 border-t-red-500 rounded-full animate-spin" />

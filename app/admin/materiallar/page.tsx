@@ -7,6 +7,7 @@ import { getCategoryLabel, formatDate } from "@/lib/utils";
 import FileUpload from "@/components/ui/file-upload";
 import Pagination from "@/components/Pagination";
 import { useFormDraft } from "@/lib/useFormDraft";
+import ConfirmModal from "@/components/ui/confirm-modal";
 
 const CATEGORIES = [
   { value: "QANUNVERICILIK", label: "Qanunvericilik" },
@@ -31,6 +32,8 @@ export default function AdminMaterialsPage() {
   const [form,            setForm,  clearMaterialDraft] = useFormDraft("material_form", emptyForm(), false);
   const [uploaded,        setUploaded]        = useState<UploadResult | null>(null);
   const [page,            setPage]            = useState(1);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingMat,     setDeletingMat]     = useState(false);
 
   useEffect(() => { fetchMaterials(); }, []);
 
@@ -78,11 +81,12 @@ export default function AdminMaterialsPage() {
   };
 
   const deleteMaterial = async (id: string) => {
-    if (!confirm("Bu materialı silmək istədiyinizə əminsiniz?")) return;
+    setDeletingMat(true);
     try {
       const res = await fetch(`/api/materials/${id}`, { method: "DELETE" });
       if (res.ok) { success("Material silindi"); fetchMaterials(); }
     } catch { error("Xəta baş verdi"); }
+    finally { setDeletingMat(false); setConfirmDeleteId(null); }
   };
 
   const closeForm = () => { setShowForm(false); setEditingMaterial(null); setForm(emptyForm()); setUploaded(null); };
@@ -98,6 +102,15 @@ export default function AdminMaterialsPage() {
 
   return (
     <div>
+      <ConfirmModal
+        open={!!confirmDeleteId}
+        title="Materialı sil"
+        message="Bu materialı silmək istədiyinizə əminsiniz? Bu əməliyyat geri alına bilməz."
+        confirmText="Sil"
+        loading={deletingMat}
+        onConfirm={() => confirmDeleteId && deleteMaterial(confirmDeleteId)}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-3xl font-bold text-slate-900">Materiallar</h1>
         {!showForm && (
@@ -213,7 +226,7 @@ export default function AdminMaterialsPage() {
                         <div className="flex items-center gap-1.5">
                           <button onClick={() => setEditingMaterial(m)} className="p-1.5 text-[#1a7fe0] hover:bg-blue-50 rounded-lg transition-all" title="Düzəlt"><Edit size={14} /></button>
                           <a href={m.fileUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg transition-all" title="Faylı aç"><ExternalLink size={14} /></a>
-                          <button onClick={() => deleteMaterial(m.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-all" title="Sil"><Trash2 size={14} /></button>
+                          <button onClick={() => setConfirmDeleteId(m.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-all" title="Sil"><Trash2 size={14} /></button>
                         </div>
                       </td>
                     </tr>

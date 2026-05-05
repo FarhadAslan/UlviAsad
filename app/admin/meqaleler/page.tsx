@@ -7,6 +7,7 @@ import { useToast } from "@/components/ui/toast-1";
 import { formatDate } from "@/lib/utils";
 import RichEditor from "@/components/ui/rich-editor";
 import { useFormDraft } from "@/lib/useFormDraft";
+import ConfirmModal from "@/components/ui/confirm-modal";
 
 export default function AdminArticlesPage() {
   const router       = useRouter();
@@ -17,6 +18,8 @@ export default function AdminArticlesPage() {
   const { success, error } = useToast();
   const [articles, setArticles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingArticle, setDeletingArticle] = useState(false);
   const isEditMode = action === "edit";
   const emptyArticleForm = { title: "", summary: "", content: "", imageUrl: "", active: true };
   const [form, setForm, clearArticleDraft] = useFormDraft("article_form", emptyArticleForm, isEditMode);
@@ -114,11 +117,12 @@ export default function AdminArticlesPage() {
   };
 
   const deleteArticle = async (id: string) => {
-    if (!confirm("Bu məqaləni silmək istədiyinizə əminsiniz?")) return;
+    setDeletingArticle(true);
     try {
       const res = await fetch(`/api/articles/${id}`, { method: "DELETE" });
       if (res.ok) { success("Məqalə silindi"); fetchArticles(); }
     } catch { error("Xəta baş verdi"); }
+    finally { setDeletingArticle(false); setConfirmDeleteId(null); }
   };
 
   const labelCls = "block text-sm font-medium text-slate-700 mb-1.5";
@@ -261,6 +265,15 @@ export default function AdminArticlesPage() {
 
   return (
     <div>
+      <ConfirmModal
+        open={!!confirmDeleteId}
+        title="Məqaləni sil"
+        message="Bu məqaləni silmək istədiyinizə əminsiniz? Bu əməliyyat geri alına bilməz."
+        confirmText="Sil"
+        loading={deletingArticle}
+        onConfirm={() => confirmDeleteId && deleteArticle(confirmDeleteId)}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-3xl font-bold text-slate-900">Məqalələr</h1>
         <a href="/admin/meqaleler?action=create" target="_blank" rel="noopener noreferrer"
@@ -317,7 +330,7 @@ export default function AdminArticlesPage() {
                           className="p-1.5 text-[#1a7fe0] hover:bg-blue-50 rounded-lg transition-all">
                           <Edit size={14} />
                         </button>
-                        <button onClick={() => deleteArticle(a.id)}
+                        <button onClick={() => setConfirmDeleteId(a.id)}
                           className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-all">
                           <Trash2 size={14} />
                         </button>

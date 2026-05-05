@@ -8,6 +8,7 @@ import { useToast } from "@/components/ui/toast-1";
 import { formatDate, getCategoryLabel, getTypeLabel } from "@/lib/utils";
 import Pagination from "@/components/Pagination";
 import ResultDetailModal from "@/components/ResultDetailModal";
+import ConfirmModal from "@/components/ui/confirm-modal";
 
 const ADMIN_ROLES = ["USER", "STUDENT", "TEACHER", "ADMIN"];
 const roleLabels: Record<string, string> = {
@@ -46,6 +47,7 @@ export default function AdminUsersPage() {
   const [selectedResultId, setSelectedResultId] = useState<string | null>(null);
   const [copiedId,         setCopiedId]         = useState<string | null>(null);
   const [resultsPage,      setResultsPage]      = useState(1);
+  const [confirmDeleteResultId, setConfirmDeleteResultId] = useState<string | null>(null);
 
   const RESULTS_PAGE_SIZE = 8;
   const totalResultPages  = Math.ceil(userResults.length / RESULTS_PAGE_SIZE);
@@ -153,7 +155,7 @@ export default function AdminUsersPage() {
   };
 
   const deleteResult = async (resultId: string) => {
-    if (!confirm("Bu nəticəni tarixçədən silmək istədiyinizə əminsiniz?")) return;
+    setConfirmDeleteResultId(null);
     try {
       const res = await fetch(`/api/results/${resultId}`, { method: "DELETE" });
       if (res.ok) {
@@ -183,6 +185,14 @@ export default function AdminUsersPage() {
   if (userId && selectedUser) {
     return (
       <div>
+        <ConfirmModal
+          open={!!confirmDeleteResultId}
+          title="Nəticəni sil"
+          message="Bu quiz nəticəsini tarixçədən silmək istədiyinizə əminsiniz?"
+          confirmText="Sil"
+          onConfirm={() => confirmDeleteResultId && deleteResult(confirmDeleteResultId)}
+          onCancel={() => setConfirmDeleteResultId(null)}
+        />
         <button
           onClick={goBack}
           className="flex items-center gap-2 text-slate-500 hover:text-slate-900 transition-colors mb-6 text-sm font-medium"
@@ -295,7 +305,7 @@ export default function AdminUsersPage() {
                             </button>
                             {!isTeacher && (
                               <button
-                                onClick={(e) => { e.stopPropagation(); deleteResult(r.id); }}
+                                onClick={(e) => { e.stopPropagation(); setConfirmDeleteResultId(r.id); }}
                                 className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 transition-all"
                                 title="Tarixçədən sil">
                                 <Trash2 size={13} />
