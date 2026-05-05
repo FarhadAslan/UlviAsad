@@ -276,10 +276,10 @@ export default function AdminArticlesPage() {
       />
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-3xl font-bold text-slate-900">Məqalələr</h1>
-        <a href="/admin/meqaleler?action=create" target="_blank" rel="noopener noreferrer"
+        <button onClick={() => router.push("/admin/meqaleler?action=create")}
           className="btn-primary flex items-center gap-2">
           <Plus size={16} /> Yeni Məqalə
-        </a>
+        </button>
       </div>
       <div className="card-static overflow-hidden">
         {loading ? (

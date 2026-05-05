@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { revalidatePath } from "next/cache";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -40,7 +41,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(articles, {
       headers: {
-        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60",
+        "Cache-Control": "no-store",
       },
     });
   } catch (error) {
@@ -72,6 +73,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    revalidatePath("/meqaleler");
     return NextResponse.json(article, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: "Server xətası" }, { status: 500 });

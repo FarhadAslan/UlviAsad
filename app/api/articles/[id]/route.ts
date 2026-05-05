@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { revalidatePath } from "next/cache";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -42,6 +43,8 @@ export async function PUT(
       data: { title, content, summary, imageUrl: imageUrl || null, active },
     });
 
+    revalidatePath("/meqaleler");
+    revalidatePath(`/meqaleler/${params.id}`);
     return NextResponse.json(article);
   } catch (error) {
     return NextResponse.json({ error: "Server xətası" }, { status: 500 });
@@ -59,6 +62,7 @@ export async function DELETE(
     }
 
     await prisma.article.delete({ where: { id: params.id } });
+    revalidatePath("/meqaleler");
     return NextResponse.json({ message: "Məqalə silindi" });
   } catch (error) {
     return NextResponse.json({ error: "Server xətası" }, { status: 500 });
