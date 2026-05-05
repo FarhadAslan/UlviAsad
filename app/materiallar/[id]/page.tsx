@@ -34,11 +34,22 @@ export default async function MaterialDetailPage({ params }: { params: { id: str
     redirect("/auth/giris");
   }
 
-  const downloadUrl = `/api/download?url=${encodeURIComponent(material.fileUrl)}&filename=${encodeURIComponent(material.title)}&type=${material.fileType}`;
-  const viewUrl     = `/api/download?url=${encodeURIComponent(material.fileUrl)}&filename=${encodeURIComponent(material.title)}&type=${material.fileType}&inline=true`;
+  const isUploadThing = material.fileUrl.includes("ufs.sh") ||
+                        material.fileUrl.includes("utfs.io") ||
+                        material.fileUrl.includes("uploadthing");
 
-  // Video fayllar üçün birbaşa Cloudinary URL-i istifadə et (streaming üçün daha yaxşı)
-  const isVideo     = material.fileType === "VIDEO";
+  // UploadThing faylları public-dir — birbaşa URL istifadə et
+  // Cloudinary faylları proxy vasitəsilə yüklənir
+  const downloadUrl = isUploadThing
+    ? material.fileUrl
+    : `/api/download?url=${encodeURIComponent(material.fileUrl)}&filename=${encodeURIComponent(material.title)}&type=${material.fileType}`;
+
+  const viewUrl = isUploadThing
+    ? material.fileUrl
+    : `/api/download?url=${encodeURIComponent(material.fileUrl)}&filename=${encodeURIComponent(material.title)}&type=${material.fileType}&inline=true`;
+
+  // Video fayllar üçün birbaşa URL (streaming üçün daha yaxşı)
+  const isVideo      = material.fileType === "VIDEO";
   const finalViewUrl = isVideo ? material.fileUrl : viewUrl;
 
   return (

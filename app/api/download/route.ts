@@ -72,13 +72,11 @@ export async function GET(req: NextRequest) {
   }
 
   // Yalnız etibarlı storage domenlərinə icazə ver
-  const ALLOWED_DOMAINS = [
-    "https://res.cloudinary.com/",  // Cloudinary (köhnə fayllar)
-    "https://utfs.io/",             // UploadThing (yeni fayllar)
-    "https://uploadthing.com/",     // UploadThing alternativ
-  ];
-  const isAllowed = ALLOWED_DOMAINS.some((d) => url.startsWith(d));
-  if (!isAllowed) {
+  const isCloudinary   = url.startsWith("https://res.cloudinary.com/");
+  const isUploadThing  = url.includes("ufs.sh") || url.includes("utfs.io") || url.includes("uploadthing");
+
+  if (!isCloudinary && !isUploadThing) {
+    console.error("Blocked URL:", url);
     return NextResponse.json({ error: "İcazəsiz URL" }, { status: 403 });
   }
 
@@ -112,7 +110,7 @@ export async function GET(req: NextRequest) {
     }
 
     // 401 aldıqda — yalnız Cloudinary üçün ZIP fallback
-    if (directRes.status === 401 && url.startsWith("https://res.cloudinary.com/")) {
+    if (directRes.status === 401 && isCloudinary) {
       const publicId = extractPublicId(url);
       if (!publicId) {
         return NextResponse.json({ error: "URL formatı tanınmadı" }, { status: 400 });
