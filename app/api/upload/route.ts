@@ -8,29 +8,13 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200MB
+// Kiçik fayllar (şəkillər) üçün Cloudinary proxy
+// Böyük fayllar (PDF, video) UploadThing vasitəsilə yüklənir
 
 const ALLOWED_EXTENSIONS = new Set([
-  ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".txt",
-  ".mp4", ".webm", ".ogg",
-  ".jpg", ".jpeg", ".png", ".gif", ".webp",
+  ".jpg", ".jpeg", ".png", ".gif", ".webp", // şəkillər
 ]);
 
-const FILE_TYPE_MAP: Record<string, string> = {
-  ".pdf":  "PDF",  ".doc":  "DOC",  ".docx": "DOCX",
-  ".ppt":  "PPT",  ".pptx": "PPTX", ".txt":  "TXT",
-  ".mp4":  "VIDEO",".webm": "VIDEO",".ogg":  "VIDEO",
-  ".jpg":  "IMAGE",".jpeg": "IMAGE",".png":  "IMAGE",
-  ".gif":  "IMAGE",".webp": "IMAGE",
-};
-
-function getResourceType(ext: string): "image" | "video" | "raw" {
-  if ([".jpg", ".jpeg", ".png", ".gif", ".webp"].includes(ext)) return "image";
-  if ([".mp4", ".webm", ".ogg"].includes(ext)) return "video";
-  return "raw";
-}
-
-// ── POST: Kiçik fayllar üçün server proxy (≤4MB) ──────────────
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -61,39 +45,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Fayl tapılmadı" }, { status: 400 });
     }
 
-    if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json({
-        error: `Fayl ölçüsü 200MB-dan çox ola bilməz (${(file.size / 1024 / 1024).toFixed(1)}MB)`,
-      }, { status: 400 });
-    }
-
     const ext = path.extname(file.name).toLowerCase();
     if (!ALLOWED_EXTENSIONS.has(ext)) {
-      return NextResponse.json({ error: `Bu fayl tipi dəstəklənmir (${ext})` }, { status: 400 });
+      return NextResponse.json({ error: `Bu endpoint yalnız şəkillər üçündür (${ext})` }, { status: 400 });
     }
 
-    const resourceType = getResourceType(ext);
-    const cleanName    = path.basename(file.name, ext).replace(/[^a-zA-Z0-9-_]/g, "_").substring(0, 50);
-    const publicId     = `${cleanName}_${Date.now()}`;
+    const cleanName = path.basename(file.name, ext).replace(/[^a-zA-Z0-9-_]/g, "_").substring(0, 50);
+    const publicId  = `${cleanName}_${Date.now()}`;
 
     const bytes  = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    const uploadOptions: Record<string, any> = {
-      folder:        "muellim-portal",
-      public_id:     publicId,
-      resource_type: resourceType,
-      access_mode:   "public",
-      type:          "upload",
-      use_filename:  false,
-    };
-
-    if (resourceType === "raw" && ext !== ".pdf") {
-      uploadOptions.format = ext.replace(".", "");
-    }
-
     const result = await new Promise<any>((resolve, reject) => {
-      cloudinary.uploader.upload_stream(uploadOptions, (error, result) => {
+      cloudinary.uploader.upload_stream({
+        folder:        "muellim-portal",
+        public_id:     publicId,
+        resource_type: "image",
+        access_mode:   "public",
+        type:          "upload",
+      }, (error, result) => {
         if (error || !result) reject(error ?? new Error("Upload failed"));
         else resolve(result);
       }).end(buffer);
@@ -101,13 +71,12 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       url:      result.secure_url,
-      fileType: FILE_TYPE_MAP[ext] ?? "FILE",
+      fileType: "IMAGE",
       fileName: file.name,
       size:     file.size,
     });
   } catch (error) {
     console.error("Upload error:", error);
-    const msg = error instanceof Error ? error.message : "Naməlum xəta";
-    return NextResponse.json({ error: `Yükləmə xətası: ${msg}` }, { status: 500 });
+    return NextResponse.json({ error: `Yükləmə xətası: ${error instanceof Error ? error.message : "Naməlum xəta"}` }, { status: 500 });
   }
 }

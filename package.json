@@ -21,6 +21,7 @@
     "@radix-ui/react-select": "^2.0.0",
     "@radix-ui/react-tabs": "^1.0.4",
     "@types/jszip": "^3.4.1",
+    "@uploadthing/react": "^7.3.3",
     "bcryptjs": "^2.4.3",
     "cloudinary": "^2.10.0",
     "clsx": "^2.1.1",
@@ -35,7 +36,8 @@
     "react-hot-toast": "^2.4.1",
     "react-quill": "^2.0.0",
     "tailwind-merge": "^2.3.0",
-    "three": "^0.184.0"
+    "three": "^0.184.0",
+    "uploadthing": "^7.7.4"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
