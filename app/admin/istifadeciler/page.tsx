@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Search, UserCheck, UserX, ArrowLeft, Eye, Loader2, Share2, Check } from "lucide-react";
+import { Search, UserCheck, UserX, ArrowLeft, Eye, Loader2, Share2, Check, Trash2 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useToast } from "@/components/ui/toast-1";
 import { formatDate, getCategoryLabel, getTypeLabel } from "@/lib/utils";
@@ -152,6 +152,19 @@ export default function AdminUsersPage() {
     updateUser(user.id, { active: !isActive(user.active) });
   };
 
+  const deleteResult = async (resultId: string) => {
+    if (!confirm("Bu nəticəni tarixçədən silmək istədiyinizə əminsiniz?")) return;
+    try {
+      const res = await fetch(`/api/results/${resultId}`, { method: "DELETE" });
+      if (res.ok) {
+        success("Nəticə silindi");
+        setUserResults((prev) => prev.filter((r) => r.id !== resultId));
+      } else {
+        error("Nəticə silinmədi");
+      }
+    } catch { error("Xəta baş verdi"); }
+  };
+
   // ── Session yüklənir — skeleton ──────────────────────────
   if (status === "loading" || !currentRole) {
     return (
@@ -280,6 +293,14 @@ export default function AdminUsersPage() {
                                 ? <Check size={13} className="text-green-500" />
                                 : <Share2 size={13} />}
                             </button>
+                            {!isTeacher && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); deleteResult(r.id); }}
+                                className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 transition-all"
+                                title="Tarixçədən sil">
+                                <Trash2 size={13} />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

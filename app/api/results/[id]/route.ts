@@ -6,6 +6,31 @@ import { authOptions } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const session  = await getServerSession(authOptions);
+    const userRole = (session?.user as any)?.role;
+
+    if (!session || userRole !== "ADMIN") {
+      return NextResponse.json({ error: "Yalnız admin nəticə silə bilər" }, { status: 403 });
+    }
+
+    const existing = await prisma.result.findUnique({ where: { id: params.id } });
+    if (!existing) {
+      return NextResponse.json({ error: "Nəticə tapılmadı" }, { status: 404 });
+    }
+
+    await prisma.result.delete({ where: { id: params.id } });
+    return NextResponse.json({ message: "Nəticə silindi" });
+  } catch (error) {
+    console.error("Result DELETE error:", error);
+    return NextResponse.json({ error: "Server xətası" }, { status: 500 });
+  }
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: { id: string } }
