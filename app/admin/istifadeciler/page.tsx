@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Search, UserCheck, UserX, ArrowLeft, Eye, Loader2, Share2, Check, Trash2 } from "lucide-react";
+import { Search, UserCheck, UserX, ArrowLeft, Eye, Loader2, Share2, Check, Trash2, KeyRound, X } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useToast } from "@/components/ui/toast-1";
 import { formatDate, getCategoryLabel, getTypeLabel } from "@/lib/utils";
@@ -48,6 +48,12 @@ export default function AdminUsersPage() {
   const [copiedId,         setCopiedId]         = useState<string | null>(null);
   const [resultsPage,      setResultsPage]      = useState(1);
   const [confirmDeleteResultId, setConfirmDeleteResultId] = useState<string | null>(null);
+  const [confirmDeleteUserId,   setConfirmDeleteUserId]   = useState<string | null>(null);
+  const [deletingUser,          setDeletingUser]          = useState(false);
+  const [passwordModal,         setPasswordModal]         = useState<{ id: string; name: string } | null>(null);
+  const [newPassword,           setNewPassword]           = useState("");
+  const [savingPassword,        setSavingPassword]        = useState(false);
+  const [showPassword,          setShowPassword]          = useState(false);
 
   const RESULTS_PAGE_SIZE = 8;
   const totalResultPages  = Math.ceil(userResults.length / RESULTS_PAGE_SIZE);
@@ -165,6 +171,44 @@ export default function AdminUsersPage() {
         error("Nəticə silinmədi");
       }
     } catch { error("Xəta baş verdi"); }
+  };
+
+  const deleteUser = async (id: string) => {
+    setDeletingUser(true);
+    try {
+      const res = await fetch(`/api/users/${id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (res.ok) {
+        success("İstifadəçi silindi");
+        fetchUsers();
+      } else {
+        error(data.error || "Xəta baş verdi");
+      }
+    } catch { error("Xəta baş verdi"); }
+    finally { setDeletingUser(false); setConfirmDeleteUserId(null); }
+  };
+
+  const resetPassword = async () => {
+    if (!passwordModal) return;
+    if (newPassword.length < 6) { error("Parol ən az 6 simvol olmalıdır"); return; }
+    setSavingPassword(true);
+    try {
+      const res = await fetch(`/api/users/${passwordModal.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: newPassword }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        success("Parol yeniləndi");
+        setPasswordModal(null);
+        setNewPassword("");
+        setShowPassword(false);
+      } else {
+        error(data.error || "Xəta baş verdi");
+      }
+    } catch { error("Xəta baş verdi"); }
+    finally { setSavingPassword(false); }
   };
 
   // ── Session yüklənir — skeleton ──────────────────────────
@@ -341,6 +385,67 @@ export default function AdminUsersPage() {
   // ── İstifadəçilər / Tələbələr siyahısı ──────────────────
   return (
     <div>
+      {/* İstifadəçi silmə modalı */}
+      <ConfirmModal
+        open={!!confirmDeleteUserId}
+        title="İstifadəçini sil"
+        message="Bu istifadəçini silmək istədiyinizə əminsiniz? Bütün quiz nəticələri də silinəcək. Bu əməliyyat geri alına bilməz."
+        confirmText="Sil"
+        loading={deletingUser}
+        onConfirm={() => confirmDeleteUserId && deleteUser(confirmDeleteUserId)}
+        onCancel={() => setConfirmDeleteUserId(null)}
+      />
+
+      {/* Parol yeniləmə modalı */}
+      {passwordModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => { setPasswordModal(null); setNewPassword(""); setShowPassword(false); }} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 z-10">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Parolu Yenilə</h3>
+                <p className="text-sm text-slate-500 mt-0.5">{passwordModal.name}</p>
+              </div>
+              <button onClick={() => { setPasswordModal(null); setNewPassword(""); setShowPassword(false); }}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="mb-5">
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Yeni Parol</label>
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && resetPassword()}
+                  placeholder="Ən az 6 simvol"
+                  className="input-field pr-10"
+                  autoFocus
+                />
+                <button type="button" onClick={() => setShowPassword((p) => !p)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors text-xs font-medium">
+                  {showPassword ? "Gizlət" : "Göstər"}
+                </button>
+              </div>
+              {newPassword.length > 0 && newPassword.length < 6 && (
+                <p className="text-xs text-red-500 mt-1">Parol ən az 6 simvol olmalıdır</p>
+              )}
+            </div>
+            <div className="flex gap-3">
+              <button onClick={resetPassword} disabled={savingPassword || newPassword.length < 6}
+                className="btn-primary flex items-center gap-2 flex-1 justify-center">
+                {savingPassword
+                  ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Yenilənir...</>
+                  : <><KeyRound size={14} /> Parolu Yenilə</>}
+              </button>
+              <button onClick={() => { setPasswordModal(null); setNewPassword(""); setShowPassword(false); }}
+                className="btn-secondary">Ləğv et</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <h1 className="text-3xl font-bold text-slate-900 mb-8">
         {isTeacher ? "Tələbələrim" : "İstifadəçilər"}
       </h1>
@@ -439,15 +544,35 @@ export default function AdminUsersPage() {
                         </td>
                         <td className="py-3 pr-4 text-sm text-slate-400">{formatDate(user.createdAt)}</td>
                         <td className="py-3" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={() => toggleActive(user)}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                              active
-                                ? "bg-red-50 text-red-600 hover:bg-red-100 border border-red-100"
-                                : "bg-green-50 text-green-700 hover:bg-green-100 border border-green-100"
-                            }`}>
-                            {active ? <><UserX size={12} /> Deaktiv et</> : <><UserCheck size={12} /> Aktiv et</>}
-                          </button>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => toggleActive(user)}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                                active
+                                  ? "bg-red-50 text-red-600 hover:bg-red-100 border border-red-100"
+                                  : "bg-green-50 text-green-700 hover:bg-green-100 border border-green-100"
+                              }`}>
+                              {active ? <><UserX size={12} /> Deaktiv et</> : <><UserCheck size={12} /> Aktiv et</>}
+                            </button>
+                            {!isTeacher && (
+                              <>
+                                <button
+                                  onClick={() => { setPasswordModal({ id: user.id, name: user.name }); setNewPassword(""); setShowPassword(false); }}
+                                  className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-all"
+                                  title="Parolu yenilə">
+                                  <KeyRound size={14} />
+                                </button>
+                                {user.role !== "ADMIN" && (
+                                  <button
+                                    onClick={() => setConfirmDeleteUserId(user.id)}
+                                    className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 transition-all"
+                                    title="İstifadəçini sil">
+                                    <Trash2 size={14} />
+                                  </button>
+                                )}
+                              </>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import bcrypt from "bcryptjs";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -48,6 +49,14 @@ export async function PATCH(
     if (role !== undefined) updateData.role = role;
     if (active !== undefined) updateData.active = active;
     if (teacherId !== undefined) updateData.teacherId = teacherId || null;
+
+    // Parol yeniləmə
+    if (body.password) {
+      if (body.password.length < 6) {
+        return NextResponse.json({ error: "Parol ən az 6 simvol olmalıdır" }, { status: 400 });
+      }
+      updateData.password = await bcrypt.hash(body.password, 10);
+    }
 
     const user = await prisma.user.update({
       where: { id: params.id },
@@ -113,6 +122,46 @@ export async function GET(
 
     return NextResponse.json(user);
   } catch (error) {
+    return NextResponse.json({ error: "Server xətası" }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const session = await getServerSession(authOptions);
+    const userRole = (session?.user as any)?.role;
+    const sessionUserId = (session?.user as any)?.id;
+
+    if (!session || userRole !== "ADMIN") {
+      return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
+    }
+
+    // Admin özünü silə bilməz
+    if (params.id === sessionUserId) {
+      return NextResponse.json({ error: "Öz hesabınızı silə bilməzsiniz" }, { status: 400 });
+    }
+
+    // Silinəcək istifadəçini yoxla
+    const target = await prisma.user.findUnique({
+      where: { id: params.id },
+      select: { role: true },
+    });
+    if (!target) {
+      return NextResponse.json({ error: "İstifadəçi tapılmadı" }, { status: 404 });
+    }
+
+    // Başqa admini silmək olmaz
+    if (target.role === "ADMIN") {
+      return NextResponse.json({ error: "Admin hesabı silinə bilməz" }, { status: 400 });
+    }
+
+    await prisma.user.delete({ where: { id: params.id } });
+    return NextResponse.json({ message: "İstifadəçi silindi" });
+  } catch (error) {
+    console.error("User DELETE error:", error);
     return NextResponse.json({ error: "Server xətası" }, { status: 500 });
   }
 }
