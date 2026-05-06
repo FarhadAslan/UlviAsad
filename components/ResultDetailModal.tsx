@@ -141,17 +141,21 @@ export default function ResultDetailModal({ resultId, onClose, userName }: Resul
                   const isCorrect    = answerDetail?.isCorrect ?? false;
                   const correctOpt   = q.correctOption;
                   const isSkipped    = selected === null || selected === undefined || selected === "";
+                  // Əgər bu sual üçün heç bir cavab tapılmırsa — sual dəyişdirilib
+                  const isChanged    = !answerDetail;
 
-                  const statusIcon = isSkipped
+                  const statusIcon = isChanged
+                    ? <span className="text-[10px] text-slate-400 flex-shrink-0 font-medium px-1.5 py-0.5 bg-slate-100 rounded">dəyişib</span>
+                    : isSkipped
                     ? <MinusCircle size={15} className="text-slate-500 flex-shrink-0" />
                     : isCorrect
                     ? <CheckCircle size={15} className="text-green-500 flex-shrink-0" />
                     : <XCircle    size={15} className="text-red-500 flex-shrink-0" />;
 
                   return (
-                    <div key={q.id} className={`rounded-xl border overflow-hidden ${isSkipped ? "border-slate-300" : "border-slate-200"}`}>
+                    <div key={q.id} className={`rounded-xl border overflow-hidden ${isChanged ? "border-slate-200 opacity-60" : isSkipped ? "border-slate-300" : "border-slate-200"}`}>
                       {/* Question header */}
-                      <div className={`flex items-start gap-2 sm:gap-3 p-3 sm:p-4 ${isSkipped ? "bg-slate-100" : "bg-slate-50"}`}>
+                      <div className={`flex items-start gap-2 sm:gap-3 p-3 sm:p-4 ${isChanged ? "bg-slate-50" : isSkipped ? "bg-slate-100" : "bg-slate-50"}`}>
                         <span className="flex-shrink-0 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-slate-200 text-slate-600 text-[10px] sm:text-xs font-bold flex items-center justify-center mt-0.5">
                           {i + 1}
                         </span>
@@ -178,7 +182,12 @@ export default function ResultDetailModal({ resultId, onClose, userName }: Resul
                       {/* Options */}
                       <div className="p-2 sm:p-3 space-y-1.5 sm:space-y-2">
                         {/* Cavablanmamış xəbərdarlığı — optionlardan əvvəl, aydın görünsün */}
-                        {isSkipped && (
+                        {isChanged && (
+                          <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-amber-50 border border-amber-200 mb-2">
+                            <span className="text-xs sm:text-sm font-semibold text-amber-700">⚠️ Bu sual quiz yenilənərkən dəyişdirilib — cavab məlumatı mövcud deyil</span>
+                          </div>
+                        )}
+                        {!isChanged && isSkipped && (
                           <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-slate-100 border border-slate-300 mb-2">
                             <MinusCircle size={14} className="text-slate-500 flex-shrink-0" />
                             <span className="text-xs sm:text-sm font-semibold text-slate-600">Bu sual cavablanmamışdır</span>
