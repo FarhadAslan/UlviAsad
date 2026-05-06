@@ -1,27 +1,42 @@
 import nodemailer from "nodemailer";
 
-const transporter = nodemailer.createTransport({
-  host:   process.env.SMTP_HOST,
-  port:   Number(process.env.SMTP_PORT ?? 587),
-  secure: process.env.SMTP_SECURE === "true",
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+function createTransporter() {
+  const host = process.env.SMTP_HOST;
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+
+  if (!host || !user || !pass) {
+    throw new Error(
+      `SMTP konfiqurasiyası çatışmır. Zəhmət olmasa .env faylında aşağıdakıları təyin edin:\n` +
+      `  SMTP_HOST=${host ?? "❌ yoxdur"}\n` +
+      `  SMTP_USER=${user ?? "❌ yoxdur"}\n` +
+      `  SMTP_PASS=${pass ? "✓ var" : "❌ yoxdur"}`
+    );
+  }
+
+  return nodemailer.createTransport({
+    host,
+    port:   Number(process.env.SMTP_PORT ?? 587),
+    secure: process.env.SMTP_SECURE === "true",
+    auth:   { user, pass },
+  });
+}
 
 export async function sendPasswordResetEmail(
   to: string,
   name: string,
   token: string
 ) {
-  const baseUrl   = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-  const resetLink = `${baseUrl}/auth/parol-yenile?token=${token}`;
+  const transporter = createTransporter();
+  const baseUrl     = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+  const resetLink   = `${baseUrl}/auth/parol-yenile?token=${token}`;
+  const fromName    = process.env.SMTP_FROM_NAME  ?? "Ulvi Asad";
+  const fromEmail   = process.env.SMTP_FROM_EMAIL ?? process.env.SMTP_USER!;
 
   await transporter.sendMail({
-    from:    `"${process.env.SMTP_FROM_NAME ?? "Ulvi Asad"}" <${process.env.SMTP_FROM_EMAIL ?? process.env.SMTP_USER}>`,
+    from:    `"${fromName}" <${fromEmail}>`,
     to,
-    subject: "Parol Sıfırlama",
+    subject: "Parol Sıfırlama — Ulvi Asad",
     html: `
 <!DOCTYPE html>
 <html lang="az">
@@ -30,14 +45,12 @@ export async function sendPasswordResetEmail(
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;padding:40px 0;">
     <tr><td align="center">
       <table width="520" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.07);">
-        <!-- Header -->
         <tr>
           <td style="background:linear-gradient(135deg,#1a7fe0,#93ccff);padding:32px 40px;text-align:center;">
             <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;letter-spacing:-0.3px;">Ulvi Asad</h1>
             <p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:13px;">İnteraktiv Təhsil Platforması</p>
           </td>
         </tr>
-        <!-- Body -->
         <tr>
           <td style="padding:36px 40px;">
             <h2 style="margin:0 0 12px;color:#0f172a;font-size:20px;font-weight:700;">Salam, ${name}!</h2>
@@ -63,7 +76,6 @@ export async function sendPasswordResetEmail(
             </div>
           </td>
         </tr>
-        <!-- Footer -->
         <tr>
           <td style="background:#f8fafc;padding:20px 40px;text-align:center;border-top:1px solid #e2e8f0;">
             <p style="margin:0;color:#94a3b8;font-size:12px;">© 2025 Ulvi Asad. Bütün hüquqlar qorunur.</p>

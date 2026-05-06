@@ -42,7 +42,21 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ message: "Əgər bu email mövcuddursa, sıfırlama linki göndərildi" });
   } catch (error) {
-    console.error("Forgot password error:", error);
-    return NextResponse.json({ error: "Email göndərilmədi. Zəhmət olmasa sonra yenidən cəhd edin." }, { status: 500 });
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("Forgot password error:", msg);
+
+    // SMTP konfiqurasiyası yoxdursa daha aydın mesaj
+    if (msg.includes("SMTP konfiqurasiyası çatışmır")) {
+      console.error("→ Server-də SMTP_HOST, SMTP_USER, SMTP_PASS environment variable-larını təyin edin.");
+      return NextResponse.json(
+        { error: "Email xidməti konfiqurasiya edilməyib. Zəhmət olmasa administratorla əlaqə saxlayın." },
+        { status: 503 }
+      );
+    }
+
+    return NextResponse.json(
+      { error: "Email göndərilmədi. Zəhmət olmasa sonra yenidən cəhd edin." },
+      { status: 500 }
+    );
   }
 }
