@@ -197,11 +197,13 @@ export default function ResultDetailModal({ resultId, onClose, userName }: Resul
                           const isCorrectOpt  = opt.label === correctOpt;
                           const isSelectedOpt = opt.label === selected;
                           const isWrongSelect = isSelectedOpt && !isCorrect;
-                          const isSkipped     = !selected;
 
                           let cls = "flex items-center gap-2 sm:gap-3 p-2 sm:p-2.5 rounded-lg text-xs sm:text-sm ";
-                          if (isSkipped && isCorrectOpt)
-                            // Cavablanmamış — düzgün cavabı göstər amma fərqli stil ilə
+                          if (isChanged)
+                            cls += isCorrectOpt
+                              ? "bg-slate-50 border border-dashed border-slate-300 text-slate-500"
+                              : "bg-white border border-slate-100 text-slate-400";
+                          else if (isSkipped && isCorrectOpt)
                             cls += "bg-slate-50 border border-dashed border-slate-300 text-slate-500";
                           else if (isCorrectOpt)
                             cls += "bg-green-50 border border-green-300 text-green-800 font-medium";
@@ -213,20 +215,20 @@ export default function ResultDetailModal({ resultId, onClose, userName }: Resul
                           return (
                             <div key={opt.label} className={cls}>
                               <span className={`w-5 h-5 sm:w-6 sm:h-6 rounded-md flex items-center justify-center text-[10px] sm:text-xs font-bold flex-shrink-0 ${
-                                isSkipped && isCorrectOpt ? "bg-slate-200 text-slate-500" :
-                                isCorrectOpt             ? "bg-green-200 text-green-800" :
-                                isWrongSelect            ? "bg-red-200 text-red-800" :
-                                                           "bg-slate-100 text-slate-500"
+                                isChanged && isCorrectOpt  ? "bg-slate-200 text-slate-500" :
+                                isSkipped && isCorrectOpt  ? "bg-slate-200 text-slate-500" :
+                                isCorrectOpt               ? "bg-green-200 text-green-800" :
+                                isWrongSelect              ? "bg-red-200 text-red-800" :
+                                                             "bg-slate-100 text-slate-500"
                               }`}>
                                 {opt.label}
                               </span>
                               <span className="flex-1 leading-snug">{opt.text}</span>
-                              {/* Cavablanmamışda düzgün cavabı göstər amma boz rənglə */}
-                              {isSkipped && isCorrectOpt && (
+                              {(isChanged || isSkipped) && isCorrectOpt && (
                                 <span className="text-[10px] text-slate-400 flex-shrink-0 font-medium">düzgün cavab</span>
                               )}
-                              {!isSkipped && isCorrectOpt  && <CheckCircle size={13} className="text-green-500 flex-shrink-0" />}
-                              {!isSkipped && isWrongSelect && <XCircle    size={13} className="text-red-500 flex-shrink-0" />}
+                              {!isChanged && !isSkipped && isCorrectOpt  && <CheckCircle size={13} className="text-green-500 flex-shrink-0" />}
+                              {!isChanged && !isSkipped && isWrongSelect && <XCircle    size={13} className="text-red-500 flex-shrink-0" />}
                             </div>
                           );
                         })}
