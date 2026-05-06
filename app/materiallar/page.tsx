@@ -6,6 +6,15 @@ import MaterialFilters from "@/components/MaterialFilters";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
+async function getCategories() {
+  try {
+    const cats = await prisma.category.findMany({ orderBy: { order: "asc" } });
+    return cats.map((c) => ({ value: c.value, label: c.label }));
+  } catch {
+    return [];
+  }
+}
+
 export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 9;
@@ -48,6 +57,7 @@ export default async function MaterialsPage({ searchParams }: { searchParams: Re
   const page     = Math.max(1, parseInt(searchParams.page || "1"));
 
   const { items: materials, totalPages } = await getMaterials(category, search, userRole, page);
+  const categories = await getCategories();
 
   const base = { category, search };
 
@@ -58,7 +68,7 @@ export default async function MaterialsPage({ searchParams }: { searchParams: Re
         <p className="text-slate-500">PDF, DOC və video formatında tədris materialları</p>
       </div>
 
-      <MaterialFilters category={category} search={search} />
+      <MaterialFilters category={category} search={search} categories={categories} />
 
       {materials.length > 0 ? (
         <>

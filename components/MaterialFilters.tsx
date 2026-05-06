@@ -5,25 +5,23 @@ import { useCallback, useState, useTransition, useRef, useEffect } from "react";
 import { Search } from "lucide-react";
 import CustomSelect from "@/components/ui/custom-select";
 
-const CATEGORIES = [
-  { value: "ALL", label: "Hamısı" },
-  { value: "QANUNVERICILIK", label: "Qanunvericilik" },
-  { value: "MANTIQ", label: "Məntiq" },
-  { value: "AZERBAYCAN_DILI", label: "Azərbaycan Dili" },
-  { value: "INFORMATIKA", label: "İnformatika" },
-  { value: "DQ_QEBUL", label: "DQ Qəbul" },
-];
-
 export default function MaterialFilters({
-  category, search,
+  category, search, categories = [],
 }: {
-  category: string; search: string;
+  category: string;
+  search: string;
+  categories?: { value: string; label: string }[];
 }) {
   const router   = useRouter();
   const pathname = usePathname();
   const [, startTransition] = useTransition();
   const [localSearch, setLocalSearch] = useState(search);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const categoryOptions = [
+    { value: "ALL", label: "Hamısı" },
+    ...categories,
+  ];
 
   useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current); }, []);
 
@@ -55,7 +53,7 @@ export default function MaterialFilters({
             className="input-field pl-9"
           />
         </div>
-        <CustomSelect options={CATEGORIES} value={category}
+        <CustomSelect options={categoryOptions} value={category}
           onChange={(v) => update("category", v)} className="md:w-52" />
       </div>
     </div>

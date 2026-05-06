@@ -6,6 +6,15 @@ import QuizFilters from "@/components/QuizFilters";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
+async function getCategories() {
+  try {
+    const cats = await prisma.category.findMany({ orderBy: { order: "asc" } });
+    return cats.map((c) => ({ value: c.value, label: c.label }));
+  } catch {
+    return [];
+  }
+}
+
 export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 9;
@@ -78,6 +87,7 @@ export default async function QuizzesPage({ searchParams }: { searchParams: Reco
   const page     = Math.max(1, parseInt(searchParams.page || "1"));
 
   const { items: quizzes, totalPages } = await getQuizzes(category, type, search, userRole, userId, page);
+  const categories = await getCategories();
 
   const base = { category, type, search };
 
@@ -88,7 +98,7 @@ export default async function QuizzesPage({ searchParams }: { searchParams: Reco
         <p className="text-slate-500">Müxtəlif kateqoriyalarda quiz və testlər işləyin</p>
       </div>
 
-      <QuizFilters category={category} type={type} search={search} />
+      <QuizFilters category={category} type={type} search={search} categories={categories} />
 
       {quizzes.length > 0 ? (
         <>

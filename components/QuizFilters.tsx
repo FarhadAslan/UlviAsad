@@ -5,15 +5,6 @@ import { useCallback, useState, useTransition, useRef, useEffect } from "react";
 import { Search } from "lucide-react";
 import CustomSelect from "@/components/ui/custom-select";
 
-const CATEGORIES = [
-  { value: "ALL", label: "Hamısı" },
-  { value: "QANUNVERICILIK", label: "Qanunvericilik" },
-  { value: "MANTIQ", label: "Məntiq" },
-  { value: "AZERBAYCAN_DILI", label: "Azərbaycan Dili" },
-  { value: "INFORMATIKA", label: "İnformatika" },
-  { value: "DQ_QEBUL", label: "DQ Qəbul" },
-];
-
 const TYPES = [
   { value: "ALL", label: "Hamısı" },
   { value: "SINAQ", label: "Sınaq" },
@@ -21,15 +12,23 @@ const TYPES = [
 ];
 
 export default function QuizFilters({
-  category, type, search,
+  category, type, search, categories = [],
 }: {
-  category: string; type: string; search: string;
+  category: string;
+  type: string;
+  search: string;
+  categories?: { value: string; label: string }[];
 }) {
   const router   = useRouter();
   const pathname = usePathname();
   const [, startTransition] = useTransition();
   const [localSearch, setLocalSearch] = useState(search);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const categoryOptions = [
+    { value: "ALL", label: "Hamısı" },
+    ...categories,
+  ];
 
   // Cleanup on unmount
   useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current); }, []);
@@ -63,7 +62,7 @@ export default function QuizFilters({
             className="input-field pl-9"
           />
         </div>
-        <CustomSelect options={CATEGORIES} value={category}
+        <CustomSelect options={categoryOptions} value={category}
           onChange={(v) => update("category", v)} className="md:w-52" />
         <CustomSelect options={TYPES} value={type}
           onChange={(v) => update("type", v)} className="md:w-36" />

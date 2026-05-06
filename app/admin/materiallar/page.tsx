@@ -9,22 +9,15 @@ import Pagination from "@/components/Pagination";
 import { useFormDraft } from "@/lib/useFormDraft";
 import ConfirmModal from "@/components/ui/confirm-modal";
 
-const CATEGORIES = [
-  { value: "QANUNVERICILIK", label: "Qanunvericilik" },
-  { value: "MANTIQ",          label: "Məntiq" },
-  { value: "AZERBAYCAN_DILI", label: "Azərbaycan Dili" },
-  { value: "INFORMATIKA",     label: "İnformatika" },
-  { value: "DQ_QEBUL",        label: "DQ Qəbul" },
-];
-
 const PAGE_SIZE = 10;
 
 interface UploadResult { url: string; fileType: string; fileName: string; size: number; }
-const emptyForm = () => ({ title: "", category: "QANUNVERICILIK", visibility: "PUBLIC", active: true });
+const emptyForm = (firstCategory?: string) => ({ title: "", category: firstCategory || "", visibility: "PUBLIC", active: true });
 
 export default function AdminMaterialsPage() {
   const { success, error } = useToast();
   const [materials,       setMaterials]       = useState<any[]>([]);
+  const [categories,      setCategories]      = useState<{ value: string; label: string }[]>([]);
   const [loading,         setLoading]         = useState(true);
   const [showForm,        setShowForm]        = useState(false);
   const [editingMaterial, setEditingMaterial] = useState<any>(null);
@@ -35,7 +28,21 @@ export default function AdminMaterialsPage() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingMat,     setDeletingMat]     = useState(false);
 
-  useEffect(() => { fetchMaterials(); }, []);
+  useEffect(() => {
+    fetchMaterials();
+    fetch("/api/categories")
+      .then((r) => r.json())
+      .then((d) => {
+        if (Array.isArray(d)) {
+          setCategories(d);
+          // İlk kateqoriyanı default seç
+          if (d.length > 0 && !form.category) {
+            setForm((p) => ({ ...p, category: d[0].value }));
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (editingMaterial) {
@@ -89,8 +96,8 @@ export default function AdminMaterialsPage() {
     finally { setDeletingMat(false); setConfirmDeleteId(null); }
   };
 
-  const closeForm = () => { setShowForm(false); setEditingMaterial(null); setForm(emptyForm()); setUploaded(null); };
-  const openAdd   = () => { setEditingMaterial(null); setForm(emptyForm()); setUploaded(null); setShowForm(true); };
+  const closeForm = () => { setShowForm(false); setEditingMaterial(null); setForm(emptyForm(categories[0]?.value)); setUploaded(null); };
+  const openAdd   = () => { setEditingMaterial(null); setForm(emptyForm(categories[0]?.value)); setUploaded(null); setShowForm(true); };
 
   const labelCls  = "block text-sm font-medium text-slate-700 mb-1.5";
   const toggleBtn = (active: boolean) =>
@@ -135,7 +142,7 @@ export default function AdminMaterialsPage() {
             <div>
               <label className={labelCls}>Kateqoriya *</label>
               <select value={form.category} className="select-field" onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))}>
-                {CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                {categories.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
               </select>
             </div>
             <div>
