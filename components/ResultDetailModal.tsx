@@ -137,20 +137,21 @@ export default function ResultDetailModal({ resultId, onClose, userName }: Resul
               <div className="space-y-3 sm:space-y-4">
                 {data.quiz.questions.map((q: any, i: number) => {
                   const answerDetail = data.answers?.find((a: any) => a.questionId === q.id);
-                  const selected     = answerDetail?.selected;
-                  const isCorrect    = answerDetail?.isCorrect;
+                  const selected     = answerDetail?.selected ?? null;
+                  const isCorrect    = answerDetail?.isCorrect ?? false;
                   const correctOpt   = q.correctOption;
+                  const isSkipped    = selected === null || selected === undefined || selected === "";
 
-                  const statusIcon = !selected
+                  const statusIcon = isSkipped
                     ? <MinusCircle size={15} className="text-slate-500 flex-shrink-0" />
                     : isCorrect
                     ? <CheckCircle size={15} className="text-green-500 flex-shrink-0" />
                     : <XCircle    size={15} className="text-red-500 flex-shrink-0" />;
 
                   return (
-                    <div key={q.id} className={`rounded-xl border overflow-hidden ${!selected ? "border-slate-300" : "border-slate-200"}`}>
+                    <div key={q.id} className={`rounded-xl border overflow-hidden ${isSkipped ? "border-slate-300" : "border-slate-200"}`}>
                       {/* Question header */}
-                      <div className={`flex items-start gap-2 sm:gap-3 p-3 sm:p-4 ${!selected ? "bg-slate-100" : "bg-slate-50"}`}>
+                      <div className={`flex items-start gap-2 sm:gap-3 p-3 sm:p-4 ${isSkipped ? "bg-slate-100" : "bg-slate-50"}`}>
                         <span className="flex-shrink-0 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-slate-200 text-slate-600 text-[10px] sm:text-xs font-bold flex items-center justify-center mt-0.5">
                           {i + 1}
                         </span>
@@ -177,7 +178,7 @@ export default function ResultDetailModal({ resultId, onClose, userName }: Resul
                       {/* Options */}
                       <div className="p-2 sm:p-3 space-y-1.5 sm:space-y-2">
                         {/* Cavablanmamış xəbərdarlığı — optionlardan əvvəl, aydın görünsün */}
-                        {!selected && (
+                        {isSkipped && (
                           <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-slate-100 border border-slate-300 mb-2">
                             <MinusCircle size={14} className="text-slate-500 flex-shrink-0" />
                             <span className="text-xs sm:text-sm font-semibold text-slate-600">Bu sual cavablanmamışdır</span>

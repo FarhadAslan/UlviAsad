@@ -173,9 +173,10 @@ export default async function ResultPage({ params }: { params: { id: string } })
           <div className="space-y-4">
             {result.quiz.questions.map((q: any, i: number) => {
               const answerDetail = result.answers?.find((a: any) => a.questionId === q.id);
-              const selected     = answerDetail?.selected;
-              const isCorrect    = answerDetail?.isCorrect;
+              const selected     = answerDetail?.selected ?? null;
+              const isCorrect    = answerDetail?.isCorrect ?? false;
               const correctOpt   = q.correctOption;
+              const isSkipped    = selected === null || selected === undefined || selected === "";
 
               return (
                 <div key={q.id} className="card-static">
@@ -201,7 +202,7 @@ export default async function ResultPage({ params }: { params: { id: string } })
                         )}
                       </div>
                       <div className="flex-shrink-0">
-                        {!selected
+                        {isSkipped
                           ? <MinusCircle size={16} className="text-slate-500" />
                           : isCorrect
                           ? <CheckCircle size={16} className="text-green-500" />
@@ -212,7 +213,7 @@ export default async function ResultPage({ params }: { params: { id: string } })
 
                   <div className="space-y-2">
                     {/* Cavablanmamış xəbərdarlığı */}
-                    {!selected && (
+                    {isSkipped && (
                       <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-100 border border-slate-300 mb-1">
                         <MinusCircle size={14} className="text-slate-500 flex-shrink-0" />
                         <span className="text-sm font-semibold text-slate-600">Bu sual cavablanmamışdır</span>
@@ -252,7 +253,7 @@ export default async function ResultPage({ params }: { params: { id: string } })
                         </div>
                       );
                     })}
-                    {!selected && (
+                    {isSkipped && (
                       <div className="flex items-center gap-1.5 mt-1">
                         <MinusCircle size={12} className="text-slate-400" />
                         <p className="text-slate-400 text-xs">Cavab verilmədi — yuxarıda düzgün cavab göstərilir</p>
