@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { formatDate, getCategoryLabel, getTypeLabel, getRoleLabel } from "@/lib/utils";
+import { formatDate, getCategoryLabel, getTypeLabel, getRoleLabel, isValidEmail } from "@/lib/utils";
 import Link from "next/link";
 import {
   User, Trophy, Target, Star, Zap, Calendar, Eye, Share2, Check,
@@ -70,8 +70,13 @@ export default function ProfileClient({ data }: { data: ProfileData }) {
 
   const handleSaveInfo = async () => {
     setInfoError("");
-    if (!editName.trim()) { setInfoError("Ad boş ola bilməz"); return; }
-    if (!editEmail.trim() || !editEmail.includes("@")) { setInfoError("Düzgün email daxil edin"); return; }
+    const trimmedName  = editName.trim();
+    const trimmedEmail = editEmail.trim().toLowerCase();
+
+    if (!trimmedName) { setInfoError("Ad boş ola bilməz"); return; }
+    if (trimmedName.length < 2) { setInfoError("Ad ən az 2 simvol olmalıdır"); return; }
+    if (!trimmedEmail) { setInfoError("Email boş ola bilməz"); return; }
+    if (!isValidEmail(trimmedEmail)) { setInfoError("Email formatı düzgün deyil (nümunə: ad@domen.az)"); return; }
 
     setSavingInfo(true);
     try {
@@ -222,10 +227,24 @@ export default function ProfileClient({ data }: { data: ProfileData }) {
                     type="email"
                     value={editEmail}
                     onChange={(e) => setEditEmail(e.target.value)}
-                    className="input-field text-sm pl-8"
+                    className={`input-field text-sm pl-8 ${
+                      editEmail && !isValidEmail(editEmail.trim())
+                        ? "border-red-300 focus:border-red-400"
+                        : editEmail && isValidEmail(editEmail.trim())
+                        ? "border-green-300 focus:border-green-400"
+                        : ""
+                    }`}
                     placeholder="email@example.com"
                   />
                 </div>
+                {editEmail && !isValidEmail(editEmail.trim()) && (
+                  <p className="text-xs text-red-500 mt-1">Email formatı düzgün deyil</p>
+                )}
+                {editEmail && isValidEmail(editEmail.trim()) && editEmail.trim().toLowerCase() !== localUser.email && (
+                  <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
+                    <CheckCircle2 size={11} /> Format düzgündür
+                  </p>
+                )}
               </div>
 
               {infoError && (
@@ -235,7 +254,7 @@ export default function ProfileClient({ data }: { data: ProfileData }) {
               <div className="flex gap-2 pt-1">
                 <button
                   onClick={handleSaveInfo}
-                  disabled={savingInfo}
+                  disabled={savingInfo || !editName.trim() || !isValidEmail(editEmail.trim())}
                   className="btn-primary flex-1 flex items-center justify-center gap-1.5 text-sm py-2"
                 >
                   {savingInfo

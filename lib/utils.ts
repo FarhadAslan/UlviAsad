@@ -97,3 +97,22 @@ const HTML_TAG_REGEX = /<[^>]*>/g;
 export function stripHtml(html: string): string {
   return html.replace(HTML_TAG_REGEX, "");
 }
+
+// RFC 5322-yə uyğun email validasiyası
+// local@domain.tld formatını yoxlayır:
+//   - local hissə: hərflər, rəqəmlər, nöqtə, tire, alt xətt, artı
+//   - domain: ən az bir nöqtə, hər hissə ən az 1 simvol
+//   - TLD: ən az 2 hərf
+const EMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
+
+export function isValidEmail(email: string): boolean {
+  const trimmed = email.trim();
+  if (!trimmed || trimmed.length > 254) return false;          // RFC 5321 max uzunluq
+  if (!EMAIL_REGEX.test(trimmed)) return false;
+  const [local, domain] = trimmed.split("@");
+  if (local.length > 64) return false;                         // RFC 5321 local max
+  if (local.startsWith(".") || local.endsWith(".")) return false;
+  if (local.includes("..")) return false;                      // ardıcıl nöqtə yox
+  if (domain.startsWith("-") || domain.endsWith("-")) return false;
+  return true;
+}
