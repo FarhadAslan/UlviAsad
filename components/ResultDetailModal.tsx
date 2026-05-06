@@ -142,15 +142,15 @@ export default function ResultDetailModal({ resultId, onClose, userName }: Resul
                   const correctOpt   = q.correctOption;
 
                   const statusIcon = !selected
-                    ? <MinusCircle size={15} className="text-slate-400 flex-shrink-0" />
+                    ? <MinusCircle size={15} className="text-slate-500 flex-shrink-0" />
                     : isCorrect
                     ? <CheckCircle size={15} className="text-green-500 flex-shrink-0" />
                     : <XCircle    size={15} className="text-red-500 flex-shrink-0" />;
 
                   return (
-                    <div key={q.id} className="rounded-xl border border-slate-200 overflow-hidden">
+                    <div key={q.id} className={`rounded-xl border overflow-hidden ${!selected ? "border-slate-300" : "border-slate-200"}`}>
                       {/* Question header */}
-                      <div className="flex items-start gap-2 sm:gap-3 p-3 sm:p-4 bg-slate-50">
+                      <div className={`flex items-start gap-2 sm:gap-3 p-3 sm:p-4 ${!selected ? "bg-slate-100" : "bg-slate-50"}`}>
                         <span className="flex-shrink-0 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-slate-200 text-slate-600 text-[10px] sm:text-xs font-bold flex items-center justify-center mt-0.5">
                           {i + 1}
                         </span>
@@ -176,34 +176,50 @@ export default function ResultDetailModal({ resultId, onClose, userName }: Resul
 
                       {/* Options */}
                       <div className="p-2 sm:p-3 space-y-1.5 sm:space-y-2">
+                        {/* Cavablanmamış xəbərdarlığı — optionlardan əvvəl, aydın görünsün */}
+                        {!selected && (
+                          <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-slate-100 border border-slate-300 mb-2">
+                            <MinusCircle size={14} className="text-slate-500 flex-shrink-0" />
+                            <span className="text-xs sm:text-sm font-semibold text-slate-600">Bu sual cavablanmamışdır</span>
+                          </div>
+                        )}
                         {q.options.map((opt: any) => {
                           const isCorrectOpt  = opt.label === correctOpt;
                           const isSelectedOpt = opt.label === selected;
                           const isWrongSelect = isSelectedOpt && !isCorrect;
+                          const isSkipped     = !selected;
 
                           let cls = "flex items-center gap-2 sm:gap-3 p-2 sm:p-2.5 rounded-lg text-xs sm:text-sm ";
-                          if (isCorrectOpt)   cls += "bg-green-50 border border-green-300 text-green-800 font-medium";
-                          else if (isWrongSelect) cls += "bg-red-50 border border-red-300 text-red-800 font-medium";
-                          else                cls += "bg-white border border-slate-100 text-slate-600";
+                          if (isSkipped && isCorrectOpt)
+                            // Cavablanmamış — düzgün cavabı göstər amma fərqli stil ilə
+                            cls += "bg-slate-50 border border-dashed border-slate-300 text-slate-500";
+                          else if (isCorrectOpt)
+                            cls += "bg-green-50 border border-green-300 text-green-800 font-medium";
+                          else if (isWrongSelect)
+                            cls += "bg-red-50 border border-red-300 text-red-800 font-medium";
+                          else
+                            cls += "bg-white border border-slate-100 text-slate-600";
 
                           return (
                             <div key={opt.label} className={cls}>
                               <span className={`w-5 h-5 sm:w-6 sm:h-6 rounded-md flex items-center justify-center text-[10px] sm:text-xs font-bold flex-shrink-0 ${
-                                isCorrectOpt   ? "bg-green-200 text-green-800" :
-                                isWrongSelect  ? "bg-red-200 text-red-800" :
-                                                 "bg-slate-100 text-slate-500"
+                                isSkipped && isCorrectOpt ? "bg-slate-200 text-slate-500" :
+                                isCorrectOpt             ? "bg-green-200 text-green-800" :
+                                isWrongSelect            ? "bg-red-200 text-red-800" :
+                                                           "bg-slate-100 text-slate-500"
                               }`}>
                                 {opt.label}
                               </span>
                               <span className="flex-1 leading-snug">{opt.text}</span>
-                              {isCorrectOpt  && <CheckCircle size={13} className="text-green-500 flex-shrink-0" />}
-                              {isWrongSelect && <XCircle    size={13} className="text-red-500 flex-shrink-0" />}
+                              {/* Cavablanmamışda düzgün cavabı göstər amma boz rənglə */}
+                              {isSkipped && isCorrectOpt && (
+                                <span className="text-[10px] text-slate-400 flex-shrink-0 font-medium">düzgün cavab</span>
+                              )}
+                              {!isSkipped && isCorrectOpt  && <CheckCircle size={13} className="text-green-500 flex-shrink-0" />}
+                              {!isSkipped && isWrongSelect && <XCircle    size={13} className="text-red-500 flex-shrink-0" />}
                             </div>
                           );
                         })}
-                        {!selected && (
-                          <p className="text-[10px] sm:text-xs text-slate-400 pl-1 pt-0.5">⏭ Cavablanmamış</p>
-                        )}
                       </div>
                     </div>
                   );
