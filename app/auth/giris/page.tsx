@@ -45,6 +45,15 @@ export default function LoginPage() {
           </button>
         } />
 
+      {/* Forgot password */}
+      <div className="text-right -mt-1">
+        <Link href="/auth/parol-yenile-sorgu"
+          className="text-xs transition-colors duration-200 hover:underline"
+          style={{ color: "rgba(147,204,255,0.7)" }}>
+          Parolu unutmusunuz?
+        </Link>
+      </div>
+
       {/* Footer */}
       <p className="text-center text-xs pt-1" style={{ color: "rgba(255,255,255,0.35)" }}>
         Hesabınız yoxdur?{" "}
