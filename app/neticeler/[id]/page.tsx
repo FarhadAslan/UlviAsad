@@ -202,7 +202,7 @@ export default async function ResultPage({ params }: { params: { id: string } })
                       </div>
                       <div className="flex-shrink-0">
                         {!selected
-                          ? <MinusCircle size={16} className="text-slate-400" />
+                          ? <MinusCircle size={16} className="text-slate-500" />
                           : isCorrect
                           ? <CheckCircle size={16} className="text-green-500" />
                           : <XCircle    size={16} className="text-red-500" />}
@@ -211,32 +211,52 @@ export default async function ResultPage({ params }: { params: { id: string } })
                   </div>
 
                   <div className="space-y-2">
+                    {/* Cavablanmamış xəbərdarlığı */}
+                    {!selected && (
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-100 border border-slate-300 mb-1">
+                        <MinusCircle size={14} className="text-slate-500 flex-shrink-0" />
+                        <span className="text-sm font-semibold text-slate-600">Bu sual cavablanmamışdır</span>
+                      </div>
+                    )}
                     {q.options.map((opt: any) => {
                       const isCorrectOpt  = opt.label === correctOpt;
                       const isWrongSelect = opt.label === selected && !isCorrect;
+                      const isSkipped     = !selected;
 
                       let cls = "flex items-center gap-3 p-2.5 rounded-lg text-sm ";
-                      if (isCorrectOpt)   cls += "bg-green-100 border border-green-400 text-green-800 font-medium";
-                      else if (isWrongSelect) cls += "bg-red-100 border border-red-400 text-red-800 font-medium";
-                      else                cls += "bg-slate-50 border border-slate-200 text-slate-600";
+                      if (isSkipped && isCorrectOpt)
+                        cls += "bg-slate-50 border border-dashed border-slate-300 text-slate-500";
+                      else if (isCorrectOpt)
+                        cls += "bg-green-100 border border-green-400 text-green-800 font-medium";
+                      else if (isWrongSelect)
+                        cls += "bg-red-100 border border-red-400 text-red-800 font-medium";
+                      else
+                        cls += "bg-slate-50 border border-slate-200 text-slate-600";
 
                       return (
                         <div key={opt.label} className={cls}>
                           <span className={`w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                            isCorrectOpt   ? "bg-green-200 text-green-800" :
-                            isWrongSelect  ? "bg-red-200 text-red-800" :
-                                             "bg-slate-100 text-slate-500"
+                            isSkipped && isCorrectOpt ? "bg-slate-200 text-slate-500" :
+                            isCorrectOpt             ? "bg-green-200 text-green-800" :
+                            isWrongSelect            ? "bg-red-200 text-red-800" :
+                                                       "bg-slate-100 text-slate-500"
                           }`}>
                             {opt.label}
                           </span>
                           <span className="flex-1">{opt.text}</span>
-                          {isCorrectOpt  && <CheckCircle size={13} className="text-green-500 flex-shrink-0" />}
-                          {isWrongSelect && <XCircle    size={13} className="text-red-500 flex-shrink-0" />}
+                          {isSkipped && isCorrectOpt && (
+                            <span className="text-xs text-slate-400 flex-shrink-0 font-medium">düzgün cavab</span>
+                          )}
+                          {!isSkipped && isCorrectOpt  && <CheckCircle size={13} className="text-green-500 flex-shrink-0" />}
+                          {!isSkipped && isWrongSelect && <XCircle    size={13} className="text-red-500 flex-shrink-0" />}
                         </div>
                       );
                     })}
                     {!selected && (
-                      <p className="text-slate-400 text-xs pl-1">⏭ Cavablanmamış</p>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <MinusCircle size={12} className="text-slate-400" />
+                        <p className="text-slate-400 text-xs">Cavab verilmədi — yuxarıda düzgün cavab göstərilir</p>
+                      </div>
                     )}
                   </div>
                 </div>

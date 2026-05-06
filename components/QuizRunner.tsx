@@ -458,11 +458,24 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
                     </div>
                   </div>
                   <div className="space-y-2">
+                    {/* Cavablanmamış xəbərdarlığı */}
+                    {!selected && (
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-100 border border-slate-300 mb-1">
+                        <MinusCircle size={14} className="text-slate-500 flex-shrink-0" />
+                        <span className="text-sm font-semibold text-slate-600">Bu sual cavablanmamışdır</span>
+                      </div>
+                    )}
                     {q.options.map((opt: any) => {
+                      const isCorrectOpt  = opt.label === correctOpt;
+                      const isWrongSelect = opt.label === selected && !isCorrect;
+                      const isSkipped     = !selected;
+
                       let cls = "p-3 rounded-lg text-sm flex items-center gap-3 ";
-                      if (opt.label === correctOpt)
+                      if (isSkipped && isCorrectOpt)
+                        cls += "bg-slate-50 border border-dashed border-slate-300 text-slate-500";
+                      else if (isCorrectOpt)
                         cls += "bg-green-100 border border-green-400 text-green-800 font-medium";
-                      else if (opt.label === selected && !isCorrect)
+                      else if (isWrongSelect)
                         cls += "bg-red-100 border border-red-400 text-red-800 font-medium";
                       else
                         cls += "bg-slate-50 border border-slate-200 text-slate-600";
@@ -471,13 +484,21 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
                         <div key={opt.label} className={cls}>
                           <span className="font-bold w-6">{opt.label}.</span>
                           <span>{opt.text}</span>
-                          {opt.label === correctOpt && <CheckCircle size={14} className="ml-auto text-green-500" />}
-                          {opt.label === selected && !isCorrect && <XCircle size={14} className="ml-auto text-red-500" />}
+                          {isSkipped && isCorrectOpt && (
+                            <span className="text-xs text-slate-400 ml-auto font-medium">düzgün cavab</span>
+                          )}
+                          {!isSkipped && isCorrectOpt  && <CheckCircle size={14} className="ml-auto text-green-500" />}
+                          {!isSkipped && isWrongSelect && <XCircle     size={14} className="ml-auto text-red-500" />}
                         </div>
                       );
                     })}
                   </div>
-                  {!selected && <p className="text-slate-400 text-xs mt-2">⏭️ Cavablanmamış</p>}
+                  {!selected && (
+                    <div className="flex items-center gap-1.5 mt-2">
+                      <MinusCircle size={12} className="text-slate-400" />
+                      <p className="text-slate-400 text-xs">Cavab verilmədi — yuxarıda düzgün cavab göstərilir</p>
+                    </div>
+                  )}
                 </div>
               );
             })}
