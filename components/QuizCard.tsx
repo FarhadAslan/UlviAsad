@@ -29,7 +29,7 @@ function QuizCard({ quiz, userRole }: { quiz: any; userRole?: string }) {
         {/* Badges */}
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <span className="badge-category">{getCategoryLabel(quiz.category)}</span>
-          <span className={quiz.type === "SINAQ" ? "badge-type-sinaq" : "badge-type-test"}>
+          <span className={quiz.type === "SINAQ" ? "badge-type-sinaq" : quiz.type === "METN" ? "badge-type-metn" : "badge-type-test"}>
             {getTypeLabel(quiz.type)}
           </span>
           {quiz.visibility === "STUDENT_ONLY" && (

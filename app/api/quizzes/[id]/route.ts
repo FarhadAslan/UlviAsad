@@ -44,6 +44,9 @@ export async function GET(
         createdAt: true,
         createdById: true,
         createdBy: { select: { id: true, name: true } },
+        passageTitle: true,
+        passageContent: true,
+        passageImageUrl: true,
         questions: {
           orderBy: { order: "asc" },
           select: {
@@ -113,10 +116,19 @@ export async function PUT(
     }
 
     const body = await req.json();
-    const { title, category, type, duration, visibility, questions, active } = body;
+    const { title, category, type, duration, visibility, questions, active,
+            passageTitle, passageContent, passageImageUrl } = body;
 
     if (!title || !category || !type || !questions?.length) {
       return NextResponse.json({ error: "Bütün sahələr tələb olunur" }, { status: 400 });
+    }
+
+    // METN tipi üçün passageContent məcburidir
+    if (type === "METN" && !passageContent?.trim()) {
+      return NextResponse.json(
+        { error: "Mətn əsaslı quiz üçün passage mətni tələb olunur" },
+        { status: 400 }
+      );
     }
 
     const quiz = await prisma.$transaction(async (tx) => {
@@ -128,6 +140,10 @@ export async function PUT(
           duration: type === "SINAQ" ? (duration || null) : null,
           visibility,
           active: active !== undefined ? Boolean(active) : true,
+          // Passage sahələri — yalnız METN tipi üçün
+          passageTitle:    type === "METN" ? (passageTitle?.trim() || null) : null,
+          passageContent:  type === "METN" ? passageContent : null,
+          passageImageUrl: type === "METN" ? (passageImageUrl || null) : null,
           questions: {
             create: questions.map((q: any, index: number) => ({
               text: q.text,

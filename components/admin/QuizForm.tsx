@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Plus, Trash2, X, ImagePlus, Loader2, XCircle } from "lucide-react";
+import { Plus, Trash2, X, ImagePlus, Loader2, XCircle, BookOpen } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useToast } from "@/components/ui/toast-1";
 import QuizQuestionEditor, { stripHtml } from "@/components/ui/quiz-question-editor";
 import { useFormDraft } from "@/lib/useFormDraft";
+import RichEditor from "@/components/ui/rich-editor";
 
 const emptyQuestion = () => ({
   text: "",
@@ -44,12 +45,15 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
   const isEditMode = !!quiz;
 
   const initialForm = {
-    title:      quiz?.title      || "",
-    category:   quiz?.category   || "",
-    type:       quiz?.type       || "TEST",
-    duration:   quiz?.duration   || 10,
-    visibility: quiz?.visibility || "PUBLIC",
-    active:     quiz?.active !== undefined ? quiz.active : true,
+    title:          quiz?.title          || "",
+    category:       quiz?.category       || "",
+    type:           quiz?.type           || "TEST",
+    duration:       quiz?.duration       || 10,
+    visibility:     quiz?.visibility     || "PUBLIC",
+    active:         quiz?.active !== undefined ? quiz.active : true,
+    passageTitle:   quiz?.passageTitle   || "",
+    passageContent: quiz?.passageContent || "",
+    passageImageUrl:quiz?.passageImageUrl|| "",
   };
 
   const [form, setForm, clearFormDraft] = useFormDraft(
@@ -79,9 +83,27 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
       setForm((p) => ({ ...p, category: categories[0].value }));
     }
   }, [categories, isEditMode]);
-  const [uploadingIdx, setUploadingIdx] = useState<number | null>(null);
-  const [loading,      setLoading]      = useState(false);
-  const fileInputRefs  = useRef<(HTMLInputElement | null)[]>([]);
+  const [uploadingIdx,     setUploadingIdx]     = useState<number | null>(null);
+  const [uploadingPassage, setUploadingPassage] = useState(false);
+  const [loading,          setLoading]          = useState(false);
+  const fileInputRefs    = useRef<(HTMLInputElement | null)[]>([]);
+  const passageImgRef    = useRef<HTMLInputElement | null>(null);
+
+  const handlePassageImageUpload = async (file: File) => {
+    if (!file.type.startsWith("image/")) { error("Yalnız şəkil faylı yükləyə bilərsiniz"); return; }
+    if (file.size > 10 * 1024 * 1024) { error("Şəkil ölçüsü 10MB-dan çox ola bilməz"); return; }
+    setUploadingPassage(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res  = await fetch("/api/upload", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) { error(data.error || "Yükləmə xətası"); return; }
+      setForm((p) => ({ ...p, passageImageUrl: data.url }));
+      success("Şəkil yükləndi");
+    } catch { error("Şəkil yüklənərkən xəta baş verdi"); }
+    finally { setUploadingPassage(false); }
+  };
 
   const handleImageUpload = async (qi: number, file: File) => {
     if (!file) return;
@@ -124,10 +146,14 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
     if (form.type === "SINAQ" && (!form.duration || Number(form.duration) < 1)) {
       error("Sınaq üçün müddət daxil edin (minimum 1 dəqiqə)"); return;
     }
+    // METN tipi üçün passage mətni məcburidir
+    if (form.type === "METN" && !form.passageContent?.trim()) {
+      error("Mətn əsaslı quiz üçün passage mətni tələb olunur"); return;
+    }
     setLoading(true);
     try {
       const payload = isTeacher
-        ? { ...form, questions, active: undefined }  // müəllim active göndərmir
+        ? { ...form, questions, active: undefined }
         : { ...form, questions };
       const res = await fetch(quiz ? `/api/quizzes/${quiz.id}` : "/api/quizzes", {
         method: quiz ? "PUT" : "POST",
@@ -195,11 +221,11 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
             <div>
               <label className={labelCls}>Tip *</label>
               <div className="flex gap-2">
-                {["SINAQ", "TEST"].map((t) => (
+                {(["SINAQ", "TEST", "METN"] as const).map((t) => (
                   <button key={t} type="button"
                     onClick={() => setForm((p) => ({ ...p, type: t, duration: t === "SINAQ" ? (p.duration || 30) : p.duration }))}
                     className={toggleBtn(form.type === t)}>
-                    {t === "SINAQ" ? "⏱ Sınaq" : "📝 Test"}
+                    {t === "SINAQ" ? "⏱ Sınaq" : t === "TEST" ? "📝 Test" : "📖 Mətn"}
                   </button>
                 ))}
               </div>
@@ -276,6 +302,78 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
             </div>
           )}
         </div>
+
+        {/* Passage bölməsi — yalnız METN tipi üçün */}
+        {form.type === "METN" && (
+          <div className="card-static space-y-4">
+            <div className="flex items-center gap-2 mb-1">
+              <BookOpen size={18} className="text-[#1f6f43]" />
+              <h2 className="text-lg font-semibold text-slate-800">Passage Məlumatları</h2>
+            </div>
+            <p className="text-xs text-slate-500 -mt-2">İstifadəçilər quizi işləyərkən bu mətni oxuyacaq</p>
+
+            {/* Passage başlığı */}
+            <div>
+              <label className={labelCls}>Passage Başlığı <span className="text-slate-400 text-xs">(isteğe bağlı)</span></label>
+              <input type="text" value={form.passageTitle}
+                className="input-field" placeholder="Məs: Azərbaycan Tarixi: İntibah Dövrü"
+                onChange={(e) => setForm((p) => ({ ...p, passageTitle: e.target.value }))} />
+            </div>
+
+            {/* Passage şəkli */}
+            <div>
+              <label className={labelCls}>Başlıq Şəkli <span className="text-slate-400 text-xs">(isteğe bağlı)</span></label>
+              {form.passageImageUrl ? (
+                <div className="relative inline-block">
+                  <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-50" style={{ maxWidth: 500 }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={form.passageImageUrl} alt="Passage şəkli" className="w-full object-cover max-h-56" />
+                    <span className="absolute top-3 left-3 text-xs font-semibold px-2.5 py-1 rounded-full text-white"
+                      style={{ background: "#1f6f43" }}>📚 Dərs Materialı</span>
+                  </div>
+                  <button type="button"
+                    onClick={() => { setForm((p) => ({ ...p, passageImageUrl: "" })); if (passageImgRef.current) passageImgRef.current.value = ""; }}
+                    className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-0.5 shadow-md transition-colors">
+                    <XCircle size={18} />
+                  </button>
+                  <button type="button" onClick={() => passageImgRef.current?.click()}
+                    className="mt-2 flex items-center gap-1.5 text-xs text-[#1a7fe0] hover:underline">
+                    <ImagePlus size={13} /> Şəkli dəyiş
+                  </button>
+                </div>
+              ) : (
+                <div onClick={() => passageImgRef.current?.click()}
+                  className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-slate-200 hover:border-[rgb(147,204,255)] rounded-xl p-8 cursor-pointer transition-colors bg-slate-50 hover:bg-blue-50/30"
+                  style={{ maxWidth: 500 }}>
+                  {uploadingPassage ? (
+                    <><Loader2 size={28} className="text-[#1a7fe0] animate-spin" /><span className="text-sm text-slate-500">Yüklənir...</span></>
+                  ) : (
+                    <><ImagePlus size={28} className="text-slate-400" /><span className="text-sm text-slate-500">Başlıq şəkli yükləmək üçün klikləyin</span><span className="text-xs text-slate-400">JPG, PNG — maks. 10MB</span></>
+                  )}
+                </div>
+              )}
+              <input type="file" accept="image/*" className="hidden" ref={passageImgRef}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handlePassageImageUpload(f); }} />
+            </div>
+
+            {/* Passage mətni */}
+            <div>
+              <label className={labelCls}>Passage Mətni <span className="text-red-500">*</span></label>
+              <p className="text-xs text-slate-400 mb-2">
+                Sitat əlavə etmək üçün mətni seçib "Blockquote" düyməsini istifadə edin — quiz zamanı yaşıl fonda göstəriləcək
+              </p>
+              <RichEditor
+                value={form.passageContent}
+                onChange={(c) => setForm((p) => ({ ...p, passageContent: c }))}
+                placeholder="Passage mətnini buraya yazın..."
+                minHeight={250}
+              />
+              {!form.passageContent?.trim() && (
+                <p className="text-xs text-red-500 mt-1">Mətn əsaslı quiz üçün passage mətni tələb olunur</p>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Suallar */}
         <div className="space-y-4">

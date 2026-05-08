@@ -56,6 +56,11 @@ model Quiz {
   createdById String?
   createdBy   User?   @relation("QuizCreator", fields: [createdById], references: [id])
 
+  // Mətn əsaslı quiz (METN tipi) üçün passage sahələri
+  passageTitle    String?   // Passage başlığı (isteğe bağlı)
+  passageContent  String?   // Passage HTML mətni (METN tipi üçün şərti məcburi)
+  passageImageUrl String?   // Passage başlıq şəklinin URL-i (isteğe bağlı)
+
   @@index([active, createdAt])
   @@index([category, active])
   @@index([type, active])

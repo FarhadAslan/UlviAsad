@@ -26,6 +26,43 @@ interface QuizRunnerProps {
 
 type Phase = "start" | "running" | "result";
 
+// ── PassageView — Mətn tab-ının görünüşü ─────────────────────
+function PassageView({ quiz, onGoToQuestions }: { quiz: any; onGoToQuestions: () => void }) {
+  return (
+    <div className="pb-4">
+      {/* Başlıq şəkli */}
+      {quiz.passageImageUrl && (
+        <div className="relative mb-5 rounded-2xl overflow-hidden">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={quiz.passageImageUrl} alt="Dərs Materialı"
+            className="w-full object-cover max-h-56 sm:max-h-72" />
+          <span className="absolute top-3 left-3 text-xs font-semibold px-2.5 py-1.5 rounded-full text-white shadow-sm"
+            style={{ background: "#1f6f43" }}>
+            📚 Dərs Materialı
+          </span>
+        </div>
+      )}
+
+      {/* Passage başlığı */}
+      {quiz.passageTitle && (
+        <h2 className="text-xl sm:text-2xl font-bold text-slate-900 mb-4">{quiz.passageTitle}</h2>
+      )}
+
+      {/* Passage mətni */}
+      <div
+        className="passage-content text-slate-700 leading-relaxed"
+        dangerouslySetInnerHTML={{ __html: quiz.passageContent || "" }}
+      />
+
+      {/* Suallara keç düyməsi */}
+      <button onClick={onGoToQuestions}
+        className="btn-primary w-full mt-6 flex items-center justify-center gap-2">
+        Suallara keç →
+      </button>
+    </div>
+  );
+}
+
 export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
   const { success } = useToast();
   const [phase,        setPhase]        = useState<Phase>("start");
@@ -40,7 +77,9 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
   const submittingRef = useRef(false);
 
   const isSinaq   = quiz.type === "SINAQ";
+  const isMetn    = quiz.type === "METN";
   const questions = quiz.questions;
+  const [activeTab, setActiveTab] = useState<"passage" | "questions">(isMetn ? "passage" : "questions");
 
   // Timer for SINAQ
   useEffect(() => {
@@ -164,7 +203,7 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
           </div>
           <div className="flex items-center justify-center gap-2 mb-4">
             <span className="badge-category">{getCategoryLabel(quiz.category)}</span>
-            <span className={quiz.type === "SINAQ" ? "badge-type-sinaq" : "badge-type-test"}>
+            <span className={quiz.type === "SINAQ" ? "badge-type-sinaq" : quiz.type === "METN" ? "badge-type-metn" : "badge-type-test"}>
               {getTypeLabel(quiz.type)}
             </span>
           </div>
@@ -216,16 +255,16 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
 
   // ── RUNNING PHASE ────────────────────────────────────────────
   if (phase === "running") {
-    const question      = questions[currentIndex];
+    const question       = questions[currentIndex];
     const selectedAnswer = answers[question.id];
-    const isWarning     = isSinaq && timeLeft <= 30;
-    const isFirst       = currentIndex === 0;
-    const isLast        = currentIndex === questions.length - 1;
+    const isWarning      = isSinaq && timeLeft <= 30;
+    const isFirst        = currentIndex === 0;
+    const isLast         = currentIndex === questions.length - 1;
 
     return (
       <div className="container mx-auto py-8 max-w-3xl">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6 gap-3">
+        <div className="flex items-center justify-between mb-4 gap-3">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-slate-500 text-sm whitespace-nowrap">
               {currentIndex + 1}/{questions.length}
@@ -250,6 +289,46 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
           )}
         </div>
 
+        {/* METN tipi üçün tab strukturu */}
+        {isMetn && (
+          <div className="flex gap-2 mb-5 p-1 bg-slate-100 rounded-2xl">
+            <button
+              onClick={() => setActiveTab("passage")}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                activeTab === "passage"
+                  ? "bg-white text-[#1f6f43] shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              📖 Mətn
+            </button>
+            <button
+              onClick={() => setActiveTab("questions")}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                activeTab === "questions"
+                  ? "bg-white text-[#1f6f43] shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              ❓ Suallar
+              {/* Cavablanmış sual sayı */}
+              <span className="text-xs px-1.5 py-0.5 rounded-full bg-[rgba(31,111,67,0.1)] text-[#1f6f43]">
+                {Object.keys(answers).length}/{questions.length}
+              </span>
+            </button>
+          </div>
+        )}
+
+        {/* Passage Tab — yalnız METN tipi üçün */}
+        {isMetn && activeTab === "passage" && (
+          <div className="card-static">
+            <PassageView quiz={quiz} onGoToQuestions={() => setActiveTab("questions")} />
+          </div>
+        )}
+
+        {/* Suallar — SINAQ/TEST həmişə, METN yalnız "questions" tab-ında */}
+        {(!isMetn || activeTab === "questions") && (
+          <>
         {/* Question */}
         <div className="card-static mb-6">
           {/* Sualın bal dəyəri */}
@@ -346,6 +425,18 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
             </button>
           ))}
         </div>
+
+        {/* METN tipi üçün "Mətnə bax" düyməsi */}
+        {isMetn && (
+          <button
+            onClick={() => { setActiveTab("passage"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+            className="mt-4 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium border border-[rgba(31,111,67,0.3)] text-[#1f6f43] hover:bg-[rgba(31,111,67,0.05)] transition-all"
+          >
+            📖 Mətnə bax
+          </button>
+        )}
+        </> /* questions tab end */
+        )}
       </div>
     );
   }

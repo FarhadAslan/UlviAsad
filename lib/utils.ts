@@ -60,7 +60,9 @@ export function getCategoryLabel(category: string): string {
 }
 
 export function getTypeLabel(type: string): string {
-  return type === "SINAQ" ? "Sınaq" : "Test";
+  if (type === "SINAQ") return "Sınaq";
+  if (type === "METN")  return "Mətn Əsaslı";
+  return "Test";
 }
 
 export function getVisibilityLabel(visibility: string): string {
