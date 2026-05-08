@@ -55,7 +55,7 @@ function PassageView({ quiz, onGoToQuestions }: { quiz: any; onGoToQuestions: ()
       />
 
       {/* Suallara keç düyməsi */}
-      <button onClick={onGoToQuestions}
+      <button onClick={() => { onGoToQuestions(); window.scrollTo({ top: 0, behavior: "smooth" }); }}
         className="btn-primary w-full mt-6 flex items-center justify-center gap-2">
         Suallara keç →
       </button>
