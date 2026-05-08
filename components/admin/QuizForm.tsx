@@ -451,8 +451,37 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
                       onChange={(e) => setQuestions((p) => p.map((x, i) => i === qi
                         ? { ...x, options: x.options.map((o: any, j: number) => j === oi ? { ...o, text: e.target.value } : o) }
                         : x))} />
+                    {/* Yalnız son variant silinə bilər və minimum 2 variant olmalıdır */}
+                    {oi === q.options.length - 1 && q.options.length > 2 && (
+                      <button type="button"
+                        onClick={() => setQuestions((p) => p.map((x, i) => {
+                          if (i !== qi) return x;
+                          const newOpts = x.options.slice(0, -1);
+                          // Silinən variant düzgün cavabdırsa, A-ya qaytar
+                          const newCorrect = x.correctOption === opt.label ? "A" : x.correctOption;
+                          return { ...x, options: newOpts, correctOption: newCorrect };
+                        }))}
+                        className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all flex-shrink-0"
+                        title="Bu variantı sil">
+                        <Trash2 size={14} />
+                      </button>
+                    )}
                   </div>
                 ))}
+                {/* Variant əlavə et — maksimum 6 variant (A-F) */}
+                {q.options.length < 6 && (
+                  <button type="button"
+                    onClick={() => {
+                      const labels = ["A","B","C","D","E","F"];
+                      const nextLabel = labels[q.options.length];
+                      setQuestions((p) => p.map((x, i) => i === qi
+                        ? { ...x, options: [...x.options, { label: nextLabel, text: "" }] }
+                        : x));
+                    }}
+                    className="flex items-center gap-1.5 text-xs text-[#1a7fe0] hover:text-[#1565c0] font-medium mt-1 px-2 py-1.5 rounded-lg hover:bg-blue-50 transition-all">
+                    <Plus size={13} /> Variant əlavə et
+                  </button>
+                )}
               </div>
 
               <div className="flex items-start gap-4">
