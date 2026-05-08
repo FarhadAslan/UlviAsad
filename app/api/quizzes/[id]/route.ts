@@ -57,6 +57,8 @@ export async function GET(
             correctOption: true,
             order: true,
             points: true,
+            questionType: true,
+            openAnswerExample: true,
           },
         },
         results: {
@@ -152,6 +154,8 @@ export async function PUT(
               correctOption: q.correctOption,
               order: index + 1,
               points: q.points ?? 1,
+              questionType: q.questionType || "CHOICE",
+              openAnswerExample: q.questionType === "OPEN" ? (q.openAnswerExample || null) : null,
             })),
           },
         },

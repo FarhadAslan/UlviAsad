@@ -11,6 +11,8 @@ import RichEditor from "@/components/ui/rich-editor";
 const emptyQuestion = () => ({
   text: "",
   imageUrl: "",
+  questionType: "CHOICE" as "CHOICE" | "OPEN",
+  openAnswerExample: "",
   options: [
     { label: "A", text: "" },
     { label: "B", text: "" },
@@ -66,6 +68,8 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
     ? quiz.questions.map((q: any) => ({
         text: q.text,
         imageUrl: q.imageUrl || "",
+        questionType: q.questionType || "CHOICE",
+        openAnswerExample: q.openAnswerExample || "",
         options: typeof q.options === "string" ? JSON.parse(q.options) : q.options,
         correctOption: q.correctOption,
         points: q.points ?? 1,
@@ -383,12 +387,27 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
             <div key={qi} className="card-static">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-semibold text-[#1a7fe0]">Sual {qi + 1}</span>
-                {questions.length > 1 && (
-                  <button type="button" onClick={() => setQuestions((p) => p.filter((_, i) => i !== qi))}
-                    className="text-red-500 hover:text-red-600 p-1 rounded-lg hover:bg-red-50 transition-all">
-                    <Trash2 size={15} />
+                <div className="flex items-center gap-2">
+                  {/* Açıq sual toggle */}
+                  <button type="button"
+                    onClick={() => setQuestions((p) => p.map((x, i) => i === qi
+                      ? { ...x, questionType: x.questionType === "OPEN" ? "CHOICE" : "OPEN" }
+                      : x))}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                      q.questionType === "OPEN"
+                        ? "bg-purple-100 text-purple-700 border border-purple-200"
+                        : "bg-slate-100 text-slate-500 border border-slate-200 hover:border-purple-300 hover:text-purple-600"
+                    }`}
+                    title="Açıq sual et">
+                    ✏️ {q.questionType === "OPEN" ? "Açıq sual" : "Açıq sual et"}
                   </button>
-                )}
+                  {questions.length > 1 && (
+                    <button type="button" onClick={() => setQuestions((p) => p.filter((_, i) => i !== qi))}
+                      className="text-red-500 hover:text-red-600 p-1 rounded-lg hover:bg-red-50 transition-all">
+                      <Trash2 size={15} />
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="mb-3">
@@ -439,6 +458,8 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageUpload(qi, f); }} />
               </div>
 
+              {/* Variantlar — yalnız CHOICE tipi üçün */}
+              {q.questionType !== "OPEN" && (
               <div className="space-y-2 mb-4">
                 {q.options.map((opt: any, oi: number) => (
                   <div key={opt.label} className="flex items-center gap-3">
@@ -451,13 +472,11 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
                       onChange={(e) => setQuestions((p) => p.map((x, i) => i === qi
                         ? { ...x, options: x.options.map((o: any, j: number) => j === oi ? { ...o, text: e.target.value } : o) }
                         : x))} />
-                    {/* Yalnız son variant silinə bilər və minimum 2 variant olmalıdır */}
                     {oi === q.options.length - 1 && q.options.length > 2 && (
                       <button type="button"
                         onClick={() => setQuestions((p) => p.map((x, i) => {
                           if (i !== qi) return x;
                           const newOpts = x.options.slice(0, -1);
-                          // Silinən variant düzgün cavabdırsa, A-ya qaytar
                           const newCorrect = x.correctOption === opt.label ? "A" : x.correctOption;
                           return { ...x, options: newOpts, correctOption: newCorrect };
                         }))}
@@ -468,7 +487,6 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
                     )}
                   </div>
                 ))}
-                {/* Variant əlavə et — maksimum 6 variant (A-F) */}
                 {q.options.length < 6 && (
                   <button type="button"
                     onClick={() => {
@@ -483,8 +501,37 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
                   </button>
                 )}
               </div>
+              )}
+
+              {/* Açıq sual sahələri */}
+              {q.questionType === "OPEN" && (
+                <div className="space-y-3 mb-4 p-4 rounded-xl bg-purple-50 border border-purple-100">
+                  <p className="text-xs text-purple-700 font-medium">✏️ Açıq sual — istifadəçi öz cavabını yazacaq</p>
+                  <div>
+                    <label className={labelCls}>Düzgün Cavab <span className="text-red-500">*</span></label>
+                    <input type="text" value={q.correctOption} required
+                      placeholder="Məs: Bakı"
+                      className="input-field"
+                      onChange={(e) => setQuestions((p) => p.map((x, i) => i === qi
+                        ? { ...x, correctOption: e.target.value }
+                        : x))} />
+                    <p className="text-xs text-slate-400 mt-1">Cavab case-insensitive müqayisə edilir (böyük/kiçik hərf fərqi yoxdur)</p>
+                  </div>
+                  <div>
+                    <label className={labelCls}>Nümunə Cavab (Placeholder) <span className="text-slate-400 text-xs">(isteğe bağlı)</span></label>
+                    <input type="text" value={q.openAnswerExample || ""}
+                      placeholder="Məs: Şəhər adını yazın..."
+                      className="input-field"
+                      onChange={(e) => setQuestions((p) => p.map((x, i) => i === qi
+                        ? { ...x, openAnswerExample: e.target.value }
+                        : x))} />
+                    <p className="text-xs text-slate-400 mt-1">İstifadəçi input-un içində bu mətni nümunə kimi görəcək</p>
+                  </div>
+                </div>
+              )}
 
               <div className="flex items-start gap-4">
+                {q.questionType !== "OPEN" && (
                 <div>
                   <label className={labelCls}>Düzgün Cavab</label>
                   <div className="flex gap-2">
@@ -501,7 +548,8 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
                     ))}
                   </div>
                 </div>
-                <div className="ml-auto">
+                )}
+                <div className={q.questionType !== "OPEN" ? "ml-auto" : ""}>
                   <label className={labelCls}>Bal *</label>
                   <div className="flex items-center gap-2">
                     <input

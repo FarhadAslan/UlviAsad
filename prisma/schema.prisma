@@ -78,6 +78,9 @@ model Question {
   correctOption String
   order         Int     @default(0)
   points        Int     @default(1)
+  // Açıq sual dəstəyi
+  questionType        String  @default("CHOICE")  // CHOICE | OPEN
+  openAnswerExample   String?                      // Admin tərəfindən nümunə cavab (placeholder)
 }
 
 model Result {

@@ -178,6 +178,7 @@ export default async function ResultPage({ params }: { params: { id: string } })
               const correctOpt   = q.correctOption;
               const isSkipped    = selected === null || selected === undefined || selected === "";
               const isChanged    = !answerDetail;
+              const isOpen       = q.questionType === "OPEN";
 
               return (
                 <div key={q.id} className="card-static">
@@ -227,10 +228,37 @@ export default async function ResultPage({ params }: { params: { id: string } })
                         <span className="text-sm font-semibold text-slate-600">Bu sual cavablanmamışdır</span>
                       </div>
                     )}
-                    {q.options.map((opt: any) => {
+
+                    {/* Açıq sual nəticəsi */}
+                    {isOpen && !isChanged ? (
+                      <div className="space-y-2">
+                        <div className={`flex items-start gap-3 p-2.5 rounded-lg text-sm ${
+                          isSkipped ? "bg-slate-50 border border-slate-200 text-slate-400" :
+                          isCorrect ? "bg-green-50 border border-green-300 text-green-800" :
+                                      "bg-red-50 border border-red-300 text-red-800"
+                        }`}>
+                          <div className="flex-1">
+                            <p className="text-xs font-semibold opacity-60 mb-0.5">Sizin cavabınız:</p>
+                            <p className="font-medium">{isSkipped ? "—" : selected}</p>
+                          </div>
+                          {!isSkipped && (isCorrect
+                            ? <CheckCircle size={14} className="text-green-500 flex-shrink-0 mt-1" />
+                            : <XCircle    size={14} className="text-red-500 flex-shrink-0 mt-1" />)}
+                        </div>
+                        {!isCorrect && !isSkipped && (
+                          <div className="flex items-start gap-3 p-2.5 rounded-lg text-sm bg-green-50 border border-green-300 text-green-800">
+                            <div className="flex-1">
+                              <p className="text-xs font-semibold opacity-60 mb-0.5">Düzgün cavab:</p>
+                              <p className="font-medium">{correctOpt}</p>
+                            </div>
+                            <CheckCircle size={14} className="text-green-500 flex-shrink-0 mt-1" />
+                          </div>
+                        )}
+                      </div>
+                    ) : !isOpen && (
+                    <>{q.options.map((opt: any) => {
                       const isCorrectOpt  = opt.label === correctOpt;
                       const isWrongSelect = opt.label === selected && !isCorrect;
-                      const isSkipped     = !selected;
 
                       let cls = "flex items-center gap-3 p-2.5 rounded-lg text-sm ";
                       if (isSkipped && isCorrectOpt)
@@ -260,13 +288,14 @@ export default async function ResultPage({ params }: { params: { id: string } })
                           {!isSkipped && isWrongSelect && <XCircle    size={13} className="text-red-500 flex-shrink-0" />}
                         </div>
                       );
-                    })}
+                    })}</>
+                    )}
                     {isChanged && (
                       <div className="flex items-center gap-1.5 mt-1">
                         <p className="text-amber-600 text-xs">⚠️ Sual dəyişdirilib — köhnə cavab məlumatı mövcud deyil</p>
                       </div>
                     )}
-                    {!isChanged && isSkipped && (
+                    {!isChanged && !isOpen && isSkipped && (
                       <div className="flex items-center gap-1.5 mt-1">
                         <MinusCircle size={12} className="text-slate-400" />
                         <p className="text-slate-400 text-xs">Cavab verilmədi — yuxarıda düzgün cavab göstərilir</p>

@@ -119,7 +119,11 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
 
       questions.forEach((q: any) => {
         const selected  = answers[q.id] || null;
-        const isCorrect = selected === q.correctOption;
+        const isOpen    = q.questionType === "OPEN";
+        // Açıq sual: case-insensitive, trim edilmiş müqayisə
+        const isCorrect = isOpen
+          ? !!(selected && selected.trim().toLowerCase() === q.correctOption.trim().toLowerCase())
+          : selected === q.correctOption;
         const pts       = q.points ?? 1;
         if (!selected) skipped++;
         else if (isCorrect) { correct++; score += pts; }
@@ -128,6 +132,7 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
           questionId: q.id, selected,
           isCorrect: selected ? isCorrect : false,
           correctOption: q.correctOption,
+          questionType: q.questionType || "CHOICE",
           points: pts,
         });
       });
@@ -355,7 +360,8 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
           )}
         </div>
 
-        {/* Options */}
+        {/* Options — CHOICE tipi */}
+        {question.questionType !== "OPEN" && (
         <div className="space-y-3 mb-8">
           {question.options.map((option: any) => (
             <button
@@ -376,6 +382,33 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
             </button>
           ))}
         </div>
+        )}
+
+        {/* Açıq sual — OPEN tipi */}
+        {question.questionType === "OPEN" && (
+        <div className="mb-8">
+          <div className="relative">
+            <input
+              type="text"
+              value={answers[question.id] || ""}
+              onChange={(e) => handleAnswer(question.id, e.target.value)}
+              placeholder={question.openAnswerExample || "Cavabınızı buraya yazın..."}
+              className="input-field text-base py-4 pr-12"
+              autoComplete="off"
+            />
+            {answers[question.id] && (
+              <button
+                type="button"
+                onClick={() => setAnswers((p) => { const n = { ...p }; delete n[question.id]; return n; })}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                title="Cavabı sil">
+                ✕
+              </button>
+            )}
+          </div>
+          <p className="text-xs text-slate-400 mt-2">✏️ Öz cavabınızı yazın</p>
+        </div>
+        )}
 
         {/* Navigation — HƏM SINAQ HƏM TEST üçün əvvəlki/növbəti */}
         <div className="flex items-center justify-between gap-3">
@@ -524,6 +557,7 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
               const isCorrect    = answerDetail?.isCorrect ?? false;
               const correctOpt   = q.correctOption;
               const isSkipped    = selected === null || selected === undefined || selected === "";
+              const isOpen       = q.questionType === "OPEN";
 
               return (
                 <div key={q.id} className="card-static">
@@ -557,7 +591,32 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
                         <span className="text-sm font-semibold text-slate-600">Bu sual cavablanmamışdır</span>
                       </div>
                     )}
-                    {q.options.map((opt: any) => {
+
+                    {/* Açıq sual nəticəsi */}
+                    {isOpen ? (
+                      <div className="space-y-2">
+                        <div className={`p-3 rounded-lg text-sm border ${
+                          isSkipped ? "bg-slate-50 border-slate-200 text-slate-400" :
+                          isCorrect ? "bg-green-50 border-green-300 text-green-800" :
+                                      "bg-red-50 border-red-300 text-red-800"
+                        }`}>
+                          <p className="text-xs font-semibold mb-1 opacity-70">Sizin cavabınız:</p>
+                          <p className="font-medium">{isSkipped ? "—" : selected}</p>
+                          {!isSkipped && (isCorrect
+                            ? <CheckCircle size={14} className="mt-1 text-green-500" />
+                            : <XCircle    size={14} className="mt-1 text-red-500" />)}
+                        </div>
+                        {!isCorrect && (
+                          <div className="p-3 rounded-lg text-sm bg-green-50 border border-green-300 text-green-800">
+                            <p className="text-xs font-semibold mb-1 opacity-70">Düzgün cavab:</p>
+                            <p className="font-medium">{correctOpt}</p>
+                            <CheckCircle size={14} className="mt-1 text-green-500" />
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                    /* Seçimli sual nəticəsi */
+                    q.options.map((opt: any) => {
                       const isCorrectOpt  = opt.label === correctOpt;
                       const isWrongSelect = opt.label === selected && !isCorrect;
 
@@ -582,7 +641,8 @@ export default function QuizRunner({ quiz, session }: QuizRunnerProps) {
                           {!isSkipped && isWrongSelect && <XCircle     size={14} className="ml-auto text-red-500" />}
                         </div>
                       );
-                    })}
+                    })
+                    )}
                   </div>
                   {isSkipped && (
                     <div className="flex items-center gap-1.5 mt-2">

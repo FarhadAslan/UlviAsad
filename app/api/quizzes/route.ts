@@ -185,6 +185,8 @@ export async function POST(req: NextRequest) {
             correctOption: q.correctOption,
             order: index + 1,
             points: q.points ?? 1,
+            questionType: q.questionType || "CHOICE",
+            openAnswerExample: q.questionType === "OPEN" ? (q.openAnswerExample || null) : null,
           })),
         },
       },

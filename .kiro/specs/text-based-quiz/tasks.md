@@ -190,7 +190,7 @@ Bu plan mövcud Next.js quiz platformasına `METN` quiz tipini əlavə etmək ü
     - Mövcud `.rich-content` class-ı ilə uyğunluğu qoru
     - _Requirements: 5.2_
 
-- [-] 9. `components/QuizCard.tsx` — METN badge-i
+- [x] 9. `components/QuizCard.tsx` — METN badge-i
   - [x] 9.1 `QuizCard` komponentindəki tip badge-ini `METN` tipini dəstəkləyəcək şəkildə yenilə
     - Mövcud `quiz.type === "SINAQ" ? "badge-type-sinaq" : "badge-type-test"` şərtini genişləndir
     - `METN` tipi üçün `badge-type-metn` CSS class-ı tətbiq et

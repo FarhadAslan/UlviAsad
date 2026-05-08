@@ -141,8 +141,8 @@ export default function ResultDetailModal({ resultId, onClose, userName }: Resul
                   const isCorrect    = answerDetail?.isCorrect ?? false;
                   const correctOpt   = q.correctOption;
                   const isSkipped    = selected === null || selected === undefined || selected === "";
-                  // Əgər bu sual üçün heç bir cavab tapılmırsa — sual dəyişdirilib
                   const isChanged    = !answerDetail;
+                  const isOpen       = q.questionType === "OPEN";
 
                   const statusIcon = isChanged
                     ? <span className="text-[10px] text-slate-400 flex-shrink-0 font-medium px-1.5 py-0.5 bg-slate-100 rounded">dəyişib</span>
@@ -181,7 +181,6 @@ export default function ResultDetailModal({ resultId, onClose, userName }: Resul
 
                       {/* Options */}
                       <div className="p-2 sm:p-3 space-y-1.5 sm:space-y-2">
-                        {/* Cavablanmamış xəbərdarlığı — optionlardan əvvəl, aydın görünsün */}
                         {isChanged && (
                           <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-amber-50 border border-amber-200 mb-2">
                             <span className="text-xs sm:text-sm font-semibold text-amber-700">⚠️ Bu sual quiz yenilənərkən dəyişdirilib — cavab məlumatı mövcud deyil</span>
@@ -193,7 +192,35 @@ export default function ResultDetailModal({ resultId, onClose, userName }: Resul
                             <span className="text-xs sm:text-sm font-semibold text-slate-600">Bu sual cavablanmamışdır</span>
                           </div>
                         )}
-                        {q.options.map((opt: any) => {
+
+                        {/* Açıq sual nəticəsi */}
+                        {isOpen && !isChanged ? (
+                          <div className="space-y-1.5">
+                            <div className={`flex items-start gap-2 p-2 sm:p-2.5 rounded-lg text-xs sm:text-sm ${
+                              isSkipped ? "bg-slate-50 border border-slate-200 text-slate-400" :
+                              isCorrect ? "bg-green-50 border border-green-300 text-green-800" :
+                                          "bg-red-50 border border-red-300 text-red-800"
+                            }`}>
+                              <div className="flex-1">
+                                <p className="text-[10px] font-semibold opacity-60 mb-0.5">Sizin cavabınız:</p>
+                                <p className="font-medium">{isSkipped ? "—" : selected}</p>
+                              </div>
+                              {!isSkipped && (isCorrect
+                                ? <CheckCircle size={14} className="text-green-500 flex-shrink-0 mt-1" />
+                                : <XCircle    size={14} className="text-red-500 flex-shrink-0 mt-1" />)}
+                            </div>
+                            {!isCorrect && !isSkipped && (
+                              <div className="flex items-start gap-2 p-2 sm:p-2.5 rounded-lg text-xs sm:text-sm bg-green-50 border border-green-300 text-green-800">
+                                <div className="flex-1">
+                                  <p className="text-[10px] font-semibold opacity-60 mb-0.5">Düzgün cavab:</p>
+                                  <p className="font-medium">{correctOpt}</p>
+                                </div>
+                                <CheckCircle size={14} className="text-green-500 flex-shrink-0 mt-1" />
+                              </div>
+                            )}
+                          </div>
+                        ) : !isOpen && (
+                        <>{q.options.map((opt: any) => {
                           const isCorrectOpt  = opt.label === correctOpt;
                           const isSelectedOpt = opt.label === selected;
                           const isWrongSelect = isSelectedOpt && !isCorrect;
@@ -231,7 +258,8 @@ export default function ResultDetailModal({ resultId, onClose, userName }: Resul
                               {!isChanged && !isSkipped && isWrongSelect && <XCircle    size={13} className="text-red-500 flex-shrink-0" />}
                             </div>
                           );
-                        })}
+                        })}</>
+                        )}
                       </div>
                     </div>
                   );
