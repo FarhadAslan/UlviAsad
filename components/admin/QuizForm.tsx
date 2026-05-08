@@ -144,7 +144,7 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
     e.preventDefault();
     const invalid = questions.find((q) => !stripHtml(q.text) && !q.imageUrl);
     if (invalid) { error("Hər sualda ya mətn, ya şəkil, ya da hər ikisi olmalıdır"); return; }
-    if (questions.some((q) => q.options.some((o: any) => !o.text))) {
+    if (questions.some((q) => q.questionType !== "OPEN" && q.options.some((o: any) => !o.text))) {
       error("Bütün cavab seçimlərini doldurun"); return;
     }
     if (form.type === "SINAQ" && (!form.duration || Number(form.duration) < 1)) {
@@ -153,6 +153,10 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
     // METN tipi üçün passage mətni məcburidir
     if (form.type === "METN" && !form.passageContent?.trim()) {
       error("Mətn əsaslı quiz üçün passage mətni tələb olunur"); return;
+    }
+    // Açıq suallar üçün düzgün cavab məcburidir
+    if (questions.some((q) => q.questionType === "OPEN" && !q.correctOption?.trim())) {
+      error("Açıq suallar üçün düzgün cavab daxil edin"); return;
     }
     setLoading(true);
     try {
