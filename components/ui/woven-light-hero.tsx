@@ -234,8 +234,15 @@ export const WovenLightHero = () => {
 
         <motion.div initial={{ opacity: 0 }} animate={btnCtrl}
           className="flex flex-col sm:flex-row gap-4 justify-center">
-          <Link href="/quizler" className="btn-primary px-10 py-3.5 text-base">
-            Quizlərə Başla
+          <Link href="/quizler"
+            className="relative inline-flex items-center justify-center px-10 py-3.5 text-base font-semibold rounded-[10px] text-white overflow-hidden"
+            style={{ background: "linear-gradient(135deg, #1f6f43, #1a7fe0)" }}>
+            {/* Pulsating rings */}
+            <span className="absolute inset-0 rounded-[10px] animate-ping opacity-30"
+              style={{ background: "linear-gradient(135deg, #1f6f43, #1a7fe0)", animationDuration: "1.5s" }} />
+            <span className="absolute inset-0 rounded-[10px] animate-ping opacity-20"
+              style={{ background: "linear-gradient(135deg, #1f6f43, #1a7fe0)", animationDuration: "1.5s", animationDelay: "0.4s" }} />
+            <span className="relative z-10">Quizlərə Başla</span>
           </Link>
           {isLoggedIn ? (
             <Link href="/materiallar"
