@@ -229,6 +229,9 @@ export default async function HomePage() {
         <QuizzesSection userRole={userRole} userId={userId} />
       </Suspense>
 
+      {/* Sertifikatlar — Son Quizlər-dən sonra */}
+      <CertificatesSection />
+
       {/* Materials — streaming ilə yüklənir */}
       <Suspense fallback={
         <section className="py-16" style={{ background: "rgba(191,231,255,0.15)" }}>
@@ -254,7 +257,6 @@ export default async function HomePage() {
       </Suspense>
 
       {/* CTA */}
-      <CertificatesSection />
       <CTASection />
     </div>
   );
