@@ -10,6 +10,7 @@ import { ArrowRight } from "lucide-react";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { Suspense } from "react";
+import CertificatesSection from "@/components/CertificatesSection";
 
 export const dynamic = "force-dynamic";
 
@@ -253,6 +254,7 @@ export default async function HomePage() {
       </Suspense>
 
       {/* CTA */}
+      <CertificatesSection />
       <CTASection />
     </div>
   );
