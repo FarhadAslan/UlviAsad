@@ -18,20 +18,20 @@ const ParticleSphere = dynamic(
   { ssr: false }
 )
 
-// Sertifikat nümunə şəkilləri — real sertifikatlar əlavə olunana qədər
+// Sertifikat nümunə şəkilləri — picsum.photos CORS-a icazə verir
 const CERTIFICATE_IMAGES = [
-  "https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=400&q=80",
-  "https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=400&q=80",
-  "https://images.unsplash.com/photo-1513258496099-48168024aec0?w=400&q=80",
-  "https://images.unsplash.com/photo-1546410531-bb4caa6b424d?w=400&q=80",
-  "https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=400&q=80",
-  "https://images.unsplash.com/photo-1488190211105-8b0e65b80b4e?w=400&q=80",
-  "https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=400&q=80",
-  "https://images.unsplash.com/photo-1509062522246-3755977927d7?w=400&q=80",
-  "https://images.unsplash.com/photo-1427504494785-3a9ca7044f45?w=400&q=80",
-  "https://images.unsplash.com/photo-1580582932707-520aed937b7b?w=400&q=80",
-  "https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=400&q=80",
-  "https://images.unsplash.com/photo-1524178232363-1fb2b075b655?w=400&q=80",
+  "https://picsum.photos/seed/cert1/400/280",
+  "https://picsum.photos/seed/cert2/400/280",
+  "https://picsum.photos/seed/cert3/400/280",
+  "https://picsum.photos/seed/cert4/400/280",
+  "https://picsum.photos/seed/cert5/400/280",
+  "https://picsum.photos/seed/cert6/400/280",
+  "https://picsum.photos/seed/cert7/400/280",
+  "https://picsum.photos/seed/cert8/400/280",
+  "https://picsum.photos/seed/cert9/400/280",
+  "https://picsum.photos/seed/cert10/400/280",
+  "https://picsum.photos/seed/cert11/400/280",
+  "https://picsum.photos/seed/cert12/400/280",
 ]
 
 function CanvasFallback() {
@@ -66,6 +66,7 @@ export default function CertificatesSection() {
             <Canvas
               camera={{ position: [-10, 1.5, 10], fov: 50 }}
               style={{ background: "transparent" }}
+              gl={{ alpha: true }}
             >
               <ambientLight intensity={0.8} />
               <pointLight position={[10, 10, 10]} intensity={1.2} />
