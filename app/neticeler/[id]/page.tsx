@@ -50,20 +50,17 @@ async function getResult(id: string, userId?: string, userRole?: string) {
 
   const isOwner = userId && result.userId === userId;
   const isAdmin = userRole === "ADMIN";
-  const canSeeDetails = !!(isOwner || isAdmin);
+  // Paylaşılan link heç kim üçün sual detaylarını göstərmir — yalnız statistika
+  // Sahibi öz nəticəsini profil səhifəsindən görə bilər
+  const canSeeDetails = false;
 
   return {
     ...result,
     canSeeDetails,
-    answers: canSeeDetails ? JSON.parse(result.answers as string) : null,
+    answers: null,
     quiz: {
       ...result.quiz,
-      questions: canSeeDetails
-        ? result.quiz.questions.map((q) => ({
-            ...q,
-            options: JSON.parse(q.options),
-          }))
-        : [],
+      questions: [],
     },
   };
 }
@@ -309,14 +306,14 @@ export default async function ResultPage({ params }: { params: { id: string } })
         </div>
       )}
 
-      {/* Başqası baxırsa — cavablar gizlidir */}
+      {/* Cavab detayları paylaşılan linklərə görünmür */}
       {!result.canSeeDetails && (
         <div className="card-static text-center py-8 text-slate-400">
           <Trophy size={32} className="mx-auto mb-3 text-amber-400" />
           <p className="font-medium text-slate-600 mb-1">
             <span className="text-slate-800">{result.user.name}</span> bu quizə {result.score} bal topladı
           </p>
-          <p className="text-sm">Cavabların detayı yalnız nəticə sahibinə görünür.</p>
+          <p className="text-sm">Cavab detayları məxfidir. Öz nəticənizi profilinizdən görə bilərsiniz.</p>
           <Link href={`/quizler/${result.quiz.id}`} className="btn-primary inline-flex mt-4">
             Sən də cəhd et
           </Link>
