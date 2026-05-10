@@ -57,10 +57,10 @@ async function getResult(id: string, userId?: string, userRole?: string) {
   return {
     ...result,
     canSeeDetails,
-    answers: null,
+    answers: null as any[] | null,
     quiz: {
       ...result.quiz,
-      questions: [],
+      questions: [] as any[],
     },
   };
 }
