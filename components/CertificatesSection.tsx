@@ -64,7 +64,7 @@ export default function CertificatesSection() {
         <div className="relative w-full" style={{ height: "520px" }}>
           <Suspense fallback={<CanvasFallback />}>
             <Canvas
-              camera={{ position: [0, 0, 22], fov: 60 }}
+              camera={{ position: [0, 0, 18], fov: 65 }}
               style={{ background: "transparent" }}
               gl={{ alpha: true }}
             >

@@ -19,7 +19,7 @@ export function ParticleSphere({ images }: ParticleSphereProps) {
   const ROTATION_SPEED_X    = 0.0001
   const PARTICLE_OPACITY    = 0.9
   const IMAGE_COUNT         = images.length
-  const IMAGE_SIZE          = 1.8
+  const IMAGE_SIZE          = 2.8
 
   const groupRef = useRef<THREE.Group>(null)
   const textures = useTexture(images)
