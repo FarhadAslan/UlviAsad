@@ -50,16 +50,21 @@ export function ParticleSphere({ images }: ParticleSphereProps) {
   const orbitingImages = useMemo(() => {
     const imgs = []
     for (let i = 0; i < IMAGE_COUNT; i++) {
-      const angle    = (i / IMAGE_COUNT) * Math.PI * 2
-      const x        = SPHERE_RADIUS * Math.cos(angle)
-      const y        = (Math.random() - 0.5) * 4
-      const z        = SPHERE_RADIUS * Math.sin(angle)
+      // Fibonacci spiral ilə kürə səthi boyunca bərabər paylaşdır
+      const phi   = Math.acos(1 - (2 * (i + 0.5)) / IMAGE_COUNT)
+      const theta = Math.PI * (1 + Math.sqrt(5)) * i
+
+      const x = SPHERE_RADIUS * Math.sin(phi) * Math.cos(theta)
+      const y = SPHERE_RADIUS * Math.cos(phi)
+      const z = SPHERE_RADIUS * Math.sin(phi) * Math.sin(theta)
+
       const position = new THREE.Vector3(x, y, z)
       const outward  = position.clone().normalize()
       const euler    = new THREE.Euler()
       const matrix   = new THREE.Matrix4()
       matrix.lookAt(position, position.clone().add(outward), new THREE.Vector3(0, 1, 0))
       euler.setFromRotationMatrix(matrix)
+
       imgs.push({
         position: [x, y, z] as [number, number, number],
         rotation: [euler.x, euler.y, euler.z] as [number, number, number],
