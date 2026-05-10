@@ -59,7 +59,7 @@ export default function CertificatesSection() {
               style={{ width: 280, height: 186, border: "1.5px solid rgba(147,204,255,0.25)" }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={cert.imageUrl} alt={cert.title || `Sertifikat ${i + 1}`}
-                className="w-full h-full object-cover" loading="lazy" />
+                className="w-full h-full object-contain bg-white" loading="lazy" />
             </div>
           ))}
         </div>
@@ -73,7 +73,7 @@ export default function CertificatesSection() {
               style={{ width: 280, height: 186, border: "1.5px solid rgba(147,204,255,0.25)" }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={cert.imageUrl} alt={cert.title || `Sertifikat ${i + 1}`}
-                className="w-full h-full object-cover" loading="lazy" />
+                className="w-full h-full object-contain bg-white" loading="lazy" />
             </div>
           ))}
         </div>
