@@ -22,13 +22,7 @@ export function ParticleSphere({ images }: ParticleSphereProps) {
   const IMAGE_SIZE          = 1.8
 
   const groupRef = useRef<THREE.Group>(null)
-  const textures = useTexture(images, (loadedTextures) => {
-    // Texture-lər yükləndikdə crossOrigin təyin et
-    const arr = Array.isArray(loadedTextures) ? loadedTextures : [loadedTextures]
-    arr.forEach((t) => {
-      if (t.image) t.image.crossOrigin = "anonymous"
-    })
-  })
+  const textures = useTexture(images)
 
   const particles = useMemo(() => {
     const pts = []
