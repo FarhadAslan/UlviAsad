@@ -7,7 +7,7 @@ import { useSession } from "next-auth/react";
 import {
   LayoutDashboard, Users, BookOpen, FileText,
   Newspaper, Home, BookMarked, Settings,
-  ChevronLeft, ChevronRight, Menu, X, MessageSquare, Tag,
+  ChevronLeft, ChevronRight, Menu, X, MessageSquare, Tag, Award,
 } from "lucide-react";
 
 const adminNavItems = [
@@ -17,6 +17,7 @@ const adminNavItems = [
   { href: "/admin/materiallar",   label: "Materiallar",    icon: FileText },
   { href: "/admin/meqaleler",     label: "Məqalələr",      icon: Newspaper },
   { href: "/admin/kateqoriyalar", label: "Kateqoriyalar",  icon: Tag },
+  { href: "/admin/sertifikatlar", label: "Sertifikatlar",  icon: Award },
   { href: "/admin/sorqular",      label: "Sorğular",       icon: MessageSquare },
   { href: "/admin/parametrler",   label: "Parametrlər",    icon: Settings },
 ];

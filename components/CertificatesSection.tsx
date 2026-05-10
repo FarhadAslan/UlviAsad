@@ -1,9 +1,16 @@
 "use client"
 
 import { Award } from "lucide-react"
+import { useEffect, useState } from "react"
 
-// Sertifikat nümunə şəkilləri
-const CERTIFICATE_IMAGES = [
+interface Certificate {
+  id: string
+  imageUrl: string
+  title: string
+}
+
+// Fallback şəkillər — DB boş olduqda göstərilir
+const FALLBACK_IMAGES = [
   "https://picsum.photos/seed/cert1/480/320",
   "https://picsum.photos/seed/cert2/480/320",
   "https://picsum.photos/seed/cert3/480/320",
@@ -16,11 +23,21 @@ const CERTIFICATE_IMAGES = [
   "https://picsum.photos/seed/cert10/480/320",
   "https://picsum.photos/seed/cert11/480/320",
   "https://picsum.photos/seed/cert12/480/320",
-]
+].map((url, i) => ({ id: String(i), imageUrl: url, title: "" }))
 
-// İki sıra üçün şəkilləri böl
-const ROW1 = CERTIFICATE_IMAGES.slice(0, 6)
-const ROW2 = CERTIFICATE_IMAGES.slice(6, 12)
+export default function CertificatesSection() {
+  const [certs, setCerts] = useState<Certificate[]>([])
+
+  useEffect(() => {
+    fetch("/api/certificates")
+      .then((r) => r.json())
+      .then((d) => setCerts(Array.isArray(d) && d.length > 0 ? d : FALLBACK_IMAGES))
+      .catch(() => setCerts(FALLBACK_IMAGES))
+  }, [])
+
+  const half = Math.ceil(certs.length / 2)
+  const ROW1 = certs.slice(0, half)
+  const ROW2 = certs.slice(half)
 
 export default function CertificatesSection() {
   return (
@@ -44,11 +61,11 @@ export default function CertificatesSection() {
       {/* Sıra 1 — sola sürüşür */}
       <div className="relative mb-4">
         <div className="flex gap-4 marquee-track marquee-left">
-          {[...ROW1, ...ROW1].map((src, i) => (
+          {[...ROW1, ...ROW1].map((cert, i) => (
             <div key={i} className="marquee-item flex-shrink-0 rounded-2xl overflow-hidden shadow-md"
               style={{ width: 280, height: 186, border: "1.5px solid rgba(147,204,255,0.25)" }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={src} alt={`Sertifikat ${i + 1}`}
+              <img src={cert.imageUrl} alt={cert.title || `Sertifikat ${i + 1}`}
                 className="w-full h-full object-cover" loading="lazy" />
             </div>
           ))}
@@ -58,11 +75,11 @@ export default function CertificatesSection() {
       {/* Sıra 2 — sağa sürüşür */}
       <div className="relative">
         <div className="flex gap-4 marquee-track marquee-right">
-          {[...ROW2, ...ROW2].map((src, i) => (
+          {[...ROW2, ...ROW2].map((cert, i) => (
             <div key={i} className="marquee-item flex-shrink-0 rounded-2xl overflow-hidden shadow-md"
               style={{ width: 280, height: 186, border: "1.5px solid rgba(147,204,255,0.25)" }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={src} alt={`Sertifikat ${i + 7}`}
+              <img src={cert.imageUrl} alt={cert.title || `Sertifikat ${i + 7}`}
                 className="w-full h-full object-cover" loading="lazy" />
             </div>
           ))}

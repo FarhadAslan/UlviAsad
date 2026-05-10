@@ -182,3 +182,14 @@ model PasswordResetToken {
   @@index([userId])
   @@index([token])
 }
+
+model Certificate {
+  id        String   @id @default(cuid())
+  imageUrl  String
+  title     String   @default("")
+  order     Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([active, order])
+}
