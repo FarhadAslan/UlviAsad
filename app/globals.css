@@ -472,6 +472,14 @@
   0%,100% { transform: translateY(0px); }
   50%      { transform: translateY(-6px); }
 }
+@keyframes marquee-left {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+@keyframes marquee-right {
+  0%   { transform: translateX(-50%); }
+  100% { transform: translateX(0); }
+}
 @keyframes pulse-ring {
   0%   { transform: scale(1);    opacity: 0.6; }
   100% { transform: scale(1.6);  opacity: 0; }
@@ -502,6 +510,15 @@
 .count-animate { animation: countUp 0.5s ease forwards; }
 .timer-warning { animation: timerPulse 1s ease infinite; color: #dc2626; }
 .float-anim    { animation: float 4s ease-in-out infinite; }
+
+/* ── Marquee (sertifikat sürüşmə) ───────────────────────── */
+.marquee-track {
+  width: max-content;
+  will-change: transform;
+}
+.marquee-left  { animation: marquee-left  28s linear infinite; }
+.marquee-right { animation: marquee-right 28s linear infinite; }
+.marquee-track:hover { animation-play-state: paused; }
 .circular-progress { transform: rotate(-90deg); }
 
 /* ── Mobile table scroll ─────────────────────────────────────── */
