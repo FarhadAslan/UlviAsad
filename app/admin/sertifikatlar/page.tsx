@@ -139,7 +139,7 @@ export default function AdminCertificatesPage() {
               <div key={cert.id} className="group relative rounded-xl overflow-hidden border border-slate-200 bg-slate-50 hover:border-[rgba(147,204,255,0.5)] transition-all">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={cert.imageUrl} alt={cert.title || "Sertifikat"}
-                  className="w-full aspect-video object-cover" />
+                  className="w-full aspect-video object-contain bg-white" />
                 {cert.title && (
                   <div className="px-2 py-1.5 text-xs font-medium text-slate-700 truncate border-t border-slate-100">
                     {cert.title}
