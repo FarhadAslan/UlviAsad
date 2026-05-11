@@ -1,5 +1,5 @@
 {
-  "buildCommand": "prisma generate && next build",
+  "buildCommand": "prisma migrate deploy && prisma generate && next build",
   "functions": {
     "app/api/upload/route.ts": {
       "maxDuration": 60
@@ -10,8 +10,8 @@
     "app/api/download/route.ts": {
       "maxDuration": 60
     },
-    "app/api/**": {
-      "maxDuration": 30
+    "app/api/ai/generate-quiz/route.ts": {
+      "maxDuration": 60
     }
   }
 }
