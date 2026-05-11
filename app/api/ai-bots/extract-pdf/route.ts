@@ -6,34 +6,30 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+/**
+ * PDF-dən mətn çıxarır.
+ * pdf-parse kitabxanasını istifadə edir, test faylları olmadan.
+ */
 async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; pageCount: number }> {
-  // pdfjs-dist server-side istifadəsi
-  const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  // pdf-parse test fayllarını yükləməsin deyə pagerender callback veririk
+  // Bu Vercel serverless mühitindəki "test file not found" xətasının qarşısını alır
+  const pdfParse = require("pdf-parse/lib/pdf-parse.js");
 
-  // Worker-i deaktiv et (server-side üçün)
-  pdfjsLib.GlobalWorkerOptions.workerSrc = "";
+  const options = {
+    // Hər səhifənin mətnini topla
+    pagerender: async (pageData: any) => {
+      const textContent = await pageData.getTextContent();
+      return textContent.items
+        .map((item: any) => item.str || "")
+        .join(" ");
+    },
+  };
 
-  const loadingTask = pdfjsLib.getDocument({
-    data: new Uint8Array(buffer),
-    useWorkerFetch: false,
-    isEvalSupported: false,
-    useSystemFonts: true,
-  });
-
-  const pdf = await loadingTask.promise;
-  const pageCount = pdf.numPages;
-  const textParts: string[] = [];
-
-  for (let i = 1; i <= pageCount; i++) {
-    const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    const pageText = content.items
-      .map((item: any) => ("str" in item ? item.str : ""))
-      .join(" ");
-    textParts.push(pageText);
-  }
-
-  return { text: textParts.join("\n\n"), pageCount };
+  const result = await pdfParse(buffer, options);
+  return {
+    text: result.text,
+    pageCount: result.numpages,
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -74,6 +70,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Mətni təmizlə
     const cleaned = extracted.text
       .replace(/\r\n/g, "\n")
       .replace(/\r/g, "\n")

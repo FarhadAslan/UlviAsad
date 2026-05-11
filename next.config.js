@@ -24,6 +24,22 @@ const nextConfig = {
       ? { exclude: ["error", "warn"] }
       : false,
   },
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      // pdf-parse test fayllarını bundle-a daxil etmə
+      config.externals = config.externals || [];
+      if (Array.isArray(config.externals)) {
+        config.externals.push("canvas");
+      }
+    }
+    // pdfjs-dist canvas modulunu ignore et
+    config.resolve = config.resolve || {};
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      canvas: false,
+    };
+    return config;
+  },
   // Static asset-lər üçün uzunmüddətli cache
   async headers() {
     return [

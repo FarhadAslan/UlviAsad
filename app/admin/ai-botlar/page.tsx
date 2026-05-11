@@ -109,14 +109,24 @@ export default function AiBotsPage() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const res  = await fetch("/api/ai-bots/extract-pdf", { method: "POST", body: formData });
-      const data = await res.json();
+      const res = await fetch("/api/ai-bots/extract-pdf", { method: "POST", body: formData });
+
+      // JSON parse xətasına qarşı qoruma
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch {
+        const rawText = await res.text().catch(() => "");
+        error(`Server cavabı oxunmadı: ${res.status} ${rawText.slice(0, 100)}`);
+        return;
+      }
+
       if (!res.ok) { error(data.error || "PDF oxunarkən xəta baş verdi"); return; }
       setForm((p) => ({ ...p, content: data.text }));
       success(`PDF oxundu: ${data.charCount.toLocaleString()} simvol, ~${data.pageCount} səhifə`);
     } catch (e: any) {
       console.error("PDF upload error:", e);
-      error("PDF yüklənərkən xəta baş verdi. Fayl çox böyük ola bilər (maks. 20MB).");
+      error(`PDF xətası: ${e?.message || "Şəbəkə xətası"}`);
     } finally {
       setPdfLoading(false);
       if (pdfInputRef.current) pdfInputRef.current.value = "";
