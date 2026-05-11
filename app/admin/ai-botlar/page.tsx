@@ -26,14 +26,15 @@ const emptyForm = () => ({
 
 export default function AiBotsPage() {
   const { success, error } = useToast();
-  const [bots, setBots]           = useState<AiBot[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [showForm, setShowForm]   = useState(false);
-  const [editing, setEditing]     = useState<AiBot | null>(null);
-  const [form, setForm]           = useState(emptyForm());
-  const [saving, setSaving]       = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [bots, setBots]               = useState<AiBot[]>([]);
+  const [categories, setCategories]   = useState<{ value: string; label: string }[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [showForm, setShowForm]       = useState(false);
+  const [editing, setEditing]         = useState<AiBot | null>(null);
+  const [form, setForm]               = useState(emptyForm());
+  const [saving, setSaving]           = useState(false);
+  const [deletingId, setDeletingId]   = useState<string | null>(null);
+  const [expandedId, setExpandedId]   = useState<string | null>(null);
 
   const fetchBots = async () => {
     setLoading(true);
@@ -45,7 +46,13 @@ export default function AiBotsPage() {
     finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchBots(); }, []);
+  useEffect(() => {
+    fetchBots();
+    fetch("/api/categories")
+      .then((r) => r.json())
+      .then((d) => { if (Array.isArray(d)) setCategories(d); })
+      .catch(() => {});
+  }, []);
 
   const openCreate = () => {
     setEditing(null);
@@ -139,9 +146,16 @@ export default function AiBotsPage() {
 
             <div>
               <label className={labelCls}>Kateqoriya <span className="text-slate-400 text-xs">(isteğe bağlı)</span></label>
-              <input type="text" value={form.category} className="input-field"
-                placeholder="Məs: Qanunvericilik, Riyaziyyat..."
-                onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))} />
+              <select
+                value={form.category}
+                className="select-field"
+                onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))}
+              >
+                <option value="">— Seçin —</option>
+                {categories.map((c) => (
+                  <option key={c.value} value={c.value}>{c.label}</option>
+                ))}
+              </select>
             </div>
 
             <div>
