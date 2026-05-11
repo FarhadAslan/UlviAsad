@@ -25,11 +25,9 @@ export async function GET(req: NextRequest) {
       select: {
         id: true,
         name: true,
-        description: true,
         category: true,
         active: true,
         createdAt: true,
-        // content və prompt yalnız generate zamanı lazımdır
         ...(searchParams.get("full") === "true"
           ? { content: true, prompt: true }
           : {}),
@@ -56,7 +54,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { name, description, category, content, prompt, active } = body;
+    const { name, category, content, prompt, active } = body;
 
     if (!name?.trim()) {
       return NextResponse.json({ error: "Bot adı tələb olunur" }, { status: 400 });
@@ -71,7 +69,6 @@ export async function POST(req: NextRequest) {
     const bot = await prisma.aiBot.create({
       data: {
         name: name.trim(),
-        description: description?.trim() || "",
         category: category?.trim() || "",
         content: content.trim(),
         prompt: prompt.trim(),
