@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Plus, Trash2, Edit, Bot, X, Loader2, ChevronDown, ChevronUp } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Plus, Trash2, Edit, Bot, X, Loader2, ChevronDown, ChevronUp, FileText, Upload, CheckCircle } from "lucide-react";
 import { useToast } from "@/components/ui/toast-1";
 
 interface AiBot {
@@ -33,6 +33,8 @@ export default function AiBotsPage() {
   const [saving, setSaving]         = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const pdfInputRef                 = useRef<HTMLInputElement>(null);
 
   const fetchBots = async () => {
     setLoading(true);
@@ -93,6 +95,32 @@ export default function AiBotsPage() {
   };
 
   const labelCls = "block text-sm font-medium text-slate-700 mb-1.5";
+
+  const handlePdfUpload = async (file: File) => {
+    if (file.type !== "application/pdf") {
+      error("Yalnız PDF fayl qəbul edilir");
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      error("Fayl ölçüsü 20MB-dan çox ola bilməz");
+      return;
+    }
+    setPdfLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res  = await fetch("/api/ai-bots/extract-pdf", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) { error(data.error || "PDF oxunarkən xəta baş verdi"); return; }
+      setForm((p) => ({ ...p, content: data.text }));
+      success(`PDF oxundu: ${data.charCount.toLocaleString()} simvol, ~${data.pageCount} səhifə`);
+    } catch {
+      error("PDF yüklənərkən xəta baş verdi");
+    } finally {
+      setPdfLoading(false);
+      if (pdfInputRef.current) pdfInputRef.current.value = "";
+    }
+  };
 
   // ── FORM VIEW ──────────────────────────────────────────────
   if (showForm) {
@@ -171,22 +199,55 @@ export default function AiBotsPage() {
 
           {/* Öyrətmə mətni */}
           <div className="card-static">
-            <h2 className="text-base font-semibold text-slate-800 mb-1">
-              Öyrətmə Mətni (Bilik Bazası) <span className="text-red-500">*</span>
-            </h2>
-            <p className="text-xs text-slate-500 mb-3">
-              AI bu mətnə əsaslanaraq suallar yaradacaq. Mövzu ilə bağlı qanunlar, qaydalar, faktlar əlavə edin.
-            </p>
+            <div className="flex items-start justify-between gap-3 mb-1">
+              <div>
+                <h2 className="text-base font-semibold text-slate-800">
+                  Öyrətmə Mətni (Bilik Bazası) <span className="text-red-500">*</span>
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  AI bu mətnə əsaslanaraq suallar yaradacaq. Mövzu ilə bağlı qanunlar, qaydalar, faktlar əlavə edin.
+                </p>
+              </div>
+              {/* PDF yüklə düyməsi */}
+              <button
+                type="button"
+                onClick={() => pdfInputRef.current?.click()}
+                disabled={pdfLoading}
+                className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ background: "rgba(102,126,234,0.1)", color: "#667eea", border: "1px solid rgba(102,126,234,0.25)" }}
+                title="PDF yüklə — mətn avtomatik doldurulacaq"
+              >
+                {pdfLoading
+                  ? <><Loader2 size={13} className="animate-spin" /> Oxunur...</>
+                  : <><Upload size={13} /> PDF Yüklə</>}
+              </button>
+              <input
+                ref={pdfInputRef}
+                type="file"
+                accept="application/pdf"
+                className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handlePdfUpload(f); }}
+              />
+            </div>
+
+            {/* PDF yüklənibsə kiçik info */}
+            {form.content.length > 0 && (
+              <div className="flex items-center gap-1.5 text-xs text-green-600 mb-2">
+                <CheckCircle size={12} />
+                {form.content.length.toLocaleString()} simvol daxil edilib
+              </div>
+            )}
+
             <textarea
               value={form.content}
               rows={10}
               required
               className="input-field resize-y font-mono text-xs sm:text-sm w-full"
-              placeholder={"Məs:\nAzərbaycan Respublikasının Konstitusiyası 1995-ci ildə qəbul edilmişdir...\n\nMaddə 1. Dövlət hakimiyyəti\nAzərbaycan Respublikasında dövlət hakimiyyətinin yeganə mənbəyi Azərbaycan xalqıdır..."}
+              placeholder={"PDF yükləyin və ya mətni əl ilə daxil edin...\n\nMəs:\nAzərbaycan Respublikasının Konstitusiyası 1995-ci ildə qəbul edilmişdir...\n\nMaddə 1. Dövlət hakimiyyəti\nAzərbaycan Respublikasında dövlət hakimiyyətinin yeganə mənbəyi Azərbaycan xalqıdır..."}
               onChange={(e) => setForm((p) => ({ ...p, content: e.target.value }))}
             />
             <p className="text-xs text-slate-400 mt-1.5">
-              {form.content.length} simvol — nə qədər çox məlumat, bir o qədər dəqiq suallar
+              {form.content.length.toLocaleString()} simvol — nə qədər çox məlumat, bir o qədər dəqiq suallar
             </p>
           </div>
 
