@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Plus, Trash2, X, ImagePlus, Loader2, XCircle, BookOpen } from "lucide-react";
+import { Plus, Trash2, X, ImagePlus, Loader2, XCircle, BookOpen, Sparkles } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useToast } from "@/components/ui/toast-1";
 import QuizQuestionEditor, { stripHtml } from "@/components/ui/quiz-question-editor";
 import { useFormDraft } from "@/lib/useFormDraft";
 import RichEditor from "@/components/ui/rich-editor";
+import AIQuizGenerator from "@/components/admin/AIQuizGenerator";
 
 const emptyQuestion = () => ({
   text: "",
@@ -90,6 +91,7 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
   const [uploadingIdx,     setUploadingIdx]     = useState<number | null>(null);
   const [uploadingPassage, setUploadingPassage] = useState(false);
   const [loading,          setLoading]          = useState(false);
+  const [showAI,           setShowAI]           = useState(false);
   const fileInputRefs    = useRef<(HTMLInputElement | null)[]>([]);
   const passageImgRef    = useRef<HTMLInputElement | null>(null);
 
@@ -193,10 +195,34 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
         <h1 className="text-3xl font-bold text-slate-900">
           {quiz ? "Quiz Düzəlt" : "Yeni Quiz"}
         </h1>
-        <button onClick={onCancel} className="btn-secondary flex items-center gap-2">
-          <X size={15} /> Ləğv et
-        </button>
+        <div className="flex items-center gap-2">
+          {!quiz && (
+            <button
+              type="button"
+              onClick={() => setShowAI(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90"
+              style={{ background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)" }}
+            >
+              <Sparkles size={15} />
+              AI ilə Yarat
+            </button>
+          )}
+          <button onClick={onCancel} className="btn-secondary flex items-center gap-2">
+            <X size={15} /> Ləğv et
+          </button>
+        </div>
       </div>
+
+      {/* AI Generator Modal */}
+      {showAI && (
+        <AIQuizGenerator
+          categories={categories}
+          onClose={() => setShowAI(false)}
+          onGenerate={(aiQuestions) => {
+            setQuestions(aiQuestions);
+          }}
+        />
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Əsas məlumatlar */}
