@@ -55,8 +55,8 @@ export default function CertificatesSection() {
       <div className="mb-4">
         <div className="flex gap-4 marquee-track marquee-left">
           {[...ROW1, ...ROW1].map((cert, i) => (
-            <div key={i} className="flex-shrink-0 rounded-2xl overflow-hidden shadow-sm"
-              style={{ width: 380 }}>
+            <div key={i} className="flex-shrink-0 rounded-xl overflow-hidden shadow-sm"
+              style={{ width: 240 }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={cert.imageUrl} alt={cert.title || `Sertifikat ${i + 1}`}
                 className="w-full h-auto block" loading="lazy" />
@@ -69,8 +69,8 @@ export default function CertificatesSection() {
       <div>
         <div className="flex gap-4 marquee-track marquee-right">
           {[...ROW2, ...ROW2].map((cert, i) => (
-            <div key={i} className="flex-shrink-0 rounded-2xl overflow-hidden shadow-sm"
-              style={{ width: 380 }}>
+            <div key={i} className="flex-shrink-0 rounded-xl overflow-hidden shadow-sm"
+              style={{ width: 240 }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={cert.imageUrl} alt={cert.title || `Sertifikat ${i + 1}`}
                 className="w-full h-auto block" loading="lazy" />
