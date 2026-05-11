@@ -1,16 +1,16 @@
 {
   "buildCommand": "node scripts/migrate-resolve.js && prisma migrate deploy && prisma generate && next build",
   "functions": {
-    "app/api/upload/route.ts": {
+    "api/upload": {
       "maxDuration": 60
     },
-    "app/api/uploadthing/route.ts": {
+    "api/uploadthing": {
       "maxDuration": 60
     },
-    "app/api/download/route.ts": {
+    "api/download": {
       "maxDuration": 60
     },
-    "app/api/ai/generate-quiz/route.ts": {
+    "api/ai/generate-quiz": {
       "maxDuration": 60
     }
   }
