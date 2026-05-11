@@ -15,6 +15,7 @@ const nextConfig = {
   },
   experimental: {
     serverActions: true,
+    serverActionsBodySizeLimit: "20mb",
   },
   transpilePackages: ["three"],
   swcMinify: true,
