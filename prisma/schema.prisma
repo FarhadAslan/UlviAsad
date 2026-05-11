@@ -193,3 +193,19 @@ model Certificate {
 
   @@index([active, order])
 }
+
+// AI Botlar — admin tərəfindən yaradılır, quiz generasiyasında istifadə olunur
+model AiBot {
+  id          String   @id @default(cuid())
+  name        String                        // Bot adı (məs: "Qanunvericilik Mütəxəssisi")
+  description String   @default("")         // Qısa təsvir
+  category    String   @default("")         // Əlaqəli kateqoriya (isteğe bağlı)
+  content     String                        // Öyrətmə mətni (bilik bazası)
+  prompt      String                        // Sistem promptu (AI-a verilən təlimat)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([active])
+  @@index([category])
+}

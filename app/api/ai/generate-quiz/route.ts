@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -23,7 +24,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { title, questionCount, category, language = "az" } = body;
+    const { title, questionCount, category, language = "az", botId } = body;
 
     if (!title?.trim()) {
       return NextResponse.json({ error: "Quiz başlığı tələb olunur" }, { status: 400 });
@@ -32,15 +33,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Sual sayı 1-30 arasında olmalıdır" }, { status: 400 });
     }
 
+    // Bot seçilibsə — onun prompt və content-ini yüklə
+    let botSystemPrompt = "Sən yalnız JSON formatında cavab verən quiz yaradıcısısan. Heç vaxt JSON-dan kənar mətn yazma. Yalnız düzgün JSON obyekti qaytar.";
+    let botContext = "";
+
+    if (botId) {
+      const bot = await prisma.aiBot.findUnique({
+        where: { id: botId, active: true },
+        select: { name: true, prompt: true, content: true },
+      });
+
+      if (!bot) {
+        return NextResponse.json({ error: "Seçilmiş AI bot tapılmadı" }, { status: 404 });
+      }
+
+      // Bot-un öz sistem promptunu istifadə et
+      botSystemPrompt = `${bot.prompt}\n\nÖNƏMLİ: Yalnız JSON formatında cavab ver. Heç vaxt JSON-dan kənar mətn yazma.`;
+      botContext = bot.content
+        ? `\n\nAşağıdakı bilik bazasından istifadə et:\n---\n${bot.content}\n---`
+        : "";
+    }
+
     const langLabel =
       language === "az" ? "Azərbaycan dilində" :
       language === "ru" ? "Rus dilində" : "İngilis dilində";
     const categoryLabel = category || "ümumi bilik";
 
-    const prompt = `Sən peşəkar quiz yaradıcısısan. Aşağıdakı mövzu üzrə ${langLabel} ${questionCount} ədəd test sualı yarat.
-
-Mövzu: "${title}"
-Kateqoriya: ${categoryLabel}
+    const userPrompt = `${langLabel} "${title}" mövzusu üzrə ${questionCount} ədəd test sualı yarat.
+Kateqoriya: ${categoryLabel}${botContext}
 
 Tələblər:
 - Hər sualın 4 variant cavabı olsun (A, B, C, D)
@@ -48,8 +68,9 @@ Tələblər:
 - Suallar mövzuya uyğun, aydın və dəqiq olsun
 - Variantlar inandırıcı olsun (yalnız biri düzgün, digərləri məntiqli amma yanlış)
 - Suallar müxtəlif çətinlik dərəcəsində olsun
+${botId ? "- Yalnız verilmiş bilik bazasındakı məlumatlardan istifadə et, kənara çıxma" : ""}
 
-Cavabı YALNIZ aşağıdakı JSON formatında ver, başqa heç nə yazma:
+Cavabı YALNIZ bu JSON formatında ver:
 {
   "questions": [
     {
@@ -74,14 +95,8 @@ Cavabı YALNIZ aşağıdakı JSON formatında ver, başqa heç nə yazma:
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
         messages: [
-          {
-            role: "system",
-            content: "Sən yalnız JSON formatında cavab verən quiz yaradıcısısan. Heç vaxt JSON-dan kənar mətn yazma. Yalnız düzgün JSON obyekti qaytar.",
-          },
-          {
-            role: "user",
-            content: prompt,
-          },
+          { role: "system", content: botSystemPrompt },
+          { role: "user",   content: userPrompt },
         ],
         temperature: 0.7,
         max_tokens: 4096,
@@ -125,7 +140,6 @@ Cavabı YALNIZ aşağıdakı JSON formatında ver, başqa heç nə yazma:
       return NextResponse.json({ error: "AI sual yarada bilmədi" }, { status: 502 });
     }
 
-    // Sualları normalize et
     const normalized = questions.map((q: any) => ({
       text: q.text || "",
       imageUrl: "",
