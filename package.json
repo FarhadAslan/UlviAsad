@@ -35,6 +35,7 @@
     "next-auth": "^4.24.7",
     "nodemailer": "^7.0.13",
     "pdf-parse": "1.1.1",
+    "pdfjs-dist": "4.4.168",
     "react": "^18",
     "react-dom": "^18",
     "react-hot-toast": "^2.4.1",
