@@ -5,11 +5,17 @@ import { authOptions } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+// pdf-parse üçün tip bəyannaməsi
+declare module "pdf-parse" {
+  function pdfParse(buffer: Buffer): Promise<{ text: string; numpages: number }>;
+  export = pdfParse;
+}
+
 // pdf-parse ESM/CJS uyğunsuzluğu üçün dynamic import
-async function parsePdf(buffer: Buffer): Promise<string> {
-  const pdfParse = (await import("pdf-parse")).default;
-  const result = await pdfParse(buffer);
-  return result.text;
+async function parsePdf(buffer: Buffer): Promise<{ text: string; numpages: number }> {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const pdfParse = require("pdf-parse") as (buf: Buffer) => Promise<{ text: string; numpages: number }>;
+  return pdfParse(buffer);
 }
 
 export async function POST(req: NextRequest) {
@@ -41,8 +47,11 @@ export async function POST(req: NextRequest) {
     const buffer = Buffer.from(arrayBuffer);
 
     let text: string;
+    let pageCount = 1;
     try {
-      text = await parsePdf(buffer);
+      const result = await parsePdf(buffer);
+      text = result.text;
+      pageCount = result.numpages ?? 1;
     } catch (parseErr: any) {
       console.error("PDF parse error:", parseErr?.message);
       return NextResponse.json(
@@ -69,7 +78,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       text: cleaned,
       charCount: cleaned.length,
-      pageCount: text.split("\f").length, // \f = form feed = yeni səhifə
+      pageCount,
     });
   } catch (err: any) {
     console.error("PDF extract error:", err?.message ?? err);
