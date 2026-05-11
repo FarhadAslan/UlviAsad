@@ -5,6 +5,15 @@ import { authOptions } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+// Next.js body size limitini artır (default 4.5MB → 20MB)
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: "20mb",
+    },
+  },
+};
+
 // pdf-parse ESM/CJS uyğunsuzluğu üçün require istifadə edirik
 async function parsePdf(buffer: Buffer): Promise<{ text: string; numpages: number }> {
   // eslint-disable-next-line @typescript-eslint/no-var-requires

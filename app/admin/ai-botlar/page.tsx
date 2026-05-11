@@ -114,8 +114,9 @@ export default function AiBotsPage() {
       if (!res.ok) { error(data.error || "PDF oxunarkən xəta baş verdi"); return; }
       setForm((p) => ({ ...p, content: data.text }));
       success(`PDF oxundu: ${data.charCount.toLocaleString()} simvol, ~${data.pageCount} səhifə`);
-    } catch {
-      error("PDF yüklənərkən xəta baş verdi");
+    } catch (e: any) {
+      console.error("PDF upload error:", e);
+      error("PDF yüklənərkən xəta baş verdi. Fayl çox böyük ola bilər (maks. 20MB).");
     } finally {
       setPdfLoading(false);
       if (pdfInputRef.current) pdfInputRef.current.value = "";
