@@ -117,7 +117,7 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
                   !botId ? "border-purple-300 bg-purple-50" : "border-slate-200 hover:border-slate-300 bg-white"
                 }`}>
                   <input type="radio" name="bot" value="" checked={!botId}
-                    onChange={() => setBotId("")} className="accent-purple-600 flex-shrink-0" />
+                    onChange={() => { setBotId(""); setCategory(""); }} className="accent-purple-600 flex-shrink-0" />
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-slate-700">Ümumi AI</p>
                     <p className="text-xs text-slate-400 hidden sm:block">Bot olmadan, ümumi bilikdən istifadə et</p>
@@ -130,7 +130,10 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
                     botId === bot.id ? "border-purple-300 bg-purple-50" : "border-slate-200 hover:border-slate-300 bg-white"
                   }`}>
                     <input type="radio" name="bot" value={bot.id} checked={botId === bot.id}
-                      onChange={() => setBotId(bot.id)} className="accent-purple-600 flex-shrink-0" />
+                      onChange={() => {
+                        setBotId(bot.id);
+                        if (bot.category) setCategory(bot.category);
+                      }} className="accent-purple-600 flex-shrink-0" />
                     <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center flex-shrink-0"
                       style={{ background: "linear-gradient(135deg,#667eea,#764ba2)" }}>
                       <Bot size={12} className="text-white" />
