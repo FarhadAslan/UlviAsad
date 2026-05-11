@@ -5,16 +5,10 @@ import { authOptions } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// pdf-parse üçün tip bəyannaməsi
-declare module "pdf-parse" {
-  function pdfParse(buffer: Buffer): Promise<{ text: string; numpages: number }>;
-  export = pdfParse;
-}
-
-// pdf-parse ESM/CJS uyğunsuzluğu üçün dynamic import
+// pdf-parse ESM/CJS uyğunsuzluğu üçün require istifadə edirik
 async function parsePdf(buffer: Buffer): Promise<{ text: string; numpages: number }> {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const pdfParse = require("pdf-parse") as (buf: Buffer) => Promise<{ text: string; numpages: number }>;
+  const pdfParse = require("pdf-parse");
   return pdfParse(buffer);
 }
 
