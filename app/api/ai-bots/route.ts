@@ -78,7 +78,10 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(bot, { status: 201 });
   } catch (err: any) {
-    console.error("AI Bot POST error:", err?.message);
-    return NextResponse.json({ error: "Server xətası" }, { status: 500 });
+    console.error("AI Bot POST error:", err?.message, err?.code, err?.meta);
+    return NextResponse.json(
+      { error: err?.message || "Server xətası" },
+      { status: 500 }
+    );
   }
 }
