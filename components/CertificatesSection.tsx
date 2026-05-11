@@ -9,14 +9,7 @@ interface Certificate {
   title: string
 }
 
-const FALLBACK_IMAGES: Certificate[] = [
-  "cert1","cert2","cert3","cert4","cert5","cert6",
-  "cert7","cert8","cert9","cert10","cert11","cert12",
-].map((seed, i) => ({
-  id: String(i),
-  imageUrl: `https://picsum.photos/seed/${seed}/480/320`,
-  title: "",
-}))
+const FALLBACK_IMAGES: Certificate[] = []
 
 export default function CertificatesSection() {
   const [certs, setCerts] = useState<Certificate[]>(FALLBACK_IMAGES)
@@ -33,6 +26,8 @@ export default function CertificatesSection() {
   const half = Math.ceil(certs.length / 2)
   const ROW1 = certs.slice(0, half)
   const ROW2 = certs.slice(half)
+
+  if (certs.length === 0) return null
 
   return (
     <section className="py-16 overflow-hidden relative"
