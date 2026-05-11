@@ -14,10 +14,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
     }
 
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
-        { error: "OpenAI API açarı konfiqurasiya edilməyib. OPENAI_API_KEY mühit dəyişənini əlavə edin." },
+        { error: "Groq API açarı konfiqurasiya edilməyib. GROQ_API_KEY mühit dəyişənini əlavə edin." },
         { status: 503 }
       );
     }
@@ -32,7 +32,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Sual sayı 1-30 arasında olmalıdır" }, { status: 400 });
     }
 
-    const langLabel = language === "az" ? "Azərbaycan dilində" : language === "ru" ? "Rus dilində" : "İngilis dilində";
+    const langLabel =
+      language === "az" ? "Azərbaycan dilində" :
+      language === "ru" ? "Rus dilində" : "İngilis dilində";
     const categoryLabel = category || "ümumi bilik";
 
     const prompt = `Sən peşəkar quiz yaradıcısısan. Aşağıdakı mövzu üzrə ${langLabel} ${questionCount} ədəd test sualı yarat.
@@ -63,18 +65,18 @@ Cavabı YALNIZ aşağıdakı JSON formatında ver, başqa heç nə yazma:
   ]
 }`;
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: "llama-3.1-70b-versatile",
         messages: [
           {
             role: "system",
-            content: "Sən yalnız JSON formatında cavab verən quiz yaradıcısısan. Heç vaxt JSON-dan kənar mətn yazma.",
+            content: "Sən yalnız JSON formatında cavab verən quiz yaradıcısısan. Heç vaxt JSON-dan kənar mətn yazma. Yalnız düzgün JSON obyekti qaytar.",
           },
           {
             role: "user",
@@ -82,20 +84,20 @@ Cavabı YALNIZ aşağıdakı JSON formatında ver, başqa heç nə yazma:
           },
         ],
         temperature: 0.7,
-        max_tokens: 4000,
+        max_tokens: 4096,
         response_format: { type: "json_object" },
       }),
     });
 
     if (!response.ok) {
       const errData = await response.json().catch(() => ({}));
-      console.error("OpenAI API error:", errData);
+      console.error("Groq API error:", errData);
 
       if (response.status === 401) {
-        return NextResponse.json({ error: "OpenAI API açarı yanlışdır" }, { status: 503 });
+        return NextResponse.json({ error: "Groq API açarı yanlışdır" }, { status: 503 });
       }
       if (response.status === 429) {
-        return NextResponse.json({ error: "OpenAI limit aşıldı. Bir az gözləyib yenidən cəhd edin." }, { status: 429 });
+        return NextResponse.json({ error: "Groq limit aşıldı. Bir az gözləyib yenidən cəhd edin." }, { status: 429 });
       }
       return NextResponse.json({ error: "AI xidməti cavab vermədi" }, { status: 502 });
     }
