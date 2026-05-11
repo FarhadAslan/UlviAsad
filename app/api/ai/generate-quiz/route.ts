@@ -49,9 +49,16 @@ export async function POST(req: NextRequest) {
 
       // Bot-un öz sistem promptunu istifadə et
       botSystemPrompt = `${bot.prompt}\n\nÖNƏMLİ: Yalnız JSON formatında cavab ver. Heç vaxt JSON-dan kənar mətn yazma.`;
-      botContext = bot.content
-        ? `\n\nAşağıdakı bilik bazasından istifadə et:\n---\n${bot.content}\n---`
-        : "";
+
+      if (bot.content) {
+        // Groq 413 xətasının qarşısını almaq üçün content-i 20,000 simvolla məhdudlaşdır
+        // (~5,000 token) — bu quiz yaratmaq üçün kifayətdir
+        const MAX_CONTENT_CHARS = 20_000;
+        const trimmedContent = bot.content.length > MAX_CONTENT_CHARS
+          ? bot.content.slice(0, MAX_CONTENT_CHARS) + "\n\n[Mətn uzunluğuna görə kəsildi]"
+          : bot.content;
+        botContext = `\n\nAşağıdakı bilik bazasından istifadə et:\n---\n${trimmedContent}\n---`;
+      }
     }
 
     const langLabel =
@@ -110,6 +117,9 @@ Cavabı YALNIZ bu JSON formatında ver:
 
       if (response.status === 401) {
         return NextResponse.json({ error: "Groq API açarı yanlışdır" }, { status: 503 });
+      }
+      if (response.status === 413) {
+        return NextResponse.json({ error: "Bilik bazası çox böyükdür. Bot content-ini qısaldın." }, { status: 413 });
       }
       if (response.status === 429) {
         return NextResponse.json({ error: "Groq limit aşıldı. Bir az gözləyib yenidən cəhd edin." }, { status: 429 });
