@@ -124,36 +124,52 @@ Cavabı YALNIZ bu JSON formatında ver:
   ]
 }`;
 
-      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
-          messages: [
-            { role: "system", content: systemForChunk },
-            { role: "user",   content: userPrompt },
-          ],
-          temperature: 0.7,
-          max_tokens: 4096,
-          response_format: { type: "json_object" },
-        }),
-      });
+      let response: Response | null = null;
+      let retryCount = 0;
+      const MAX_RETRIES = 3;
 
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        console.error(`Groq API error (chunk ${ci + 1}):`, response.status, JSON.stringify(errData));
+      while (retryCount <= MAX_RETRIES) {
+        response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: "llama-3.3-70b-versatile",
+            messages: [
+              { role: "system", content: systemForChunk },
+              { role: "user",   content: userPrompt },
+            ],
+            temperature: 0.7,
+            max_tokens: 4096,
+            response_format: { type: "json_object" },
+          }),
+        });
 
-        if (response.status === 401) return NextResponse.json({ error: "Groq API açarı yanlışdır" }, { status: 503 });
-        if (response.status === 413) return NextResponse.json({ error: "Bilik bazası hissəsi hələ də çox böyükdür. Bot mətnini qısaldın." }, { status: 413 });
-        if (response.status === 429) return NextResponse.json({ error: "Groq limit aşıldı. Bir az gözləyib yenidən cəhd edin." }, { status: 429 });
-        if (response.status === 400) {
+        if (response.status === 429 && retryCount < MAX_RETRIES) {
+          // Rate limit — exponential backoff: 3s, 6s, 12s
+          const waitMs = 3000 * Math.pow(2, retryCount);
+          console.log(`Rate limit, ${waitMs}ms gözlənilir... (cəhd ${retryCount + 1}/${MAX_RETRIES})`);
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
+          retryCount++;
+          continue;
+        }
+        break;
+      }
+
+      if (!response || !response.ok) {
+        const errData = await response?.json().catch(() => ({})) ?? {};
+        console.error(`Groq API error (chunk ${ci + 1}):`, response?.status, JSON.stringify(errData));
+
+        if (response?.status === 401) return NextResponse.json({ error: "Groq API açarı yanlışdır" }, { status: 503 });
+        if (response?.status === 413) return NextResponse.json({ error: "Bilik bazası hissəsi hələ də çox böyükdür. Bot mətnini qısaldın." }, { status: 413 });
+        if (response?.status === 429) return NextResponse.json({ error: "Groq limit aşıldı. Bir neçə dəqiqə gözləyib yenidən cəhd edin." }, { status: 429 });
+        if (response?.status === 400) {
           const msg = errData?.error?.message || "Sorğu yanlışdır";
           return NextResponse.json({ error: `Groq xətası: ${msg}` }, { status: 502 });
         }
-        return NextResponse.json({ error: `AI xidməti cavab vermədi (${response.status})` }, { status: 502 });
+        return NextResponse.json({ error: `AI xidməti cavab vermədi (${response?.status})` }, { status: 502 });
       }
 
       const data    = await response.json();
@@ -165,6 +181,11 @@ Cavabı YALNIZ bu JSON formatında ver:
 
       if (Array.isArray(parsed.questions)) {
         allQuestions.push(...parsed.questions);
+      }
+
+      // Chunk-lar arasında rate limit-dən qaçmaq üçün gözlə
+      if (ci < chunkCount - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
       }
     }
 
