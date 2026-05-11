@@ -72,7 +72,7 @@ Cavabı YALNIZ aşağıdakı JSON formatında ver, başqa heç nə yazma:
         "Authorization": `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "llama-3.1-70b-versatile",
+        model: "llama-3.3-70b-versatile",
         messages: [
           {
             role: "system",
@@ -91,7 +91,7 @@ Cavabı YALNIZ aşağıdakı JSON formatında ver, başqa heç nə yazma:
 
     if (!response.ok) {
       const errData = await response.json().catch(() => ({}));
-      console.error("Groq API error:", errData);
+      console.error("Groq API error:", response.status, JSON.stringify(errData));
 
       if (response.status === 401) {
         return NextResponse.json({ error: "Groq API açarı yanlışdır" }, { status: 503 });
@@ -99,7 +99,11 @@ Cavabı YALNIZ aşağıdakı JSON formatında ver, başqa heç nə yazma:
       if (response.status === 429) {
         return NextResponse.json({ error: "Groq limit aşıldı. Bir az gözləyib yenidən cəhd edin." }, { status: 429 });
       }
-      return NextResponse.json({ error: "AI xidməti cavab vermədi" }, { status: 502 });
+      if (response.status === 400) {
+        const msg = errData?.error?.message || "Sorğu yanlışdır";
+        return NextResponse.json({ error: `Groq xətası: ${msg}` }, { status: 502 });
+      }
+      return NextResponse.json({ error: `AI xidməti cavab vermədi (${response.status})` }, { status: 502 });
     }
 
     const data = await response.json();
