@@ -7,30 +7,42 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-// Fərqli modellər — hər birinin ayrı TPM limiti var
-// Paralel işlədildikdə effektiv limit artır
-// Qeyd: response_format json_object yalnız llama modelləri dəstəkləyir
+// Groq modellər (kiçik mətn üçün)
 const GROQ_MODELS = [
-  "llama-3.1-8b-instant",      // 20,000 TPM — sürətli
-  "llama3-8b-8192",             // 30,000 TPM — ən yüksək limit
-  "llama-3.3-70b-versatile",    // 6,000 TPM — ən yüksək keyfiyyət
+  "llama-3.1-8b-instant",
+  "llama3-8b-8192",
+  "llama-3.3-70b-versatile",
 ];
 
-const CHUNK_SIZE = 7_000; // ~1750 token per chunk
+// OpenRouter pulsuz modellər (böyük mətn üçün paralel)
+const OPENROUTER_MODELS = [
+  "meta-llama/llama-3.1-8b-instruct:free",
+  "meta-llama/llama-3.2-3b-instruct:free",
+  "mistralai/mistral-7b-instruct:free",
+  "google/gemma-2-9b-it:free",
+  "qwen/qwen-2.5-7b-instruct:free",
+];
 
-async function callGroq(
+const CHUNK_SIZE   = 8_000;  // hər chunk ~2000 token
+const DIRECT_LIMIT = 12_000; // bu qədərə qədər Groq ilə birbaşa göndər
+
+// JSON formatında sual qaytaran sorğu
+async function callAI(
+  endpoint: string,
   apiKey: string,
   model: string,
   systemPrompt: string,
   userPrompt: string,
-  retries = 3
+  extraHeaders: Record<string, string> = {},
+  retries = 2
 ): Promise<any[] | null> {
   for (let attempt = 0; attempt <= retries; attempt++) {
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const res = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${apiKey}`,
+        ...extraHeaders,
       },
       body: JSON.stringify({
         model,
@@ -45,13 +57,11 @@ async function callGroq(
     });
 
     if (res.status === 429 && attempt < retries) {
-      const waitMs = 4000 * Math.pow(2, attempt);
-      await new Promise((r) => setTimeout(r, waitMs));
+      await new Promise((r) => setTimeout(r, 4000 * (attempt + 1)));
       continue;
     }
-
     if (!res.ok) {
-      console.error(`Groq [${model}] error:`, res.status);
+      console.error(`AI [${model}] error:`, res.status, await res.text().catch(() => ""));
       return null;
     }
 
@@ -60,12 +70,8 @@ async function callGroq(
     if (!content) return null;
 
     try {
-      // Bəzən model JSON-u markdown code block içinə bükür — təmizlə
       const cleaned = content
-        .replace(/^```json\s*/i, "")
-        .replace(/^```\s*/i, "")
-        .replace(/\s*```$/i, "")
-        .trim();
+        .replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "").trim();
       const parsed = JSON.parse(cleaned);
       return Array.isArray(parsed.questions) ? parsed.questions : null;
     } catch {
@@ -84,10 +90,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
     }
 
-    const apiKey = process.env.GROQ_API_KEY;
-    if (!apiKey) {
+    const groqKey   = process.env.GROQ_API_KEY;
+    const orKey     = process.env.OPENROUTER_API_KEY;
+
+    if (!groqKey && !orKey) {
       return NextResponse.json(
-        { error: "Groq API açarı konfiqurasiya edilməyib. GROQ_API_KEY mühit dəyişənini əlavə edin." },
+        { error: "AI API açarı konfiqurasiya edilməyib." },
         { status: 503 }
       );
     }
@@ -119,9 +127,11 @@ export async function POST(req: NextRequest) {
 
       if (bot.content) {
         const content = bot.content;
-        if (content.length <= CHUNK_SIZE) {
+        if (content.length <= DIRECT_LIMIT) {
+          // Kiçik mətn — birbaşa tək chunk
           botChunks = [content];
         } else {
+          // Böyük mətn — chunk-lara böl
           const chunks: string[] = [];
           let start = 0;
           while (start < content.length) {
@@ -150,7 +160,6 @@ export async function POST(req: NextRequest) {
     // Hər chunk üçün task hazırla
     const tasks = botChunks.map((chunk, ci) => {
       const countForChunk = baseCount + (ci < remainder ? 1 : 0);
-      const model         = GROQ_MODELS[ci % GROQ_MODELS.length]; // modellər növbə ilə
       const systemForChunk = chunk
         ? `${botSystemPrompt}\n\nBilik bazası (${ci + 1}/${chunkCount} hissə):\n---\n${chunk}\n---`
         : botSystemPrompt;
@@ -182,26 +191,56 @@ Cavabı YALNIZ bu JSON formatında ver:
   ]
 }`;
 
-      return { model, systemForChunk, userPrompt, countForChunk };
+      return { ci, systemForChunk, userPrompt, countForChunk };
     });
 
-    // Bütün chunk-ları PARALEL göndər — hər biri fərqli model
+    // Paralel göndər
+    // - Tək chunk (kiçik mətn) → Groq
+    // - Çox chunk (böyük mətn) → OpenRouter paralel, hər chunk fərqli model
     const results = await Promise.all(
-      tasks.map(({ model, systemForChunk, userPrompt, countForChunk }) =>
-        countForChunk > 0
-          ? callGroq(apiKey, model, systemForChunk, userPrompt)
-          : Promise.resolve(null)
-      )
+      tasks.map(({ ci, systemForChunk, userPrompt, countForChunk }) => {
+        if (countForChunk === 0) return Promise.resolve(null);
+
+        const useOpenRouter = chunkCount > 1 && orKey;
+
+        if (useOpenRouter) {
+          // OpenRouter — hər chunk fərqli pulsuz model
+          const model = OPENROUTER_MODELS[ci % OPENROUTER_MODELS.length];
+          return callAI(
+            "https://openrouter.ai/api/v1/chat/completions",
+            orKey!,
+            model,
+            systemForChunk,
+            userPrompt,
+            {
+              "HTTP-Referer": "https://ulvi-asad-hnez.vercel.app",
+              "X-Title": "Muellim Portal",
+            }
+          );
+        } else {
+          // Groq — tək chunk üçün
+          const model = GROQ_MODELS[ci % GROQ_MODELS.length];
+          return callAI(
+            "https://api.groq.com/openai/v1/chat/completions",
+            groqKey!,
+            model,
+            systemForChunk,
+            userPrompt
+          );
+        }
+      })
     );
 
-    // Nəticələri birləşdir
     const allQuestions: any[] = [];
     for (const qs of results) {
       if (Array.isArray(qs)) allQuestions.push(...qs);
     }
 
     if (allQuestions.length === 0) {
-      return NextResponse.json({ error: "AI sual yarada bilmədi. Groq limiti aşılmış ola bilər, bir az gözləyib yenidən cəhd edin." }, { status: 502 });
+      return NextResponse.json(
+        { error: "AI sual yarada bilmədi. Yenidən cəhd edin." },
+        { status: 502 }
+      );
     }
 
     const normalized = allQuestions.map((q: any) => ({
