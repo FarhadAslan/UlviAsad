@@ -7,78 +7,181 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-// Groq modellər (kiçik mətn üçün)
+// Groq modellər — JSON mode dəstəkləyir, sürətli
 const GROQ_MODELS = [
   "llama-3.1-8b-instant",
   "llama3-8b-8192",
   "llama-3.3-70b-versatile",
 ];
 
-// OpenRouter pulsuz modellər (böyük mətn üçün paralel)
+// OpenRouter pulsuz modellər — böyük mətn üçün paralel
 const OPENROUTER_MODELS = [
   "meta-llama/llama-3.1-8b-instruct:free",
   "meta-llama/llama-3.2-3b-instruct:free",
   "mistralai/mistral-7b-instruct:free",
-  "google/gemma-2-9b-it:free",
   "qwen/qwen-2.5-7b-instruct:free",
+  "google/gemma-2-9b-it:free",
 ];
 
-const CHUNK_SIZE   = 8_000;  // hər chunk ~2000 token
-const DIRECT_LIMIT = 12_000; // bu qədərə qədər Groq ilə birbaşa göndər
+const CHUNK_SIZE   = 8_000;
+const DIRECT_LIMIT = 12_000;
 
-// JSON formatında sual qaytaran sorğu
-async function callAI(
-  endpoint: string,
-  apiKey: string,
-  model: string,
-  systemPrompt: string,
-  userPrompt: string,
-  extraHeaders: Record<string, string> = {},
-  retries = 2
-): Promise<any[] | null> {
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-        ...extraHeaders,
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user",   content: userPrompt },
-        ],
-        temperature: 0.7,
-        max_tokens: 4096,
-        response_format: { type: "json_object" },
-      }),
-    });
+// JSON mətnindən sualları çıxar — bütün formatları handle edir
+function extractQuestions(raw: string): any[] | null {
+  if (!raw) return null;
 
-    if (res.status === 429 && attempt < retries) {
-      await new Promise((r) => setTimeout(r, 4000 * (attempt + 1)));
-      continue;
-    }
-    if (!res.ok) {
-      console.error(`AI [${model}] error:`, res.status, await res.text().catch(() => ""));
-      return null;
-    }
+  // Markdown code block-larını sil
+  let text = raw
+    .replace(/^```json\s*/im, "")
+    .replace(/^```\s*/im, "")
+    .replace(/\s*```\s*$/im, "")
+    .trim();
 
-    const data    = await res.json();
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) return null;
+  // JSON parse cəhdləri
+  const attempts = [
+    // 1. Birbaşa parse
+    () => JSON.parse(text),
+    // 2. İlk { ... } blokundan çıxar
+    () => {
+      const start = text.indexOf("{");
+      const end   = text.lastIndexOf("}");
+      if (start === -1 || end === -1) throw new Error("no object");
+      return JSON.parse(text.slice(start, end + 1));
+    },
+    // 3. İlk [ ... ] blokundan çıxar (array formatı)
+    () => {
+      const start = text.indexOf("[");
+      const end   = text.lastIndexOf("]");
+      if (start === -1 || end === -1) throw new Error("no array");
+      return { questions: JSON.parse(text.slice(start, end + 1)) };
+    },
+  ];
 
+  for (const attempt of attempts) {
     try {
-      const cleaned = content
-        .replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "").trim();
-      const parsed = JSON.parse(cleaned);
-      return Array.isArray(parsed.questions) ? parsed.questions : null;
+      const parsed = attempt();
+      if (Array.isArray(parsed?.questions) && parsed.questions.length > 0) {
+        return parsed.questions;
+      }
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
     } catch {
-      return null;
+      // növbəti cəhd
     }
   }
   return null;
+}
+
+// AI sorğusu — Groq üçün JSON mode, OpenRouter üçün JSON mode olmadan
+async function callAI(opts: {
+  endpoint: string;
+  apiKey: string;
+  model: string;
+  systemPrompt: string;
+  userPrompt: string;
+  extraHeaders?: Record<string, string>;
+  useJsonMode?: boolean;
+  retries?: number;
+}): Promise<any[] | null> {
+  const { endpoint, apiKey, model, systemPrompt, userPrompt,
+          extraHeaders = {}, useJsonMode = true, retries = 3 } = opts;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const body: any = {
+      model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user",   content: userPrompt },
+      ],
+      temperature: 0.7,
+      max_tokens: 4096,
+    };
+
+    // JSON mode yalnız dəstəkləyən modellər üçün
+    if (useJsonMode) {
+      body.response_format = { type: "json_object" };
+    }
+
+    let res: Response;
+    try {
+      res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+          ...extraHeaders,
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (fetchErr) {
+      console.error(`[${model}] fetch error:`, fetchErr);
+      if (attempt < retries) { await new Promise(r => setTimeout(r, 2000)); continue; }
+      return null;
+    }
+
+    if (res.status === 429 && attempt < retries) {
+      const waitMs = 5000 * (attempt + 1);
+      console.log(`[${model}] rate limit, ${waitMs}ms gözlənilir...`);
+      await new Promise(r => setTimeout(r, waitMs));
+      continue;
+    }
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      console.error(`[${model}] HTTP ${res.status}:`, errText.slice(0, 200));
+      // 5xx xətalarında retry
+      if (res.status >= 500 && attempt < retries) {
+        await new Promise(r => setTimeout(r, 3000));
+        continue;
+      }
+      return null;
+    }
+
+    const data = await res.json().catch(() => null);
+    if (!data) { console.error(`[${model}] JSON parse failed`); return null; }
+
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) {
+      console.error(`[${model}] empty content. data:`, JSON.stringify(data).slice(0, 300));
+      return null;
+    }
+
+    const questions = extractQuestions(content);
+    if (!questions) {
+      console.error(`[${model}] could not extract questions from:`, content.slice(0, 300));
+      return null;
+    }
+
+    return questions;
+  }
+  return null;
+}
+
+// Groq ilə sorğu (JSON mode aktiv)
+function callGroq(apiKey: string, model: string, system: string, user: string) {
+  return callAI({
+    endpoint: "https://api.groq.com/openai/v1/chat/completions",
+    apiKey, model,
+    systemPrompt: system,
+    userPrompt: user,
+    useJsonMode: true,
+  });
+}
+
+// OpenRouter ilə sorğu (JSON mode olmadan — pulsuz modellər dəstəkləmir)
+function callOpenRouter(apiKey: string, model: string, system: string, user: string) {
+  return callAI({
+    endpoint: "https://openrouter.ai/api/v1/chat/completions",
+    apiKey, model,
+    systemPrompt: system,
+    userPrompt: user,
+    useJsonMode: false,
+    extraHeaders: {
+      "HTTP-Referer": "https://ulvi-asad-hnez.vercel.app",
+      "X-Title": "Muellim Portal",
+    },
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -90,8 +193,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
     }
 
-    const groqKey   = process.env.GROQ_API_KEY;
-    const orKey     = process.env.OPENROUTER_API_KEY;
+    const groqKey = process.env.GROQ_API_KEY;
+    const orKey   = process.env.OPENROUTER_API_KEY;
 
     if (!groqKey && !orKey) {
       return NextResponse.json(
@@ -110,8 +213,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Sual sayı 1-30 arasında olmalıdır" }, { status: 400 });
     }
 
-    let botSystemPrompt = "Sən yalnız JSON formatında cavab verən quiz yaradıcısısan. Heç vaxt JSON-dan kənar mətn yazma. Yalnız düzgün JSON obyekti qaytar.";
-    let botChunks: string[] = [""]; // bot yoxdursa tək boş chunk
+    let botSystemPrompt = `Sən quiz yaradıcısısan. Verilən mövzu üzrə test sualları yarat.
+Cavabı MÜTLƏQ aşağıdakı JSON formatında ver — başqa heç nə yazma:
+{"questions":[{"text":"...","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"}]}`;
+
+    let botChunks: string[] = [""];
 
     if (botId) {
       const bot = await prisma.aiBot.findUnique({
@@ -123,15 +229,16 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Seçilmiş AI bot tapılmadı" }, { status: 404 });
       }
 
-      botSystemPrompt = `${bot.prompt}\n\nÖNƏMLİ: Yalnız JSON formatında cavab ver. Heç vaxt JSON-dan kənar mətn yazma.`;
+      botSystemPrompt = `${bot.prompt}
+
+MÜTLƏQ bu JSON formatında cavab ver — başqa heç nə yazma:
+{"questions":[{"text":"...","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"}]}`;
 
       if (bot.content) {
         const content = bot.content;
         if (content.length <= DIRECT_LIMIT) {
-          // Kiçik mətn — birbaşa tək chunk
           botChunks = [content];
         } else {
-          // Böyük mətn — chunk-lara böl
           const chunks: string[] = [];
           let start = 0;
           while (start < content.length) {
@@ -157,88 +264,92 @@ export async function POST(req: NextRequest) {
     const baseCount  = Math.floor(questionCount / chunkCount);
     const remainder  = questionCount % chunkCount;
 
-    // Hər chunk üçün task hazırla
-    const tasks = botChunks.map((chunk, ci) => {
-      const countForChunk = baseCount + (ci < remainder ? 1 : 0);
-      const systemForChunk = chunk
-        ? `${botSystemPrompt}\n\nBilik bazası (${ci + 1}/${chunkCount} hissə):\n---\n${chunk}\n---`
-        : botSystemPrompt;
-
-      const userPrompt = `${langLabel} "${title}" mövzusu üzrə ${countForChunk} ədəd test sualı yarat.
-Kateqoriya: ${categoryLabel}
-
+    const buildUserPrompt = (chunk: string, ci: number, count: number) => {
+      const contextPart = chunk
+        ? `\n\nBilik bazası (${ci + 1}/${chunkCount} hissə):\n---\n${chunk}\n---\n`
+        : "";
+      return `${langLabel} "${title}" mövzusu üzrə ${count} ədəd test sualı yarat.
+Kateqoriya: ${categoryLabel}${contextPart}
 Tələblər:
 - Hər sualın 4 variant cavabı olsun (A, B, C, D)
 - Yalnız 1 düzgün cavab olsun
 - Suallar mövzuya uyğun, aydın və dəqiq olsun
-- Variantlar inandırıcı olsun (yalnız biri düzgün, digərləri məntiqli amma yanlış)
-- Suallar müxtəlif çətinlik dərəcəsində olsun
-${botId ? "- Yalnız sistem mesajındakı bilik bazasından istifadə et" : ""}
+- Variantlar inandırıcı olsun
+${botId ? "- Yalnız verilmiş bilik bazasından istifadə et" : ""}
 
-Cavabı YALNIZ bu JSON formatında ver:
-{
-  "questions": [
-    {
-      "text": "Sual mətni",
-      "options": [
-        { "label": "A", "text": "Variant A" },
-        { "label": "B", "text": "Variant B" },
-        { "label": "C", "text": "Variant C" },
-        { "label": "D", "text": "Variant D" }
-      ],
-      "correctOption": "A"
-    }
-  ]
-}`;
+Cavabı YALNIZ JSON formatında ver:
+{"questions":[{"text":"Sual mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"}]}`;
+    };
 
-      return { ci, systemForChunk, userPrompt, countForChunk };
-    });
-
-    // Paralel göndər
-    // - Tək chunk (kiçik mətn) → Groq
-    // - Çox chunk (böyük mətn) → OpenRouter paralel, hər chunk fərqli model
-    const results = await Promise.all(
-      tasks.map(({ ci, systemForChunk, userPrompt, countForChunk }) => {
-        if (countForChunk === 0) return Promise.resolve(null);
-
-        const useOpenRouter = chunkCount > 1 && orKey;
-
-        if (useOpenRouter) {
-          // OpenRouter — hər chunk fərqli pulsuz model
-          const model = OPENROUTER_MODELS[ci % OPENROUTER_MODELS.length];
-          return callAI(
-            "https://openrouter.ai/api/v1/chat/completions",
-            orKey!,
-            model,
-            systemForChunk,
-            userPrompt,
-            {
-              "HTTP-Referer": "https://ulvi-asad-hnez.vercel.app",
-              "X-Title": "Muellim Portal",
-            }
-          );
-        } else {
-          // Groq — tək chunk üçün
-          const model = GROQ_MODELS[ci % GROQ_MODELS.length];
-          return callAI(
-            "https://api.groq.com/openai/v1/chat/completions",
-            groqKey!,
-            model,
-            systemForChunk,
-            userPrompt
-          );
-        }
-      })
-    );
-
+    // Paralel sorğular — hər chunk üçün ən yaxşı mövcud provider
     const allQuestions: any[] = [];
-    for (const qs of results) {
-      if (Array.isArray(qs)) allQuestions.push(...qs);
+
+    if (chunkCount === 1) {
+      // Tək chunk — Groq ilə cəhd et, uğursuz olsa OpenRouter
+      const chunk = botChunks[0];
+      const count = questionCount;
+      const userPrompt = buildUserPrompt(chunk, 0, count);
+
+      let questions: any[] | null = null;
+
+      if (groqKey) {
+        for (const model of GROQ_MODELS) {
+          questions = await callGroq(groqKey, model, botSystemPrompt, userPrompt);
+          if (questions) break;
+        }
+      }
+
+      // Groq uğursuz olsa OpenRouter ilə cəhd et
+      if (!questions && orKey) {
+        for (const model of OPENROUTER_MODELS) {
+          questions = await callOpenRouter(orKey, model, botSystemPrompt, userPrompt);
+          if (questions) break;
+        }
+      }
+
+      if (questions) allQuestions.push(...questions);
+
+    } else {
+      // Çox chunk — paralel göndər
+      // Groq varsa ilk 3 chunk Groq, qalanları OpenRouter
+      const tasks = botChunks.map((chunk, ci) => {
+        const count = baseCount + (ci < remainder ? 1 : 0);
+        if (count === 0) return Promise.resolve(null);
+
+        const userPrompt = buildUserPrompt(chunk, ci, count);
+
+        // Groq modeli seç (növbə ilə)
+        if (groqKey && ci < GROQ_MODELS.length) {
+          const model = GROQ_MODELS[ci % GROQ_MODELS.length];
+          return callGroq(groqKey, model, botSystemPrompt, userPrompt)
+            .then(qs => {
+              // Groq uğursuz olsa OpenRouter ilə fallback
+              if (!qs && orKey) {
+                const orModel = OPENROUTER_MODELS[ci % OPENROUTER_MODELS.length];
+                return callOpenRouter(orKey, orModel, botSystemPrompt, userPrompt);
+              }
+              return qs;
+            });
+        }
+
+        // OpenRouter
+        if (orKey) {
+          const model = OPENROUTER_MODELS[ci % OPENROUTER_MODELS.length];
+          return callOpenRouter(orKey, model, botSystemPrompt, userPrompt);
+        }
+
+        return Promise.resolve(null);
+      });
+
+      const results = await Promise.all(tasks);
+      for (const qs of results) {
+        if (Array.isArray(qs)) allQuestions.push(...qs);
+      }
     }
 
     if (allQuestions.length === 0) {
       return NextResponse.json(
-        { error: "AI sual yarada bilmədi. Yenidən cəhd edin." },
+        { error: "AI sual yarada bilmədi. Groq və OpenRouter hər ikisi uğursuz oldu. Bir az gözləyib yenidən cəhd edin." },
         { status: 502 }
       );
     }
@@ -249,7 +360,7 @@ Cavabı YALNIZ bu JSON formatında ver:
       questionType: "CHOICE",
       openAnswerExample: "",
       options: Array.isArray(q.options)
-        ? q.options.map((o: any) => ({ label: o.label, text: o.text }))
+        ? q.options.map((o: any) => ({ label: o.label || "A", text: o.text || "" }))
         : [
             { label: "A", text: "" },
             { label: "B", text: "" },
