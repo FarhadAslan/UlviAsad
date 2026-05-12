@@ -9,10 +9,11 @@ export const maxDuration = 60;
 
 // Fərqli modellər — hər birinin ayrı TPM limiti var
 // Paralel işlədildikdə effektiv limit artır
+// Qeyd: response_format json_object yalnız llama modelləri dəstəkləyir
 const GROQ_MODELS = [
-  "llama-3.1-8b-instant",      // 20,000 TPM
-  "gemma2-9b-it",               // 15,000 TPM
-  "llama-3.3-70b-versatile",    // 6,000 TPM (yüksək keyfiyyət)
+  "llama-3.1-8b-instant",      // 20,000 TPM — sürətli
+  "llama3-8b-8192",             // 30,000 TPM — ən yüksək limit
+  "llama-3.3-70b-versatile",    // 6,000 TPM — ən yüksək keyfiyyət
 ];
 
 const CHUNK_SIZE = 7_000; // ~1750 token per chunk
@@ -59,7 +60,13 @@ async function callGroq(
     if (!content) return null;
 
     try {
-      const parsed = JSON.parse(content);
+      // Bəzən model JSON-u markdown code block içinə bükür — təmizlə
+      const cleaned = content
+        .replace(/^```json\s*/i, "")
+        .replace(/^```\s*/i, "")
+        .replace(/\s*```$/i, "")
+        .trim();
+      const parsed = JSON.parse(cleaned);
       return Array.isArray(parsed.questions) ? parsed.questions : null;
     } catch {
       return null;
