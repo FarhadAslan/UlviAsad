@@ -215,7 +215,7 @@ export async function POST(req: NextRequest) {
 
     let botSystemPrompt = `Sən quiz yaradıcısısan. Verilən mövzu üzrə test sualları yarat.
 Cavabı MÜTLƏQ aşağıdakı JSON formatında ver — başqa heç nə yazma:
-{"questions":[{"text":"...","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"}]}`;
+{"questions":[{"text":"Sual 1 mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"},{"text":"Sual 2 mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"B"}]}`;
 
     let botChunks: string[] = [""];
 
@@ -232,7 +232,7 @@ Cavabı MÜTLƏQ aşağıdakı JSON formatında ver — başqa heç nə yazma:
       botSystemPrompt = `${bot.prompt}
 
 MÜTLƏQ bu JSON formatında cavab ver — başqa heç nə yazma:
-{"questions":[{"text":"...","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"}]}`;
+{"questions":[{"text":"Sual 1 mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"},{"text":"Sual 2 mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"C"}]}`;
 
       if (bot.content) {
         const content = bot.content;
@@ -268,7 +268,7 @@ MÜTLƏQ bu JSON formatında cavab ver — başqa heç nə yazma:
       const contextPart = chunk
         ? `\n\nBilik bazası (${ci + 1}/${chunkCount} hissə):\n---\n${chunk}\n---\n`
         : "";
-      return `${langLabel} "${title}" mövzusu üzrə ${count} ədəd test sualı yarat.
+      return `${langLabel} "${title}" mövzusu üzrə DƏQIQ ${count} ədəd test sualı yarat. Nə az, nə çox — məhz ${count} sual.
 Kateqoriya: ${categoryLabel}${contextPart}
 Tələblər:
 - Hər sualın 4 variant cavabı olsun (A, B, C, D)
@@ -277,7 +277,7 @@ Tələblər:
 - Variantlar inandırıcı olsun
 ${botId ? "- Yalnız verilmiş bilik bazasından istifadə et" : ""}
 
-Cavabı YALNIZ JSON formatında ver:
+Cavabı YALNIZ JSON formatında ver, ${count} sual ilə:
 {"questions":[{"text":"Sual mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"}]}`;
     };
 
