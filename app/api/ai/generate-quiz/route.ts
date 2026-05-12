@@ -9,22 +9,20 @@ export const maxDuration = 60;
 
 // Groq modellər — JSON mode dəstəkləyir, sürətli
 const GROQ_MODELS = [
-  "llama-3.1-8b-instant",
-  "llama3-8b-8192",
-  "llama-3.3-70b-versatile",
+  "llama-3.3-70b-versatile",   // 6000 TPM — ən yüksək keyfiyyət
+  "llama-3.1-8b-instant",      // 20000 TPM — sürətli (kiçik mətn üçün)
 ];
 
-// OpenRouter pulsuz modellər — böyük mətn üçün paralel
+// OpenRouter — "openrouter/auto" avtomatik ən yaxşı pulsuz modeli seçir
+// Alternativ olaraq konkret modellər
 const OPENROUTER_MODELS = [
-  "meta-llama/llama-3.1-8b-instruct:free",
+  "openrouter/auto",                          // avtomatik seçim
   "meta-llama/llama-3.2-3b-instruct:free",
-  "mistralai/mistral-7b-instruct:free",
-  "qwen/qwen-2.5-7b-instruct:free",
-  "google/gemma-2-9b-it:free",
+  "nousresearch/hermes-3-llama-3.1-405b:free",
 ];
 
-const CHUNK_SIZE   = 8_000;
-const DIRECT_LIMIT = 12_000;
+const CHUNK_SIZE   = 4_000;  // 413 xətasından qaçmaq üçün kiçiltdik (~1000 token)
+const DIRECT_LIMIT = 4_000;  // eyni limit
 
 // JSON mətnindən sualları çıxar — bütün formatları handle edir
 function extractQuestions(raw: string): any[] | null {
@@ -125,6 +123,12 @@ async function callAI(opts: {
       console.log(`[${model}] rate limit, ${waitMs}ms gözlənilir...`);
       await new Promise(r => setTimeout(r, waitMs));
       continue;
+    }
+
+    // 413 — mətn çox böyükdür, retry etmə
+    if (res.status === 413) {
+      console.error(`[${model}] 413 - mətn çox böyükdür`);
+      return null;
     }
 
     if (!res.ok) {
