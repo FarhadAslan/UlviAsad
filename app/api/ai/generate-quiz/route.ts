@@ -387,40 +387,52 @@ Cavabı YALNIZ JSON formatında ver, ${count} sual ilə:
       }
 
     } else {
-      // Çox chunk — paralel göndər
-      // Groq varsa ilk 3 chunk Groq, qalanları OpenRouter
-      const tasks = botChunks.map((chunk, ci) => {
+      // Çox chunk — hər chunk üçün fetchUntilFull ilə retry mexanizmi
+      // Sualları chunk-lara paylaşdır
+      const chunkTasks = botChunks.map((chunk, ci) => {
         const count = baseCount + (ci < remainder ? 1 : 0);
-        if (count === 0) return Promise.resolve(null);
+        if (count === 0) return Promise.resolve([] as any[]);
 
-        const userPrompt = buildUserPrompt(chunk, ci, count);
-
-        // Groq modeli seç (növbə ilə)
-        if (groqKey && ci < GROQ_MODELS.length) {
-          const model = GROQ_MODELS[ci % GROQ_MODELS.length];
-          return callGroq(groqKey, model, botSystemPrompt, userPrompt)
-            .then(qs => {
-              // Groq uğursuz olsa OpenRouter ilə fallback
-              if (!qs && orKey) {
-                const orModel = OPENROUTER_MODELS[ci % OPENROUTER_MODELS.length];
-                return callOpenRouter(orKey, orModel, botSystemPrompt, userPrompt);
-              }
-              return qs;
-            });
-        }
-
-        // OpenRouter
-        if (orKey) {
-          const model = OPENROUTER_MODELS[ci % OPENROUTER_MODELS.length];
-          return callOpenRouter(orKey, model, botSystemPrompt, userPrompt);
-        }
-
-        return Promise.resolve(null);
+        return fetchUntilFull({
+          needed: count,
+          chunk,
+          chunkIndex: ci,
+          chunkCount,
+          systemPrompt: botSystemPrompt,
+          langLabel,
+          categoryLabel,
+          title,
+          botId: botId || undefined,
+          groqKey,
+          orKey,
+          buildPrompt: buildUserPrompt,
+        });
       });
 
-      const results = await Promise.all(tasks);
-      for (const qs of results) {
-        if (Array.isArray(qs)) allQuestions.push(...qs);
+      const chunkResults = await Promise.all(chunkTasks);
+      for (const qs of chunkResults) {
+        allQuestions.push(...qs);
+      }
+
+      // Hələ də çatmırsa — ilk chunk-dan əlavə suallar al (fill-up)
+      if (allQuestions.length < questionCount) {
+        const deficit = questionCount - allQuestions.length;
+        console.log(`[multi-chunk] ${deficit} sual çatmır, əlavə fill-up sorğusu göndərilir...`);
+        const extra = await fetchUntilFull({
+          needed: deficit,
+          chunk: botChunks[0],
+          chunkIndex: 0,
+          chunkCount: 1,
+          systemPrompt: botSystemPrompt,
+          langLabel,
+          categoryLabel,
+          title,
+          botId: botId || undefined,
+          groqKey,
+          orKey,
+          buildPrompt: buildUserPrompt,
+        });
+        allQuestions.push(...extra);
       }
     }
 
