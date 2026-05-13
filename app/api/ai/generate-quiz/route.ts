@@ -23,7 +23,7 @@ const OPENROUTER_MODELS = [
 
 const CHUNK_SIZE   = 4_000;  // 413 xətasından qaçmaq üçün kiçiltdik (~1000 token)
 const DIRECT_LIMIT = 4_000;  // eyni limit
-const BATCH_SIZE   = 15;     // hər AI sorğusunda maksimum sual sayı
+const BATCH_SIZE   = 25;     // hər AI sorğusunda maksimum sual sayı
 
 // JSON mətnindən sualları çıxar — bütün formatları handle edir
 function extractQuestions(raw: string): any[] | null {
@@ -94,7 +94,7 @@ async function callAI(opts: {
         { role: "user",   content: userPrompt },
       ],
       temperature: 0.7,
-      max_tokens: 8192,
+      max_tokens: 16000,
     };
 
     // JSON mode yalnız dəstəkləyən modellər üçün
@@ -205,14 +205,14 @@ async function fetchUntilFull(opts: {
   buildPrompt: (chunk: string, ci: number, count: number) => string;
   maxAttempts?: number;
 }): Promise<any[]> {
-  const { needed, maxAttempts = 5 } = opts;
+  const { needed, maxAttempts = 8 } = opts;
   const collected: any[] = [];
   let attempts = 0;
 
   while (collected.length < needed && attempts < maxAttempts) {
     const stillNeed = needed - collected.length;
-    // Modelin az qaytarma ehtimalına qarşı 20% artıq istə (min 1 əlavə)
-    const askFor = Math.min(stillNeed + Math.max(1, Math.ceil(stillNeed * 0.2)), 15);
+    // Modelin az qaytarma ehtimalına qarşı 30% artıq istə (min 2 əlavə), üst limit yoxdur
+    const askFor = stillNeed + Math.max(2, Math.ceil(stillNeed * 0.3));
     const userPrompt = opts.buildPrompt(opts.chunk, opts.chunkIndex, askFor);
 
     let questions: any[] | null = null;
