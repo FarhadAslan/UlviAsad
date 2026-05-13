@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 // Groq modellər — JSON mode dəstəkləyir, sürətli
 const GROQ_MODELS = [
@@ -189,6 +189,68 @@ function callOpenRouter(apiKey: string, model: string, system: string, user: str
   });
 }
 
+// İstənilən sayda sual toplayana qədər sorğu göndər (fill-up strategiyası)
+async function fetchUntilFull(opts: {
+  needed: number;
+  chunk: string;
+  chunkIndex: number;
+  chunkCount: number;
+  systemPrompt: string;
+  langLabel: string;
+  categoryLabel: string;
+  title: string;
+  botId: string | undefined;
+  groqKey: string | undefined;
+  orKey: string | undefined;
+  buildPrompt: (chunk: string, ci: number, count: number) => string;
+  maxAttempts?: number;
+}): Promise<any[]> {
+  const { needed, maxAttempts = 5 } = opts;
+  const collected: any[] = [];
+  let attempts = 0;
+
+  while (collected.length < needed && attempts < maxAttempts) {
+    const stillNeed = needed - collected.length;
+    // Modelin az qaytarma ehtimalına qarşı 20% artıq istə (min 1 əlavə)
+    const askFor = Math.min(stillNeed + Math.max(1, Math.ceil(stillNeed * 0.2)), 15);
+    const userPrompt = opts.buildPrompt(opts.chunk, opts.chunkIndex, askFor);
+
+    let questions: any[] | null = null;
+
+    if (opts.groqKey) {
+      const model = GROQ_MODELS[attempts % GROQ_MODELS.length];
+      questions = await callGroq(opts.groqKey, model, opts.systemPrompt, userPrompt);
+    }
+    if (!questions && opts.orKey) {
+      for (const model of OPENROUTER_MODELS) {
+        questions = await callOpenRouter(opts.orKey, model, opts.systemPrompt, userPrompt);
+        if (questions) break;
+      }
+    }
+
+    if (Array.isArray(questions) && questions.length > 0) {
+      // Artıq gəlmiş sualları duplikat yoxlaması ilə əlavə et
+      const existingTexts = new Set(collected.map((q: any) => q.text?.trim().toLowerCase()));
+      for (const q of questions) {
+        const key = q.text?.trim().toLowerCase();
+        if (key && !existingTexts.has(key)) {
+          collected.push(q);
+          existingTexts.add(key);
+        }
+        if (collected.length >= needed) break;
+      }
+    }
+
+    attempts++;
+    // Hələ çatmırsa qısa gözlə
+    if (collected.length < needed && attempts < maxAttempts) {
+      await new Promise(r => setTimeout(r, 500));
+    }
+  }
+
+  return collected.slice(0, needed);
+}
+
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -290,10 +352,9 @@ Cavabı YALNIZ JSON formatında ver, ${count} sual ilə:
     const allQuestions: any[] = [];
 
     if (chunkCount === 1) {
-      // Tək chunk — çox sual varsa batch-lərə böl
+      // Tək chunk — çox sual varsa batch-lərə böl, hər batch fill-up ilə doldurulur
       const chunk = botChunks[0];
 
-      // questionCount > BATCH_SIZE olarsa paralel batch-lər göndər
       const batches: number[] = [];
       let remaining = questionCount;
       while (remaining > 0) {
@@ -303,29 +364,26 @@ Cavabı YALNIZ JSON formatında ver, ${count} sual ilə:
       }
 
       const batchResults = await Promise.all(
-        batches.map(async (count, bi) => {
-          const userPrompt = buildUserPrompt(chunk, 0, count);
-          let questions: any[] | null = null;
-
-          if (groqKey) {
-            const model = GROQ_MODELS[bi % GROQ_MODELS.length];
-            questions = await callGroq(groqKey, model, botSystemPrompt, userPrompt);
-          }
-
-          // Groq uğursuz olsa OpenRouter ilə cəhd et
-          if (!questions && orKey) {
-            for (const model of OPENROUTER_MODELS) {
-              questions = await callOpenRouter(orKey, model, botSystemPrompt, userPrompt);
-              if (questions) break;
-            }
-          }
-
-          return questions;
-        })
+        batches.map((count) =>
+          fetchUntilFull({
+            needed: count,
+            chunk,
+            chunkIndex: 0,
+            chunkCount,
+            systemPrompt: botSystemPrompt,
+            langLabel,
+            categoryLabel,
+            title,
+            botId: botId || undefined,
+            groqKey,
+            orKey,
+            buildPrompt: buildUserPrompt,
+          })
+        )
       );
 
       for (const qs of batchResults) {
-        if (Array.isArray(qs)) allQuestions.push(...qs);
+        allQuestions.push(...qs);
       }
 
     } else {
