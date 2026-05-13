@@ -23,6 +23,7 @@ const OPENROUTER_MODELS = [
 
 const CHUNK_SIZE   = 4_000;  // 413 xətasından qaçmaq üçün kiçiltdik (~1000 token)
 const DIRECT_LIMIT = 4_000;  // eyni limit
+const BATCH_SIZE   = 15;     // hər AI sorğusunda maksimum sual sayı
 
 // JSON mətnindən sualları çıxar — bütün formatları handle edir
 function extractQuestions(raw: string): any[] | null {
@@ -93,7 +94,7 @@ async function callAI(opts: {
         { role: "user",   content: userPrompt },
       ],
       temperature: 0.7,
-      max_tokens: 4096,
+      max_tokens: 8192,
     };
 
     // JSON mode yalnız dəstəkləyən modellər üçün
@@ -289,29 +290,43 @@ Cavabı YALNIZ JSON formatında ver, ${count} sual ilə:
     const allQuestions: any[] = [];
 
     if (chunkCount === 1) {
-      // Tək chunk — Groq ilə cəhd et, uğursuz olsa OpenRouter
+      // Tək chunk — çox sual varsa batch-lərə böl
       const chunk = botChunks[0];
-      const count = questionCount;
-      const userPrompt = buildUserPrompt(chunk, 0, count);
 
-      let questions: any[] | null = null;
-
-      if (groqKey) {
-        for (const model of GROQ_MODELS) {
-          questions = await callGroq(groqKey, model, botSystemPrompt, userPrompt);
-          if (questions) break;
-        }
+      // questionCount > BATCH_SIZE olarsa paralel batch-lər göndər
+      const batches: number[] = [];
+      let remaining = questionCount;
+      while (remaining > 0) {
+        const batchCount = Math.min(remaining, BATCH_SIZE);
+        batches.push(batchCount);
+        remaining -= batchCount;
       }
 
-      // Groq uğursuz olsa OpenRouter ilə cəhd et
-      if (!questions && orKey) {
-        for (const model of OPENROUTER_MODELS) {
-          questions = await callOpenRouter(orKey, model, botSystemPrompt, userPrompt);
-          if (questions) break;
-        }
-      }
+      const batchResults = await Promise.all(
+        batches.map(async (count, bi) => {
+          const userPrompt = buildUserPrompt(chunk, 0, count);
+          let questions: any[] | null = null;
 
-      if (questions) allQuestions.push(...questions);
+          if (groqKey) {
+            const model = GROQ_MODELS[bi % GROQ_MODELS.length];
+            questions = await callGroq(groqKey, model, botSystemPrompt, userPrompt);
+          }
+
+          // Groq uğursuz olsa OpenRouter ilə cəhd et
+          if (!questions && orKey) {
+            for (const model of OPENROUTER_MODELS) {
+              questions = await callOpenRouter(orKey, model, botSystemPrompt, userPrompt);
+              if (questions) break;
+            }
+          }
+
+          return questions;
+        })
+      );
+
+      for (const qs of batchResults) {
+        if (Array.isArray(qs)) allQuestions.push(...qs);
+      }
 
     } else {
       // Çox chunk — paralel göndər
@@ -358,7 +373,10 @@ Cavabı YALNIZ JSON formatında ver, ${count} sual ilə:
       );
     }
 
-    const normalized = allQuestions.map((q: any) => ({
+    // İstənən saydan çox gəlibsə kəs, az gəlibsə hamısını qaytar
+    const finalQuestions = allQuestions.slice(0, questionCount);
+
+    const normalized = finalQuestions.map((q: any) => ({
       text: q.text || "",
       imageUrl: "",
       questionType: "CHOICE",
