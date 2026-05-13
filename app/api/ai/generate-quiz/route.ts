@@ -446,22 +446,47 @@ Cavabı YALNIZ JSON formatında ver, ${count} sual ilə:
     // İstənən saydan çox gəlibsə kəs, az gəlibsə hamısını qaytar
     const finalQuestions = allQuestions.slice(0, questionCount);
 
-    const normalized = finalQuestions.map((q: any) => ({
-      text: q.text || "",
-      imageUrl: "",
-      questionType: "CHOICE",
-      openAnswerExample: "",
-      options: Array.isArray(q.options)
+    const LABELS = ["A", "B", "C", "D"];
+
+    const normalized = finalQuestions.map((q: any) => {
+      const rawOptions = Array.isArray(q.options)
         ? q.options.map((o: any) => ({ label: o.label || "A", text: o.text || "" }))
         : [
             { label: "A", text: "" },
             { label: "B", text: "" },
             { label: "C", text: "" },
             { label: "D", text: "" },
-          ],
-      correctOption: q.correctOption || "A",
-      points: 1,
-    }));
+          ];
+      const correctLabel = q.correctOption || "A";
+
+      // Düzgün cavabın mətnini tap
+      const correctText = rawOptions.find((o: any) => o.label === correctLabel)?.text || rawOptions[0]?.text || "";
+
+      // Fisher-Yates shuffle — variantları qarışdır
+      const shuffled = [...rawOptions];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+
+      // Yeni label-lar təyin et və düzgün cavabın yeni yerini tap
+      let newCorrectLabel = "A";
+      const newOptions = shuffled.map((o: any, idx: number) => {
+        const label = LABELS[idx] || String.fromCharCode(65 + idx);
+        if (o.text === correctText) newCorrectLabel = label;
+        return { label, text: o.text };
+      });
+
+      return {
+        text: q.text || "",
+        imageUrl: "",
+        questionType: "CHOICE",
+        openAnswerExample: "",
+        options: newOptions,
+        correctOption: newCorrectLabel,
+        points: 1,
+      };
+    });
 
     return NextResponse.json({ questions: normalized });
   } catch (err: any) {
