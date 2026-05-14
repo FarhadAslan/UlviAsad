@@ -111,42 +111,28 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
                 </a>
               </div>
             ) : (
-              <div className="space-y-2">
-                {/* Ümumi AI */}
-                <label className={`flex items-center gap-3 p-2.5 sm:p-3 rounded-xl border cursor-pointer transition-all ${
-                  !botId ? "border-purple-300 bg-purple-50" : "border-slate-200 hover:border-slate-300 bg-white"
-                }`}>
-                  <input type="radio" name="bot" value="" checked={!botId}
-                    onChange={() => { setBotId(""); setCategory(""); }} className="accent-purple-600 flex-shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-700">Ümumi AI</p>
-                    <p className="text-xs text-slate-400 hidden sm:block">Bot olmadan, ümumi bilikdən istifadə et</p>
-                  </div>
-                </label>
-
-                {/* Bot siyahısı */}
+              <select
+                value={botId}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setBotId(val);
+                  if (val === "") {
+                    setCategory("");
+                  } else {
+                    const bot = bots.find(b => b.id === val);
+                    if (bot?.category) setCategory(bot.category);
+                  }
+                }}
+                className="select-field"
+                disabled={loading}
+              >
+                <option value="">Ümumi AI (Bot olmadan)</option>
                 {bots.map((bot) => (
-                  <label key={bot.id} className={`flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 rounded-xl border cursor-pointer transition-all ${
-                    botId === bot.id ? "border-purple-300 bg-purple-50" : "border-slate-200 hover:border-slate-300 bg-white"
-                  }`}>
-                    <input type="radio" name="bot" value={bot.id} checked={botId === bot.id}
-                      onChange={() => {
-                        setBotId(bot.id);
-                        if (bot.category) setCategory(bot.category);
-                      }} className="accent-purple-600 flex-shrink-0" />
-                    <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-                      style={{ background: "linear-gradient(135deg,#667eea,#764ba2)" }}>
-                      <Bot size={12} className="text-white" />
-                    </div>
-                    <p className="text-sm font-medium text-slate-800 flex-1 truncate">{bot.name}</p>
-                    {bot.category && (
-                      <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-100 flex-shrink-0 hidden sm:inline">
-                        {bot.category}
-                      </span>
-                    )}
-                  </label>
+                  <option key={bot.id} value={bot.id}>
+                    {bot.name} {bot.category ? `(${bot.category})` : ""}
+                  </option>
                 ))}
-              </div>
+              </select>
             )}
 
             {selectedBot && (
@@ -167,7 +153,7 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
           </div>
 
           {/* Sual sayı + Dil */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">
                 Sual Sayı <span className="text-red-500">*</span>
@@ -176,7 +162,8 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
                 onChange={(e) => setQuestionCount(parseInt(e.target.value) || 1)}
                 min={1} max={30} className="input-field" disabled={loading} />
             </div>
-            <div>
+            {/* Dil seçimi müvəqqəti gizlədilib, ehtiyac olduqda 'hidden' klasını silə bilərsiniz */}
+            <div className="hidden">
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Dil</label>
               <select value={language} onChange={(e) => setLanguage(e.target.value)}
                 className="select-field" disabled={loading}>
