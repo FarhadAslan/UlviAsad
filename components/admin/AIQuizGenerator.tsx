@@ -12,7 +12,7 @@ interface AiBot {
 }
 
 interface AIQuizGeneratorProps {
-  onGenerate: (questions: any[]) => void;
+  onGenerate: (questions: any[], category?: string) => void;
   onClose: () => void;
   categories: { value: string; label: string }[];
 }
@@ -52,7 +52,7 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
       if (!res.ok) { error(data.error || "AI quiz yarada bilmədi"); return; }
       if (!data.questions?.length) { error("AI sual yarada bilmədi"); return; }
       success(`${data.questions.length} sual yaradıldı!`);
-      onGenerate(data.questions);
+      onGenerate(data.questions, category || undefined);
       onClose();
     } catch {
       error("Şəbəkə xətası baş verdi");

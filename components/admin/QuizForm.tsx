@@ -218,8 +218,9 @@ export default function QuizForm({ quiz, onSuccess, onCancel }: QuizFormProps) {
         <AIQuizGenerator
           categories={categories}
           onClose={() => setShowAI(false)}
-          onGenerate={(aiQuestions) => {
+          onGenerate={(aiQuestions, aiCategory) => {
             setQuestions(aiQuestions);
+            if (aiCategory) setForm((p) => ({ ...p, category: aiCategory }));
           }}
         />
       )}
