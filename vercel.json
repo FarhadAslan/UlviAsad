@@ -1,3 +1,4 @@
 {
+  "framework": "nextjs",
   "buildCommand": "node scripts/migrate-resolve.js && prisma migrate deploy && prisma generate && next build"
 }
