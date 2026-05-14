@@ -9,6 +9,7 @@ const TYPES = [
   { value: "ALL", label: "Hamısı" },
   { value: "SINAQ", label: "Sınaq" },
   { value: "TEST", label: "Test" },
+  { value: "METN", label: "Mətn" },
 ];
 
 export default function QuizFilters({

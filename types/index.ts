@@ -5,7 +5,7 @@ export type Category =
   | "AZERBAYCAN_DILI"
   | "INFORMATIKA"
   | "DQ_QEBUL";
-export type QuizType = "SINAQ" | "TEST";
+export type QuizType = "SINAQ" | "TEST" | "METN";
 export type Visibility = "PUBLIC" | "STUDENT_ONLY";
 
 export interface User {

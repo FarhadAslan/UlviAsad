@@ -207,6 +207,7 @@ export default function AdminQuizzesPage() {
               <option value="ALL">Bütün tiplər</option>
               <option value="SINAQ">⏱ Sınaq</option>
               <option value="TEST">📝 Test</option>
+              <option value="METN">📖 Mətn</option>
             </select>
             <select value={filterCategory} onChange={(e) => { setFilterCategory(e.target.value); setPage(1); }} className={selectCls}>
               <option value="ALL">Bütün kateqoriyalar</option>
@@ -246,7 +247,7 @@ export default function AdminQuizzesPage() {
                       <td className="py-3 pr-4 font-medium text-sm text-slate-800 max-w-[180px] truncate">{quiz.title}</td>
                       <td className="py-3 pr-4"><span className="badge-category">{getCategoryLabel(quiz.category)}</span></td>
                       <td className="py-3 pr-4">
-                        <span className={quiz.type === "SINAQ" ? "badge-type-sinaq" : "badge-type-test"}>{getTypeLabel(quiz.type)}</span>
+                        <span className={quiz.type === "SINAQ" ? "badge-type-sinaq" : quiz.type === "METN" ? "badge-type-metn" : "badge-type-test"}>{getTypeLabel(quiz.type)}</span>
                       </td>
                       <td className="py-3 pr-4 text-sm text-slate-500">{quiz._count?.questions || 0}</td>
                       <td className="py-3 pr-4">
