@@ -12,7 +12,13 @@ export async function GET(req: NextRequest) {
     const session = await getServerSession(authOptions);
     const userRole = (session?.user as any)?.role;
 
-    if (!session || (userRole !== "ADMIN" && userRole !== "TEACHER")) {
+    // USER/STUDENT yalnız aktiv botları görə bilər (quiz yaratmaq üçün)
+    if (!session) {
+      return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
+    }
+    const isAdminOrTeacher = userRole === "ADMIN" || userRole === "TEACHER";
+    // Adi istifadəçilər yalnız aktiv botları görə bilər
+    if (!isAdminOrTeacher && searchParams.get("active") !== "true") {
       return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
     }
 

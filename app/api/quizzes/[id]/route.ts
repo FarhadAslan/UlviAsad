@@ -18,8 +18,8 @@ async function checkQuizOwnership(
   });
   if (!quiz) return { allowed: false, quiz: null };
   if (role === "ADMIN") return { allowed: true, quiz };
-  // TEACHER yalnız öz quizini dəyişə bilər
-  if (role === "TEACHER" && quiz.createdById === userId) return { allowed: true, quiz };
+  // TEACHER, USER, STUDENT — yalnız öz quizini dəyişə bilər
+  if (quiz.createdById === userId) return { allowed: true, quiz };
   return { allowed: false, quiz };
 }
 
@@ -108,7 +108,7 @@ export async function PUT(
     const userRole = (session?.user as any)?.role;
     const userId = (session?.user as any)?.id;
 
-    if (!session || (userRole !== "ADMIN" && userRole !== "TEACHER")) {
+    if (!session || (userRole !== "ADMIN" && userRole !== "TEACHER" && userRole !== "USER" && userRole !== "STUDENT")) {
       return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
     }
 
@@ -180,7 +180,7 @@ export async function PATCH(
     const userRole = (session?.user as any)?.role;
     const userId = (session?.user as any)?.id;
 
-    if (!session || (userRole !== "ADMIN" && userRole !== "TEACHER")) {
+    if (!session) {
       return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
     }
 
@@ -223,7 +223,7 @@ export async function DELETE(
     const userRole = (session?.user as any)?.role;
     const userId = (session?.user as any)?.id;
 
-    if (!session || (userRole !== "ADMIN" && userRole !== "TEACHER")) {
+    if (!session) {
       return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
     }
 

@@ -18,13 +18,46 @@ export async function GET(req: NextRequest) {
     const userRole = (session?.user as any)?.role;
     const userId = (session?.user as any)?.id;
     const adminAll = searchParams.get("adminAll");
+    const myQuizzes = searchParams.get("myQuizzes");
 
     const where: any = {};
 
+    // myQuizzes=true — yalnız öz quizlərini gətir (giriş etmiş istənilən istifadəçi)
+    if (myQuizzes === "true") {
+      if (!session || !userId) {
+        return NextResponse.json({ error: "Giriş tələb olunur" }, { status: 401 });
+      }
+      where.createdById = userId;
+      const quizzes = await prisma.quiz.findMany({
+        where,
+        select: {
+          id: true,
+          title: true,
+          category: true,
+          type: true,
+          duration: true,
+          visibility: true,
+          active: true,
+          createdAt: true,
+          createdById: true,
+          _count: { select: { questions: true, results: true } },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+      return NextResponse.json(quizzes, {
+        headers: { "Cache-Control": "no-store, no-cache, must-revalidate" },
+      });
+    }
+
     // Visibility filter based on role
     if (!userRole || userRole === "USER") {
+      // USER: yalnız PUBLIC quizlər, PRIVATE quizlər görünmür
       where.visibility = "PUBLIC";
+    } else if (userRole === "STUDENT") {
+      // STUDENT: PUBLIC + STUDENT_ONLY, amma PRIVATE deyil
+      where.visibility = { in: ["PUBLIC", "STUDENT_ONLY"] };
     }
+    // ADMIN/TEACHER: bütün visibility-lər görünür (adminAll=true ilə)
 
     // Active filter
     if (userRole === "ADMIN" && adminAll === "true") {
@@ -140,7 +173,7 @@ export async function POST(req: NextRequest) {
     const userRole = (session?.user as any)?.role;
     const userId = (session?.user as any)?.id;
 
-    if (!session || (userRole !== "ADMIN" && userRole !== "TEACHER")) {
+    if (!session || (userRole !== "ADMIN" && userRole !== "TEACHER" && userRole !== "USER" && userRole !== "STUDENT")) {
       return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
     }
 
@@ -170,8 +203,10 @@ export async function POST(req: NextRequest) {
         type,
         duration: type === "SINAQ" ? duration : null,
         visibility: visibility || "PUBLIC",
-        // Müəllim yaratdıqda default deaktiv, admin yaratdıqda aktiv
-        active: userRole === "TEACHER" ? false : (active !== undefined ? active : true),
+        // Müəllim yaratdıqda default deaktiv, admin yaratdıqda aktiv, user/student yaratdıqda PRIVATE (yalnız özü görür)
+        active: userRole === "TEACHER" ? false : (userRole === "ADMIN" ? (active !== undefined ? active : true) : true),
+        // USER/STUDENT yaratdıqda visibility PRIVATE (yalnız özü görür)
+        visibility: (userRole === "USER" || userRole === "STUDENT") ? "PRIVATE" : (visibility || "PUBLIC"),
         createdById: userId,
         // Passage sahələri — yalnız METN tipi üçün
         passageTitle:    type === "METN" ? (passageTitle?.trim() || null) : null,

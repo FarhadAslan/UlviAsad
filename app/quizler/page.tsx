@@ -29,6 +29,12 @@ async function getQuizzes(category: string, type: string, search: string, userRo
 
   if (isUser) {
     where.visibility = "PUBLIC";
+  } else if (isStudent) {
+    // STUDENT: PUBLIC + STUDENT_ONLY, amma PRIVATE deyil
+    where.visibility = { in: ["PUBLIC", "STUDENT_ONLY"] };
+  } else if (isAdmin || isTeacher) {
+    // ADMIN/TEACHER: PRIVATE quizlər görünməsin (onlar myQuizzes endpoint-i ilə görür)
+    where.visibility = { not: "PRIVATE" };
   }
 
   if (!isAdmin && !isTeacher) {

@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
 import { usePathname, useRouter } from "next/navigation";
-import { LogOut, User, LayoutDashboard, BookOpen, Menu, X } from "lucide-react";
-import { useState, useEffect } from "react";
+import { LogOut, User, LayoutDashboard, BookOpen, Menu, X, ChevronDown, ClipboardList } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
 
 export default function Header() {
   const { data: session } = useSession();
@@ -12,10 +12,11 @@ export default function Header() {
   const router   = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [quizDropdown, setQuizDropdown] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const handleSignOut = async () => {
     await signOut({ redirect: false });
-    // Session tamamilə silinsin, sonra yönləndir
     router.push("/");
     router.refresh();
   };
@@ -35,14 +36,19 @@ export default function Header() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  const isActive = (p: string) => pathname === p;
+  // Dropdown xaricinə klikdə bağla
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setQuizDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
-  const navLinks = [
-    { href: "/",            label: "Ana Səhifə" },
-    { href: "/quizler",     label: "Quizlər" },
-    { href: "/materiallar", label: "Materiallar" },
-    { href: "/meqaleler",   label: "Məqalələr" },
-  ];
+  const isActive = (p: string) => pathname === p || pathname.startsWith(p + "/");
+  const isQuizActive = pathname === "/quizler" || pathname.startsWith("/quizler/") || pathname === "/menim-quizlerim";
 
   return (
     <header
@@ -77,21 +83,94 @@ export default function Header() {
 
           {/* Desktop Nav */}
           <nav className="hidden md:flex items-center gap-1">
-            {navLinks.map(({ href, label }) => (
-              <Link key={href} href={href}
-                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
-                  isActive(href)
+            {/* Ana Səhifə */}
+            <Link href="/"
+              className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
+                pathname === "/"
+                  ? "text-[#1a7fe0] font-semibold"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+              style={pathname === "/" ? { background: "rgba(147,204,255,0.18)" } : {}}
+            >
+              Ana Səhifə
+            </Link>
+
+            {/* Quizlər dropdown */}
+            <div className="relative" ref={dropdownRef}>
+              <button
+                onClick={() => setQuizDropdown((v) => !v)}
+                className={`flex items-center gap-1 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
+                  isQuizActive
                     ? "text-[#1a7fe0] font-semibold"
                     : "text-slate-600 hover:text-slate-900"
                 }`}
-                style={isActive(href)
-                  ? { background: "rgba(147,204,255,0.18)" }
-                  : { }
-                }
+                style={isQuizActive ? { background: "rgba(147,204,255,0.18)" } : {}}
               >
-                {label}
-              </Link>
-            ))}
+                Quizlər
+                <ChevronDown
+                  size={14}
+                  className={`transition-transform duration-200 ${quizDropdown ? "rotate-180" : ""}`}
+                />
+              </button>
+
+              {quizDropdown && (
+                <div
+                  className="absolute top-full left-0 mt-1.5 w-52 rounded-xl shadow-lg border border-slate-100 overflow-hidden z-50"
+                  style={{ background: "rgba(255,255,255,0.97)", backdropFilter: "blur(12px)" }}
+                >
+                  <Link
+                    href="/quizler"
+                    onClick={() => setQuizDropdown(false)}
+                    className={`flex items-center gap-2.5 px-4 py-3 text-sm transition-all hover:bg-slate-50 ${
+                      pathname === "/quizler" || pathname.startsWith("/quizler/")
+                        ? "text-[#1a7fe0] font-semibold bg-blue-50/60"
+                        : "text-slate-700"
+                    }`}
+                  >
+                    <BookOpen size={15} className="text-[#1a7fe0] flex-shrink-0" />
+                    Bütün Quizlər
+                  </Link>
+                  {session && (
+                    <Link
+                      href="/menim-quizlerim"
+                      onClick={() => setQuizDropdown(false)}
+                      className={`flex items-center gap-2.5 px-4 py-3 text-sm transition-all hover:bg-slate-50 border-t border-slate-100 ${
+                        pathname === "/menim-quizlerim"
+                          ? "text-[#1a7fe0] font-semibold bg-blue-50/60"
+                          : "text-slate-700"
+                      }`}
+                    >
+                      <ClipboardList size={15} className="text-purple-500 flex-shrink-0" />
+                      Mənim Quizlərim
+                    </Link>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Materiallar */}
+            <Link href="/materiallar"
+              className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
+                isActive("/materiallar")
+                  ? "text-[#1a7fe0] font-semibold"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+              style={isActive("/materiallar") ? { background: "rgba(147,204,255,0.18)" } : {}}
+            >
+              Materiallar
+            </Link>
+
+            {/* Məqalələr */}
+            <Link href="/meqaleler"
+              className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
+                isActive("/meqaleler")
+                  ? "text-[#1a7fe0] font-semibold"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+              style={isActive("/meqaleler") ? { background: "rgba(147,204,255,0.18)" } : {}}
+            >
+              Məqalələr
+            </Link>
           </nav>
 
           {/* Auth */}
@@ -138,16 +217,49 @@ export default function Header() {
         {mobileOpen && (
           <div className="md:hidden border-t py-3 space-y-1"
             style={{ borderColor: "rgba(147,204,255,0.2)" }}>
-            {navLinks.map(({ href, label }) => (
-              <Link key={href} href={href}
+            <Link href="/"
+              onClick={() => setMobileOpen(false)}
+              className={`block px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                pathname === "/" ? "text-[#1a7fe0] font-semibold" : "text-slate-600"
+              }`}
+              style={pathname === "/" ? { background: "rgba(147,204,255,0.15)" } : {}}>
+              Ana Səhifə
+            </Link>
+            <Link href="/quizler"
+              onClick={() => setMobileOpen(false)}
+              className={`block px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                pathname === "/quizler" || pathname.startsWith("/quizler/") ? "text-[#1a7fe0] font-semibold" : "text-slate-600"
+              }`}
+              style={pathname === "/quizler" || pathname.startsWith("/quizler/") ? { background: "rgba(147,204,255,0.15)" } : {}}>
+              Quizlər
+            </Link>
+            {session && (
+              <Link href="/menim-quizlerim"
                 onClick={() => setMobileOpen(false)}
-                className={`block px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                  isActive(href) ? "text-[#1a7fe0] font-semibold" : "text-slate-600"
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                  pathname === "/menim-quizlerim" ? "text-[#1a7fe0] font-semibold" : "text-slate-600"
                 }`}
-                style={isActive(href) ? { background: "rgba(147,204,255,0.15)" } : {}}>
-                {label}
+                style={pathname === "/menim-quizlerim" ? { background: "rgba(147,204,255,0.15)" } : {}}>
+                <ClipboardList size={14} className="text-purple-500" />
+                Mənim Quizlərim
               </Link>
-            ))}
+            )}
+            <Link href="/materiallar"
+              onClick={() => setMobileOpen(false)}
+              className={`block px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                isActive("/materiallar") ? "text-[#1a7fe0] font-semibold" : "text-slate-600"
+              }`}
+              style={isActive("/materiallar") ? { background: "rgba(147,204,255,0.15)" } : {}}>
+              Materiallar
+            </Link>
+            <Link href="/meqaleler"
+              onClick={() => setMobileOpen(false)}
+              className={`block px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                isActive("/meqaleler") ? "text-[#1a7fe0] font-semibold" : "text-slate-600"
+              }`}
+              style={isActive("/meqaleler") ? { background: "rgba(147,204,255,0.15)" } : {}}>
+              Məqalələr
+            </Link>
             <div className="pt-2 border-t flex flex-col gap-1"
               style={{ borderColor: "rgba(147,204,255,0.15)" }}>
               {session ? (
