@@ -115,32 +115,44 @@ export default function AiBotsPage() {
       error("Yalnız PDF fayl qəbul edilir");
       return;
     }
-    if (file.size > 20 * 1024 * 1024) {
-      error("Fayl ölçüsü 20MB-dan çox ola bilməz");
-      return;
-    }
+    // Limit yoxdur — PDF client-side oxunur, serverə yalnız mətn göndərilir
     setPdfLoading(true);
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch("/api/ai-bots/extract-pdf", { method: "POST", body: formData });
+      const pdfjsLib = await import("pdfjs-dist");
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
-      // JSON parse xətasına qarşı qoruma
-      let data: any = {};
-      try {
-        data = await res.json();
-      } catch {
-        const rawText = await res.text().catch(() => "");
-        error(`Server cavabı oxunmadı: ${res.status} ${rawText.slice(0, 100)}`);
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const pageCount = pdf.numPages;
+
+      const textParts: string[] = [];
+      for (let i = 1; i <= pageCount; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        const pageText = content.items
+          .map((item: any) => item.str || "")
+          .join(" ");
+        textParts.push(pageText);
+      }
+
+      const raw = textParts.join("\n");
+      const cleaned = raw
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .replace(/[ \t]{2,}/g, " ")
+        .trim();
+
+      if (!cleaned || cleaned.length < 50) {
+        error("PDF-dən mətn çıxarıla bilmədi. Skan edilmiş (şəkil) PDF ola bilər.");
         return;
       }
 
-      if (!res.ok) { error(data.error || "PDF oxunarkən xəta baş verdi"); return; }
-      setForm((p) => ({ ...p, content: data.text }));
-      success(`PDF oxundu: ${data.charCount.toLocaleString()} simvol, ~${data.pageCount} səhifə`);
+      setForm((p) => ({ ...p, content: cleaned }));
+      success(`PDF oxundu: ${cleaned.length.toLocaleString()} simvol, ~${pageCount} səhifə`);
     } catch (e: any) {
-      console.error("PDF upload error:", e);
-      error(`PDF xətası: ${e?.message || "Şəbəkə xətası"}`);
+      console.error("PDF parse error:", e);
+      error(`PDF xətası: ${e?.message || "Faylın zədəli olmadığını yoxlayın"}`);
     } finally {
       setPdfLoading(false);
       if (pdfInputRef.current) pdfInputRef.current.value = "";
