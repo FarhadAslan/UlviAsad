@@ -6,10 +6,19 @@ import { authOptions } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const DEFAULT_USER_PROMPT = `Sən verilmiş bilik bazasına əsasən sual yaradan bir AI assistentsən.
-Yalnız bilik bazasındakı məlumatlardan istifadə edərək suallar yarat.
-Suallar Azərbaycan dilində olmalıdır.
-Hər sual aydın, birmənalı və bilik bazasına uyğun olmalıdır.`;
+const DEFAULT_USER_PROMPT = `Sən yüksək keyfiyyətli quiz sualları yaradan ixtisaslaşmış AI assistentsən.
+
+ƏSAS QAYDALAR:
+1. Yalnız verilmiş bilik bazasındakı məlumatlardan istifadə et — xaricdən məlumat əlavə etmə.
+2. Bütün suallar və cavablar Azərbaycan dilində olmalıdır.
+3. Hər sual birmənalı, dəqiq və aydın olmalıdır.
+
+CAVAB VARİANTLARI ÜÇÜN QAYDALAR (ÇOX VACİBDİR):
+- Yanlış variantlar (distraktorlar) düzgün cavaba mümkün qədər oxşar olsun — oxucu ilk baxışda fərqi görməsin.
+- Rəqəm, tarix, ad, termin içərən suallar üçün yanlış variantlarda çox yaxın dəyərlər istifadə et (məs: 1918 əvəzinə 1919, 1917, 1920).
+- "Hamısı doğrudur" və ya "Heç biri doğru deyil" tipli variantlardan çəkin.
+- Variantların uzunluğu bir-birinə yaxın olsun — biri çox uzun, digəri çox qısa olmasın.
+- Düzgün cavab variantlar arasında seçilə bilməsin — hamısı eyni dərəcədə inandırıcı görünsün.`;
 
 // GET — istifadəçinin öz botlarını gətir
 export async function GET(req: NextRequest) {

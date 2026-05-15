@@ -280,7 +280,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Sual sayı 1-50 arasında olmalıdır" }, { status: 400 });
     }
 
-    let botSystemPrompt = `Sən quiz yaradıcısısan. Verilən mövzu üzrə test sualları yarat.
+    let botSystemPrompt = `Sən yüksək keyfiyyətli quiz sualları yaradan ixtisaslaşmış AI assistentsən.
+
+ƏSAS QAYDALAR:
+1. Verilən mövzu üzrə dəqiq, aydın test sualları yarat.
+2. Bütün suallar və cavablar Azərbaycan dilində olmalıdır.
+
+CAVAB VARİANTLARI ÜÇÜN QAYDALAR (ÇOX VACİBDİR):
+- Yanlış variantlar (distraktorlar) düzgün cavaba mümkün qədər oxşar olsun — oxucu ilk baxışda fərqi görməsin.
+- Rəqəm, tarix, ad, termin içərən suallar üçün yanlış variantlarda çox yaxın dəyərlər istifadə et (məs: 1918 əvəzinə 1919, 1917, 1920).
+- "Hamısı doğrudur" və ya "Heç biri doğru deyil" tipli variantlardan çəkin.
+- Variantların uzunluğu bir-birinə yaxın olsun.
+- Düzgün cavab variantlar arasında seçilə bilməsin — hamısı eyni dərəcədə inandırıcı görünsün.
+
 Cavabı MÜTLƏQ aşağıdakı JSON formatında ver — başqa heç nə yazma:
 {"questions":[{"text":"Sual 1 mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"},{"text":"Sual 2 mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"B"}]}`;
 
@@ -339,6 +351,13 @@ Cavabı MÜTLƏQ aşağıdakı JSON formatında ver — başqa heç nə yazma:
 
       botSystemPrompt = `${bot.prompt}
 
+CAVAB VARİANTLARI ÜÇÜN QAYDALAR (ÇOX VACİBDİR):
+- Yanlış variantlar (distraktorlar) düzgün cavaba mümkün qədər oxşar olsun — oxucu ilk baxışda fərqi görməsin.
+- Rəqəm, tarix, ad, termin içərən suallar üçün yanlış variantlarda çox yaxın dəyərlər istifadə et (məs: 1918 əvəzinə 1919, 1917, 1920).
+- "Hamısı doğrudur" və ya "Heç biri doğru deyil" tipli variantlardan çəkin.
+- Variantların uzunluğu bir-birinə yaxın olsun.
+- Düzgün cavab variantlar arasında seçilə bilməsin — hamısı eyni dərəcədə inandırıcı görünsün.
+
 MÜTLƏQ bu JSON formatında cavab ver — başqa heç nə yazma:
 {"questions":[{"text":"Sual 1 mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"},{"text":"Sual 2 mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"C"}]}`;
 
@@ -387,7 +406,9 @@ Tələblər:
 - Hər sualın 4 variant cavabı olsun (A, B, C, D)
 - Yalnız 1 düzgün cavab olsun
 - Suallar mövzuya uyğun, aydın və dəqiq olsun
-- Variantlar inandırıcı olsun
+- Yanlış variantlar düzgün cavaba çox oxşar olsun — çaşdırıcı və çətin olsun
+- Rəqəm/tarix/ad içərən suallar üçün yanlış variantlarda çox yaxın dəyərlər istifadə et
+- Variantların uzunluğu bir-birinə yaxın olsun, hamısı inandırıcı görünsün
 - Əvvəlki suallarla eyni və ya çox oxşar suallar YARATMA
 ${botId ? "- Yalnız verilmiş bilik bazasından istifadə et" : ""}
 
