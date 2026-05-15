@@ -1,17 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import {
-  Bot,
-  Plus,
-  Trash2,
-  Sparkles,
-  Upload,
-  X,
-  Loader2,
-  FileText,
-  ChevronRight,
-} from "lucide-react";
+import { Bot, Plus, Trash2, Sparkles, Upload, X, Loader2, FileText } from "lucide-react";
 import { useToast } from "@/components/ui/toast-1";
 import ConfirmModal from "@/components/ui/confirm-modal";
 
@@ -25,7 +15,7 @@ interface UserBot {
 }
 
 interface UserBotManagerProps {
-  onSelectBot?: (bot: UserBot) => void; // quiz yaratmaq üçün bot seçimi
+  onSelectBot?: (bot: UserBot) => void;
 }
 
 export default function UserBotManager({ onSelectBot }: UserBotManagerProps) {
@@ -49,9 +39,7 @@ export default function UserBotManager({ onSelectBot }: UserBotManagerProps) {
     }
   }, [error]);
 
-  useEffect(() => {
-    fetchBots();
-  }, [fetchBots]);
+  useEffect(() => { fetchBots(); }, [fetchBots]);
 
   const handleDelete = async (id: string) => {
     setDeletingId(id);
@@ -85,16 +73,16 @@ export default function UserBotManager({ onSelectBot }: UserBotManagerProps) {
       />
 
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-5">
         <div>
-          <h2 className="text-xl font-bold text-slate-900">Mənim Botlarım</h2>
-          <p className="text-sm text-slate-500 mt-0.5">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900">Mənim Botlarım</h2>
+          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
             PDF yükləyin, bot yaradın, quiz generasiyasında istifadə edin
           </p>
         </div>
         <button
           onClick={() => setShowCreate(true)}
-          className="btn-primary flex items-center gap-2 text-sm"
+          className="btn-primary flex items-center gap-2 text-sm self-start sm:self-auto flex-shrink-0"
         >
           <Plus size={15} /> Yeni Bot
         </button>
@@ -103,10 +91,7 @@ export default function UserBotManager({ onSelectBot }: UserBotManagerProps) {
       {/* Bot yaratma formu */}
       {showCreate && (
         <CreateBotForm
-          onSuccess={() => {
-            setShowCreate(false);
-            fetchBots();
-          }}
+          onSuccess={() => { setShowCreate(false); fetchBots(); }}
           onCancel={() => setShowCreate(false)}
         />
       )}
@@ -115,27 +100,21 @@ export default function UserBotManager({ onSelectBot }: UserBotManagerProps) {
       {loading && (
         <div className="space-y-3">
           {[...Array(3)].map((_, i) => (
-            <div
-              key={i}
-              className="h-16 rounded-xl animate-pulse"
-              style={{ background: "rgba(147,204,255,0.08)" }}
-            />
+            <div key={i} className="h-16 rounded-xl animate-pulse" style={{ background: "rgba(147,204,255,0.08)" }} />
           ))}
         </div>
       )}
 
       {/* Boş vəziyyət */}
       {!loading && bots.length === 0 && !showCreate && (
-        <div className="text-center py-14">
+        <div className="text-center py-12 sm:py-14">
           <div
-            className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
+            className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
             style={{ background: "rgba(147,204,255,0.12)" }}
           >
-            <Bot size={28} className="text-[#1a7fe0]" />
+            <Bot size={26} className="text-[#1a7fe0]" />
           </div>
-          <h3 className="text-base font-semibold text-slate-800 mb-1">
-            Hələ bot yaratmamısınız
-          </h3>
+          <h3 className="text-base font-semibold text-slate-800 mb-1">Hələ bot yaratmamısınız</h3>
           <p className="text-sm text-slate-500 mb-5 max-w-xs mx-auto">
             PDF yükləyin, bot yaradın. Sonra bu bot əsasında quiz generasiya edin.
           </p>
@@ -150,38 +129,32 @@ export default function UserBotManager({ onSelectBot }: UserBotManagerProps) {
 
       {/* Bot siyahısı */}
       {!loading && bots.length > 0 && (
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           {bots.map((bot) => (
-            <div
-              key={bot.id}
-              className="card-static flex items-center gap-4 group"
-            >
+            <div key={bot.id} className="flex items-center gap-3 p-3 sm:p-4 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 transition-colors">
               <div
-                className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center flex-shrink-0"
                 style={{ background: "linear-gradient(135deg,#667eea 0%,#764ba2 100%)" }}
               >
-                <Bot size={18} className="text-white" />
+                <Bot size={16} className="text-white" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm text-slate-800 truncate">
-                  {bot.name}
-                </p>
+                <p className="font-semibold text-sm text-slate-800 truncate">{bot.name}</p>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  {bot.category || "Kateqoriyasız"} ·{" "}
-                  {new Date(bot.createdAt).toLocaleDateString("az-AZ")}
+                  {bot.category || "Kateqoriyasız"} · {new Date(bot.createdAt).toLocaleDateString("az-AZ")}
                 </p>
               </div>
               <div className="flex items-center gap-1.5 flex-shrink-0">
                 {onSelectBot && (
                   <button
                     onClick={() => onSelectBot(bot)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all hover:opacity-90"
-                    style={{
-                      background: "linear-gradient(135deg,#667eea 0%,#764ba2 100%)",
-                    }}
+                    className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all hover:opacity-90"
+                    style={{ background: "linear-gradient(135deg,#667eea 0%,#764ba2 100%)" }}
                     title="Bu bot ilə quiz yarat"
                   >
-                    <Sparkles size={12} /> Quiz Yarat
+                    <Sparkles size={11} />
+                    <span className="hidden sm:inline">Quiz Yarat</span>
+                    <span className="sm:hidden">Yarat</span>
                   </button>
                 )}
                 <button
@@ -199,9 +172,7 @@ export default function UserBotManager({ onSelectBot }: UserBotManagerProps) {
               </div>
             </div>
           ))}
-          <p className="text-xs text-slate-400 text-right pt-1">
-            {bots.length}/10 bot istifadə olunur
-          </p>
+          <p className="text-xs text-slate-400 text-right pt-1">{bots.length}/10 bot</p>
         </div>
       )}
     </div>
@@ -210,13 +181,7 @@ export default function UserBotManager({ onSelectBot }: UserBotManagerProps) {
 
 // ─── Bot Yaratma Formu ────────────────────────────────────────────────────────
 
-function CreateBotForm({
-  onSuccess,
-  onCancel,
-}: {
-  onSuccess: () => void;
-  onCancel: () => void;
-}) {
+function CreateBotForm({ onSuccess, onCancel }: { onSuccess: () => void; onCancel: () => void }) {
   const { success, error } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -228,30 +193,18 @@ function CreateBotForm({
   const [saving, setSaving] = useState(false);
 
   const handlePdfUpload = async (file: File) => {
-    if (file.type !== "application/pdf") {
-      error("Yalnız PDF fayl qəbul edilir");
-      return;
-    }
-    if (file.size > 20 * 1024 * 1024) {
-      error("Fayl ölçüsü 20MB-dan çox ola bilməz");
-      return;
-    }
+    if (file.type !== "application/pdf") { error("Yalnız PDF fayl qəbul edilir"); return; }
+    if (file.size > 20 * 1024 * 1024) { error("Fayl ölçüsü 20MB-dan çox ola bilməz"); return; }
     setPdfLoading(true);
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await fetch("/api/ai-bots/extract-pdf", {
-        method: "POST",
-        body: formData,
-      });
+      const res = await fetch("/api/ai-bots/extract-pdf", { method: "POST", body: formData });
       const data = await res.json();
-      if (!res.ok) {
-        error(data.error || "PDF oxunarkən xəta baş verdi");
-        return;
-      }
+      if (!res.ok) { error(data.error || "PDF oxunarkən xəta baş verdi"); return; }
       setContent(data.text);
       setPdfInfo({ name: file.name, chars: data.charCount, pages: data.pageCount });
-      success(`PDF uğurla oxundu — ${data.pageCount} səhifə, ${data.charCount.toLocaleString()} simvol`);
+      success(`PDF oxundu — ${data.pageCount} səhifə, ${data.charCount.toLocaleString()} simvol`);
     } catch {
       error("PDF yüklənərkən xəta baş verdi");
     } finally {
@@ -262,7 +215,7 @@ function CreateBotForm({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) { error("Bot adı daxil edin"); return; }
-    if (!content.trim()) { error("Bilik bazası mətni tələb olunur — PDF yükləyin"); return; }
+    if (!content.trim()) { error("PDF yükləyin"); return; }
     setSaving(true);
     try {
       const res = await fetch("/api/user-bots", {
@@ -271,10 +224,7 @@ function CreateBotForm({
         body: JSON.stringify({ name: name.trim(), category: category.trim(), content }),
       });
       const data = await res.json();
-      if (!res.ok) {
-        error(data.error || "Bot yaradılarkən xəta baş verdi");
-        return;
-      }
+      if (!res.ok) { error(data.error || "Bot yaradılarkən xəta baş verdi"); return; }
       success("Bot uğurla yaradıldı!");
       onSuccess();
     } catch {
@@ -285,21 +235,17 @@ function CreateBotForm({
   };
 
   return (
-    <div className="card-static mb-6 border-2 border-dashed border-purple-200 bg-purple-50/30">
+    <div className="mb-5 p-4 sm:p-5 rounded-xl border-2 border-dashed border-purple-200 bg-purple-50/30">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold text-slate-800 flex items-center gap-2">
-          <Bot size={16} className="text-purple-600" /> Yeni Bot Yarat
+        <h3 className="font-semibold text-slate-800 flex items-center gap-2 text-sm sm:text-base">
+          <Bot size={15} className="text-purple-600" /> Yeni Bot Yarat
         </h3>
-        <button
-          onClick={onCancel}
-          className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-all"
-        >
+        <button onClick={onCancel} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-all">
           <X size={16} />
         </button>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Ad */}
+      <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1.5">
             Bot Adı <span className="text-red-500">*</span>
@@ -314,7 +260,6 @@ function CreateBotForm({
           />
         </div>
 
-        {/* Kateqoriya */}
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1.5">
             Kateqoriya <span className="text-slate-400 text-xs">(isteğe bağlı)</span>
@@ -328,29 +273,21 @@ function CreateBotForm({
           />
         </div>
 
-        {/* PDF Yükləmə */}
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1.5">
             Bilik Bazası (PDF) <span className="text-red-500">*</span>
           </label>
-
           {pdfInfo ? (
             <div className="flex items-center gap-3 p-3 rounded-xl bg-green-50 border border-green-200">
-              <FileText size={20} className="text-green-600 flex-shrink-0" />
+              <FileText size={18} className="text-green-600 flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-green-800 truncate">{pdfInfo.name}</p>
-                <p className="text-xs text-green-600">
-                  {pdfInfo.pages} səhifə · {pdfInfo.chars.toLocaleString()} simvol
-                </p>
+                <p className="text-xs text-green-600">{pdfInfo.pages} səhifə · {pdfInfo.chars.toLocaleString()} simvol</p>
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  setPdfInfo(null);
-                  setContent("");
-                  if (fileInputRef.current) fileInputRef.current.value = "";
-                }}
-                className="p-1 text-green-600 hover:text-red-500 rounded-lg transition-all"
+                onClick={() => { setPdfInfo(null); setContent(""); if (fileInputRef.current) fileInputRef.current.value = ""; }}
+                className="p-1 text-green-600 hover:text-red-500 rounded-lg transition-all flex-shrink-0"
               >
                 <X size={14} />
               </button>
@@ -358,7 +295,7 @@ function CreateBotForm({
           ) : (
             <div
               onClick={() => !pdfLoading && fileInputRef.current?.click()}
-              className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl p-8 transition-colors cursor-pointer ${
+              className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl p-6 sm:p-8 transition-colors cursor-pointer ${
                 pdfLoading
                   ? "border-purple-200 bg-purple-50/50 cursor-wait"
                   : "border-slate-200 hover:border-purple-300 bg-slate-50 hover:bg-purple-50/30"
@@ -366,56 +303,45 @@ function CreateBotForm({
             >
               {pdfLoading ? (
                 <>
-                  <Loader2 size={24} className="text-purple-500 animate-spin" />
+                  <Loader2 size={22} className="text-purple-500 animate-spin" />
                   <span className="text-sm text-slate-500">PDF oxunur...</span>
                 </>
               ) : (
                 <>
-                  <Upload size={24} className="text-slate-400" />
-                  <span className="text-sm font-medium text-slate-600">
-                    PDF faylı yükləmək üçün klikləyin
-                  </span>
+                  <Upload size={22} className="text-slate-400" />
+                  <span className="text-sm font-medium text-slate-600 text-center">PDF faylı yükləmək üçün klikləyin</span>
                   <span className="text-xs text-slate-400">Maksimum 20MB</span>
                 </>
               )}
             </div>
           )}
-
           <input
             ref={fileInputRef}
             type="file"
             accept="application/pdf"
             className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) handlePdfUpload(f);
-            }}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) handlePdfUpload(f); }}
           />
         </div>
 
-        {/* Məlumat */}
         <div className="rounded-xl p-3 text-xs text-purple-700 border border-purple-200 bg-purple-50">
           <p className="font-medium mb-1">💡 Necə işləyir?</p>
           <ul className="space-y-0.5 text-purple-600">
             <li>• PDF yükləyin — mətn avtomatik çıxarılır</li>
-            <li>• Bot yaradıldıqdan sonra "Quiz Yarat" düyməsi ilə quiz generasiya edin</li>
+            <li>• Bot yaradıldıqdan sonra "Quiz Yarat" ilə quiz generasiya edin</li>
             <li>• AI yalnız bu PDF-in məzmunundan sual yaradacaq</li>
           </ul>
         </div>
 
-        <div className="flex gap-3 pt-1">
+        <div className="flex gap-2.5 sm:gap-3 pt-1">
           <button
             type="submit"
             disabled={saving || pdfLoading || !content}
-            className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn-primary flex-1 flex items-center justify-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {saving ? (
-              <><Loader2 size={15} className="animate-spin" /> Yaradılır...</>
-            ) : (
-              <><Bot size={15} /> Bot Yarat</>
-            )}
+            {saving ? <><Loader2 size={14} className="animate-spin" /> Yaradılır...</> : <><Bot size={14} /> Bot Yarat</>}
           </button>
-          <button type="button" onClick={onCancel} className="btn-secondary px-6">
+          <button type="button" onClick={onCancel} className="btn-secondary px-4 sm:px-6 text-sm">
             Ləğv et
           </button>
         </div>
