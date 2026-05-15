@@ -21,7 +21,7 @@ const CARD_GRADIENTS = [
   "from-blue-500 to-indigo-600",
   "from-violet-500 to-purple-600",
   "from-emerald-500 to-teal-600",
-  "from-orange-500 to-amber-600",
+  "from-sky-500 to-cyan-600",
   "from-pink-500 to-rose-600",
   "from-cyan-500 to-blue-600",
 ];
@@ -187,9 +187,12 @@ export default function MenimQuizlerimPage() {
               </button>
               <button
                 onClick={() => { setSelectedBotId(undefined); setOpenAI(true); setView("create"); }}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90 border border-white/30 bg-white/15 backdrop-blur-sm"
+                className="relative flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-all hover:scale-105 overflow-hidden"
+                style={{ background: "linear-gradient(135deg, #a855f7 0%, #6366f1 50%, #ec4899 100%)", boxShadow: "0 0 20px rgba(168,85,247,0.5)" }}
               >
-                <Sparkles size={15} /> AI ilə Yarat
+                {/* Parıltı effekti */}
+                <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 -skew-x-12 translate-x-[-100%] hover:translate-x-[200%] transition-transform duration-700" />
+                <Sparkles size={15} className="animate-pulse" /> AI ilə Yarat
               </button>
             </div>
           )}
@@ -276,10 +279,11 @@ export default function MenimQuizlerimPage() {
                 </button>
                 <button
                   onClick={() => { setSelectedBotId(undefined); setOpenAI(true); setView("create"); }}
-                  className="flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90 w-full sm:w-auto justify-center"
-                  style={{ background: "linear-gradient(135deg,#667eea 0%,#764ba2 100%)" }}
+                  className="relative flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold text-white transition-all hover:scale-105 overflow-hidden w-full sm:w-auto justify-center"
+                  style={{ background: "linear-gradient(135deg, #a855f7 0%, #6366f1 50%, #ec4899 100%)", boxShadow: "0 0 24px rgba(168,85,247,0.45)" }}
                 >
-                  <Sparkles size={15} /> AI ilə Yarat
+                  <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 -skew-x-12 translate-x-[-100%] hover:translate-x-[200%] transition-transform duration-700" />
+                  <Sparkles size={15} className="animate-pulse" /> AI ilə Yarat
                 </button>
                 <button
                   onClick={() => setTab("botlar")}
