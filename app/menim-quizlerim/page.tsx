@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
-  Plus, Trash2, Edit, BookOpen, Search, X, Loader2, ChevronRight, Bot,
+  Plus, Trash2, Edit, BookOpen, Search, X, Loader2, ChevronRight, Bot, Sparkles,
 } from "lucide-react";
 import { useToast } from "@/components/ui/toast-1";
 import { getCategoryLabel, getTypeLabel } from "@/lib/utils";
@@ -31,6 +31,7 @@ export default function MenimQuizlerimPage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [editLoading, setEditLoading] = useState<string | null>(null);
   const [selectedBotId, setSelectedBotId] = useState<string | undefined>(undefined);
+  const [openAI, setOpenAI] = useState(false);
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/auth/giris");
@@ -111,16 +112,19 @@ export default function MenimQuizlerimPage() {
         <UserQuizForm
           quiz={view === "edit" ? editingQuiz : undefined}
           preselectedBotId={view === "create" ? selectedBotId : undefined}
+          autoOpenAI={view === "create" ? openAI : false}
           onSuccess={() => {
             setView("list");
             setEditingQuiz(null);
             setSelectedBotId(undefined);
+            setOpenAI(false);
             fetchQuizzes();
           }}
           onCancel={() => {
             setView("list");
             setEditingQuiz(null);
             setSelectedBotId(undefined);
+            setOpenAI(false);
           }}
         />
       </div>
@@ -148,12 +152,21 @@ export default function MenimQuizlerimPage() {
           </p>
         </div>
         {tab === "quizler" && (
-          <button
-            onClick={() => { setSelectedBotId(undefined); setView("create"); }}
-            className="btn-primary flex items-center gap-2 self-start sm:self-auto"
-          >
-            <Plus size={16} /> Yeni Quiz
-          </button>
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            <button
+              onClick={() => { setSelectedBotId(undefined); setView("create"); }}
+              className="btn-primary flex items-center gap-2"
+            >
+              <Plus size={16} /> Yeni Quiz
+            </button>
+            <button
+              onClick={() => { setSelectedBotId(undefined); setOpenAI(true); setView("create"); }}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90"
+              style={{ background: "linear-gradient(135deg,#667eea 0%,#764ba2 100%)" }}
+            >
+              <Sparkles size={15} /> AI ilə Yarat
+            </button>
+          </div>
         )}
       </div>
 

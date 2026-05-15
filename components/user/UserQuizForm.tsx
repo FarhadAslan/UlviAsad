@@ -26,9 +26,10 @@ interface UserQuizFormProps {
   onSuccess: () => void;
   onCancel: () => void;
   preselectedBotId?: string;
+  autoOpenAI?: boolean;
 }
 
-export default function UserQuizForm({ quiz, onSuccess, onCancel, preselectedBotId }: UserQuizFormProps) {
+export default function UserQuizForm({ quiz, onSuccess, onCancel, preselectedBotId, autoOpenAI }: UserQuizFormProps) {
   const { success, error } = useToast();
   const isEditMode = !!quiz;
 
@@ -53,7 +54,7 @@ export default function UserQuizForm({ quiz, onSuccess, onCancel, preselectedBot
   );
 
   const [loading, setLoading] = useState(false);
-  const [showAI, setShowAI] = useState(!!preselectedBotId);
+  const [showAI, setShowAI] = useState(!!(preselectedBotId || autoOpenAI));
   const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [uploadingIdx, setUploadingIdx] = useState<number | null>(null);
 
