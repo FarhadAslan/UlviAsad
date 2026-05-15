@@ -16,13 +16,12 @@ export async function GET(req: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
     }
+    const { searchParams } = new URL(req.url);
     const isAdminOrTeacher = userRole === "ADMIN" || userRole === "TEACHER";
     // Adi istifadəçilər yalnız aktiv botları görə bilər
     if (!isAdminOrTeacher && searchParams.get("active") !== "true") {
       return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
     }
-
-    const { searchParams } = new URL(req.url);
     const activeOnly = searchParams.get("active") === "true";
 
     const bots = await prisma.aiBot.findMany({
