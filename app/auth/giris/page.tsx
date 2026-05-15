@@ -11,10 +11,11 @@ import { AuthCard, AuthField } from "@/components/ui/sign-in-card-2";
 export default function LoginPage() {
   const router = useRouter();
   const { success, error } = useToast();
-  const [email,    setEmail]    = useState("");
-  const [password, setPassword] = useState("");
-  const [showPw,   setShowPw]   = useState(false);
-  const [loading,  setLoading]  = useState(false);
+  const [email,         setEmail]         = useState("");
+  const [password,      setPassword]      = useState("");
+  const [showPw,        setShowPw]        = useState(false);
+  const [loading,       setLoading]       = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,10 +28,26 @@ export default function LoginPage() {
     finally { setLoading(false); }
   };
 
-  return (
-    <AuthCard mode="login" onSubmit={handleSubmit} loading={loading}
-      title="Xoş Gəldiniz" subtitle="Hesabınıza daxil olun">
+  const handleGoogleSignIn = async () => {
+    setGoogleLoading(true);
+    try {
+      await signIn("google", { callbackUrl: "/" });
+    } catch {
+      error("Google ilə giriş zamanı xəta baş verdi");
+      setGoogleLoading(false);
+    }
+  };
 
+  return (
+    <AuthCard
+      mode="login"
+      onSubmit={handleSubmit}
+      loading={loading}
+      title="Xoş Gəldiniz"
+      subtitle="Hesabınıza daxil olun"
+      onGoogleSignIn={handleGoogleSignIn}
+      googleLoading={googleLoading}
+    >
       <AuthField icon={Mail} type="email" name="email" value={email}
         onChange={(e) => setEmail(e.target.value)} placeholder="Email ünvanı" required />
 

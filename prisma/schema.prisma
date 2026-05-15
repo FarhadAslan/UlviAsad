@@ -17,7 +17,7 @@ model User {
   id        String   @id @default(cuid())
   name      String
   email     String   @unique
-  password  String
+  password  String?
   role      String   @default("USER")
   image     String?
   active    Boolean  @default(true)
@@ -39,6 +39,9 @@ model User {
 
   // Müəllimin adminə göndərdiyi sorğular
   requests       Request[] @relation("TeacherRequests")
+
+  // OAuth hesabları (Google, GitHub, vs.)
+  accounts       Account[]
 
   @@index([teacherId])
 }
@@ -172,6 +175,26 @@ model SiteSettings {
   instagram    String @default("")
   youtube      String @default("")
   updatedAt    DateTime @updatedAt
+}
+
+// OAuth hesabları — NextAuth üçün
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
 }
 
 model PasswordResetToken {

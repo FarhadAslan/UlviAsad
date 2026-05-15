@@ -1,14 +1,22 @@
 import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
+import GoogleProvider from "next-auth/providers/google";
+import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 
 export const authOptions: NextAuthOptions = {
+  adapter: PrismaAdapter(prisma),
   providers: [
+    GoogleProvider({
+      clientId:     process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      allowDangerousEmailAccountLinking: true,
+    }),
     CredentialsProvider({
       name: "credentials",
       credentials: {
-        email: { label: "Email", type: "email" },
+        email:    { label: "Email",  type: "email" },
         password: { label: "Şifrə", type: "password" },
       },
       async authorize(credentials) {
@@ -24,10 +32,12 @@ export const authOptions: NextAuthOptions = {
           throw new Error("İstifadəçi tapılmadı");
         }
 
-        // Yalnız admin tərəfindən açıq şəkildə deaktiv edilmiş hesabları blok et
-        const isActive = user.active !== false;
-        if (!isActive) {
+        if (user.active === false) {
           throw new Error("Hesabınız deaktiv edilib");
+        }
+
+        if (!user.password) {
+          throw new Error("Bu hesab Google ilə qeydiyyatdan keçib. Google ilə daxil olun.");
         }
 
         const isPasswordValid = await bcrypt.compare(
@@ -40,35 +50,45 @@ export const authOptions: NextAuthOptions = {
         }
 
         return {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          image: user.image,
+          id:        user.id,
+          name:      user.name,
+          email:     user.email,
+          role:      user.role,
+          image:     user.image,
           teacherId: (user as any).teacherId ?? null,
         };
       },
     }),
   ],
   callbacks: {
+    async signIn({ user, account }) {
+      // Google ilə giriş zamanı istifadəçi mövcud deyilsə avtomatik yaradılır (adapter edir)
+      // Mövcuddursa active yoxlanır
+      if (account?.provider === "google") {
+        const dbUser = await prisma.user.findUnique({
+          where: { email: user.email! },
+        });
+        if (dbUser && dbUser.active === false) {
+          return false; // deaktiv hesab
+        }
+      }
+      return true;
+    },
     async jwt({ token, user, trigger }) {
-      // İlk login zamanı user məlumatlarını token-ə yaz
       if (user) {
-        token.role = (user as any).role;
-        token.id = user.id;
+        token.role      = (user as any).role;
+        token.id        = user.id;
         token.teacherId = (user as any).teacherId ?? null;
       }
 
-      // Hər session yenilənməsində (və ya "update" trigger-ında)
-      // database-dən cari rolu oxu — admin tərəfindən dəyişdirilmiş ola bilər
       if (trigger === "update" || (!user && token.id)) {
         try {
           const dbUser = await prisma.user.findUnique({
-            where: { id: token.id as string },
+            where:  { id: token.id as string },
             select: { role: true, active: true, teacherId: true },
           });
           if (dbUser) {
-            token.role = dbUser.role;
+            token.role      = dbUser.role;
             token.teacherId = (dbUser as any).teacherId ?? null;
           }
         } catch {
@@ -80,8 +100,8 @@ export const authOptions: NextAuthOptions = {
     },
     async session({ session, token }) {
       if (session.user) {
-        (session.user as any).role = token.role;
-        (session.user as any).id = token.id;
+        (session.user as any).role      = token.role;
+        (session.user as any).id        = token.id;
         (session.user as any).teacherId = token.teacherId ?? null;
       }
       return session;

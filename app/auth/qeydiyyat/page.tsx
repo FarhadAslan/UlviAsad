@@ -12,8 +12,9 @@ export default function RegisterPage() {
   const router = useRouter();
   const { success, error } = useToast();
   const [form, setForm] = useState({ name: "", email: "", password: "", confirmPassword: "" });
-  const [showPw,  setShowPw]  = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [showPw,        setShowPw]        = useState(false);
+  const [loading,       setLoading]       = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((p) => ({ ...p, [k]: e.target.value }));
@@ -38,10 +39,26 @@ export default function RegisterPage() {
     finally { setLoading(false); }
   };
 
-  return (
-    <AuthCard mode="register" onSubmit={handleSubmit} loading={loading}
-      title="Qeydiyyat" subtitle="Yeni hesab yaradın">
+  const handleGoogleSignIn = async () => {
+    setGoogleLoading(true);
+    try {
+      await signIn("google", { callbackUrl: "/" });
+    } catch {
+      error("Google ilə qeydiyyat zamanı xəta baş verdi");
+      setGoogleLoading(false);
+    }
+  };
 
+  return (
+    <AuthCard
+      mode="register"
+      onSubmit={handleSubmit}
+      loading={loading}
+      title="Qeydiyyat"
+      subtitle="Yeni hesab yaradın"
+      onGoogleSignIn={handleGoogleSignIn}
+      googleLoading={googleLoading}
+    >
       <AuthField icon={User} type="text" name="name" value={form.name}
         onChange={set("name")} placeholder="Ad Soyad" required />
 
