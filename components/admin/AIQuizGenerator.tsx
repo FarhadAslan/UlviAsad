@@ -40,7 +40,7 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
 
   const handleGenerate = async () => {
     if (!title.trim()) { error("Quiz mövzusu daxil edin"); return; }
-    if (questionCount < 1 || questionCount > 30) { error("Sual sayı 1-30 arasında olmalıdır"); return; }
+    if (questionCount < 1 || questionCount > 50) { error("Sual sayı 1-50 arasında olmalıdır"); return; }
     setLoading(true);
     try {
       const res = await fetch("/api/ai/generate-quiz", {
@@ -160,7 +160,7 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
               </label>
               <input type="number" value={questionCount}
                 onChange={(e) => setQuestionCount(parseInt(e.target.value) || 1)}
-                min={1} max={30} className="input-field" disabled={loading} />
+                min={1} max={50} className="input-field" disabled={loading} />
             </div>
             {/* Dil seçimi müvəqqəti gizlədilib, ehtiyac olduqda 'hidden' klasını silə bilərsiniz */}
             <div className="hidden">

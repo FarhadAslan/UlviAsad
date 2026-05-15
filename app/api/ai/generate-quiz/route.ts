@@ -276,8 +276,8 @@ export async function POST(req: NextRequest) {
     if (!title?.trim()) {
       return NextResponse.json({ error: "Quiz başlığı tələb olunur" }, { status: 400 });
     }
-    if (!questionCount || questionCount < 1 || questionCount > 30) {
-      return NextResponse.json({ error: "Sual sayı 1-30 arasında olmalıdır" }, { status: 400 });
+    if (!questionCount || questionCount < 1 || questionCount > 50) {
+      return NextResponse.json({ error: "Sual sayı 1-50 arasında olmalıdır" }, { status: 400 });
     }
 
     let botSystemPrompt = `Sən quiz yaradıcısısan. Verilən mövzu üzrə test sualları yarat.
@@ -285,6 +285,7 @@ Cavabı MÜTLƏQ aşağıdakı JSON formatında ver — başqa heç nə yazma:
 {"questions":[{"text":"Sual 1 mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"},{"text":"Sual 2 mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"B"}]}`;
 
     let botChunks: string[] = [""];
+    let previousQuestionsSummary = ""; // Bu bot ilə əvvəl yaradılmış sualların xülasəsi
 
     if (botId) {
       const bot = await prisma.aiBot.findUnique({
@@ -294,6 +295,46 @@ Cavabı MÜTLƏQ aşağıdakı JSON formatında ver — başqa heç nə yazma:
 
       if (!bot) {
         return NextResponse.json({ error: "Seçilmiş AI bot tapılmadı" }, { status: 404 });
+      }
+
+      // Bu bot ilə əvvəl yaradılmış quizlərin suallarını çək
+      const userId = (session?.user as any)?.id;
+      if (userId) {
+        const previousQuizzes = await prisma.quiz.findMany({
+          where: {
+            createdById: userId,
+            // Bu botla yaradılmış quizlər — title-da bot adı ola bilər, amma
+            // daha etibarlı yol: bu botun content-i ilə yaradılmış bütün quizlər
+            // Sadəcə bu user-in bütün quizlərinin suallarını götürürük
+          },
+          select: {
+            questions: {
+              select: { text: true },
+              take: 5, // hər quizdən maks 5 sual
+            },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 20, // son 20 quiz
+        });
+
+        const allPrevTexts: string[] = [];
+        for (const pq of previousQuizzes) {
+          for (const q of pq.questions) {
+            if (q.text) {
+              // HTML taglarını sil, qısa xülasə üçün
+              const clean = q.text.replace(/<[^>]+>/g, "").trim();
+              if (clean.length > 5) allPrevTexts.push(clean);
+            }
+          }
+        }
+
+        if (allPrevTexts.length > 0) {
+          // Maks 80 sual xülasəsi göndər (token limitinə görə)
+          const limited = allPrevTexts.slice(0, 80);
+          previousQuestionsSummary = limited
+            .map((t, i) => `${i + 1}. ${t.slice(0, 120)}`)
+            .join("\n");
+        }
       }
 
       botSystemPrompt = `${bot.prompt}
@@ -335,13 +376,19 @@ MÜTLƏQ bu JSON formatında cavab ver — başqa heç nə yazma:
       const contextPart = chunk
         ? `\n\nBilik bazası (${ci + 1}/${chunkCount} hissə):\n---\n${chunk}\n---\n`
         : "";
+
+      const avoidPart = previousQuestionsSummary
+        ? `\n\nAŞAĞIDAKI SUALLAR ARTIQ YARADILIB — BUNLARI VƏ BUNLARA OXŞAR SUALLAR YARATMA, TAMAMILƏ YENİ SUALLAR YAZ:\n---\n${previousQuestionsSummary}\n---\n`
+        : "";
+
       return `${langLabel} "${title}" mövzusu üzrə DƏQIQ ${count} ədəd test sualı yarat. Nə az, nə çox — məhz ${count} sual.
-Kateqoriya: ${categoryLabel}${contextPart}
+Kateqoriya: ${categoryLabel}${contextPart}${avoidPart}
 Tələblər:
 - Hər sualın 4 variant cavabı olsun (A, B, C, D)
 - Yalnız 1 düzgün cavab olsun
 - Suallar mövzuya uyğun, aydın və dəqiq olsun
 - Variantlar inandırıcı olsun
+- Əvvəlki suallarla eyni və ya çox oxşar suallar YARATMA
 ${botId ? "- Yalnız verilmiş bilik bazasından istifadə et" : ""}
 
 Cavabı YALNIZ JSON formatında ver, ${count} sual ilə:

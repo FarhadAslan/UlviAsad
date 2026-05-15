@@ -50,7 +50,7 @@ export default function UserAIQuizGenerator({
 
   const handleGenerate = async () => {
     if (!title.trim()) { error("Quiz mövzusu daxil edin"); return; }
-    if (questionCount < 1 || questionCount > 30) { error("Sual sayı 1-30 arasında olmalıdır"); return; }
+    if (questionCount < 1 || questionCount > 50) { error("Sual sayı 1-50 arasında olmalıdır"); return; }
     setLoading(true);
     try {
       const res = await fetch("/api/ai/generate-quiz", {
@@ -169,7 +169,7 @@ export default function UserAIQuizGenerator({
               value={questionCount}
               onChange={(e) => setQuestionCount(parseInt(e.target.value) || 1)}
               min={1}
-              max={30}
+              max={50}
               className="input-field"
               disabled={loading}
             />
