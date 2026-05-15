@@ -202,7 +202,6 @@ export async function POST(req: NextRequest) {
         category,
         type,
         duration: type === "SINAQ" ? duration : null,
-        visibility: visibility || "PUBLIC",
         // Müəllim yaratdıqda default deaktiv, admin yaratdıqda aktiv, user/student yaratdıqda PRIVATE (yalnız özü görür)
         active: userRole === "TEACHER" ? false : (userRole === "ADMIN" ? (active !== undefined ? active : true) : true),
         // USER/STUDENT yaratdıqda visibility PRIVATE (yalnız özü görür)
