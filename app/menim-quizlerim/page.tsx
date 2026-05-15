@@ -4,16 +4,31 @@ import { useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
-  Plus, Trash2, Edit, BookOpen, Search, X, Loader2, ChevronRight, Bot, Sparkles,
+  Plus, Trash2, Edit, BookOpen, Search, X, Loader2, ChevronRight,
+  Bot, Sparkles, Trophy, Clock, HelpCircle, Zap,
 } from "lucide-react";
 import { useToast } from "@/components/ui/toast-1";
-import { getCategoryLabel, getTypeLabel } from "@/lib/utils";
+import { getTypeLabel } from "@/lib/utils";
 import UserQuizForm from "@/components/user/UserQuizForm";
 import UserBotManager from "@/components/user/UserBotManager";
 import ConfirmModal from "@/components/ui/confirm-modal";
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 12;
 type Tab = "quizler" | "botlar";
+
+// Hər quiz üçün sabit gradient seçir (id-yə görə)
+const CARD_GRADIENTS = [
+  "from-blue-500 to-indigo-600",
+  "from-violet-500 to-purple-600",
+  "from-emerald-500 to-teal-600",
+  "from-orange-500 to-amber-600",
+  "from-pink-500 to-rose-600",
+  "from-cyan-500 to-blue-600",
+];
+function getGradient(id: string) {
+  const idx = id.charCodeAt(0) % CARD_GRADIENTS.length;
+  return CARD_GRADIENTS[idx];
+}
 
 export default function MenimQuizlerimPage() {
   const { data: session, status } = useSession();
@@ -105,7 +120,6 @@ export default function MenimQuizlerimPage() {
 
   if (status === "unauthenticated") return null;
 
-  // Quiz yaratma/düzəltmə formu
   if (view === "create" || view === "edit") {
     return (
       <div className="container mx-auto px-4 py-6 sm:py-8 max-w-3xl">
@@ -143,71 +157,100 @@ export default function MenimQuizlerimPage() {
         onCancel={() => setConfirmDelete(null)}
       />
 
-      {/* Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Mənim Quizlərim</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Özünüz üçün quiz yaradın — yalnız siz görə bilərsiniz
-          </p>
+      {/* ── HERO HEADER ── */}
+      <div className="relative overflow-hidden rounded-2xl mb-6 sm:mb-8 p-6 sm:p-8"
+        style={{ background: "linear-gradient(135deg, #1a7fe0 0%, #1f6f43 100%)" }}>
+        {/* Dekorativ dairələr */}
+        <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full opacity-10 bg-white" />
+        <div className="absolute -bottom-10 -left-6 w-32 h-32 rounded-full opacity-10 bg-white" />
+        <div className="absolute top-4 right-24 w-16 h-16 rounded-full opacity-5 bg-white" />
+
+        <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <Trophy size={18} className="text-yellow-300" />
+              <span className="text-white/80 text-sm font-medium">Şəxsi Məkan</span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-white mb-1">Mənim Quizlərim</h1>
+            <p className="text-white/70 text-sm">
+              Öz quizlərini yarat, AI ilə genişləndir, bilikini test et
+            </p>
+          </div>
+
+          {tab === "quizler" && (
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={() => { setSelectedBotId(undefined); setView("create"); }}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-white text-slate-800 hover:bg-slate-50 transition-all shadow-sm"
+              >
+                <Plus size={15} /> Yeni Quiz
+              </button>
+              <button
+                onClick={() => { setSelectedBotId(undefined); setOpenAI(true); setView("create"); }}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90 border border-white/30 bg-white/15 backdrop-blur-sm"
+              >
+                <Sparkles size={15} /> AI ilə Yarat
+              </button>
+            </div>
+          )}
         </div>
-        {tab === "quizler" && (
-          <div className="flex items-center gap-2 self-start sm:self-auto">
-            <button
-              onClick={() => { setSelectedBotId(undefined); setView("create"); }}
-              className="btn-primary flex items-center gap-2"
-            >
-              <Plus size={16} /> Yeni Quiz
-            </button>
-            <button
-              onClick={() => { setSelectedBotId(undefined); setOpenAI(true); setView("create"); }}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90"
-              style={{ background: "linear-gradient(135deg,#667eea 0%,#764ba2 100%)" }}
-            >
-              <Sparkles size={15} /> AI ilə Yarat
-            </button>
+
+        {/* Statistika sətri */}
+        {tab === "quizler" && quizzes.length > 0 && (
+          <div className="relative flex items-center gap-4 mt-5 pt-4 border-t border-white/20">
+            <div className="flex items-center gap-1.5 text-white/80 text-xs">
+              <BookOpen size={13} />
+              <span><strong className="text-white">{quizzes.length}</strong> quiz</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-white/80 text-xs">
+              <HelpCircle size={13} />
+              <span>
+                <strong className="text-white">
+                  {quizzes.reduce((s, q) => s + (q._count?.questions || 0), 0)}
+                </strong> sual
+              </span>
+            </div>
           </div>
         )}
       </div>
 
-      {/* Tab-lar */}
-      <div className="flex gap-1 p-1 rounded-xl bg-slate-100 mb-5 w-fit">
-        <button
-          onClick={() => setTab("quizler")}
-          className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-            tab === "quizler" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
-          }`}
-        >
-          <BookOpen size={14} />
-          <span>Quizlərim</span>
-          {quizzes.length > 0 && (
-            <span className="px-1.5 py-0.5 rounded-full text-xs bg-slate-200 text-slate-600">
-              {quizzes.length}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => setTab("botlar")}
-          className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-            tab === "botlar" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
-          }`}
-        >
-          <Bot size={14} />
-          <span>Botlarım</span>
-        </button>
+      {/* ── TABS ── */}
+      <div className="flex gap-1 p-1 rounded-xl bg-slate-100 mb-6 w-fit">
+        {([
+          { key: "quizler", label: "Quizlərim", icon: BookOpen, count: quizzes.length },
+          { key: "botlar",  label: "Botlarım",  icon: Bot,      count: null },
+        ] as const).map(({ key, label, icon: Icon, count }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              tab === key
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            <Icon size={14} />
+            <span>{label}</span>
+            {count !== null && count > 0 && (
+              <span className={`px-1.5 py-0.5 rounded-full text-xs font-semibold ${
+                tab === key ? "bg-[#1a7fe0]/10 text-[#1a7fe0]" : "bg-slate-200 text-slate-500"
+              }`}>
+                {count}
+              </span>
+            )}
+          </button>
+        ))}
       </div>
 
       {/* ── BOTLAR TAB ── */}
       {tab === "botlar" && (
-        <div className="card-static">
-          <UserBotManager
-            onSelectBot={(bot) => {
-              setSelectedBotId(bot.id);
-              setTab("quizler");
-              setView("create");
-            }}
-          />
-        </div>
+        <UserBotManager
+          onSelectBot={(bot) => {
+            setSelectedBotId(bot.id);
+            setTab("quizler");
+            setView("create");
+          }}
+        />
       )}
 
       {/* ── QUİZLƏR TAB ── */}
@@ -216,30 +259,31 @@ export default function MenimQuizlerimPage() {
           {/* Boş vəziyyət */}
           {!loading && quizzes.length === 0 && (
             <div className="text-center py-16 sm:py-20">
-              <div
-                className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl flex items-center justify-center mx-auto mb-4 sm:mb-5"
-                style={{ background: "rgba(147,204,255,0.15)" }}
-              >
-                <BookOpen size={30} className="text-[#1a7fe0] sm:hidden" />
-                <BookOpen size={36} className="text-[#1a7fe0] hidden sm:block" />
+              <div className="w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-5"
+                style={{ background: "linear-gradient(135deg,rgba(26,127,224,0.12),rgba(31,111,67,0.12))" }}>
+                <BookOpen size={36} className="text-[#1a7fe0]" />
               </div>
-              <h3 className="text-lg sm:text-xl font-semibold text-slate-800 mb-2">
-                Hələ quiz yaratmamısınız
-              </h3>
-              <p className="text-sm text-slate-500 mb-6 max-w-sm mx-auto">
-                Özünüz üçün quiz yaradın. AI ilə avtomatik suallar da əlavə edə bilərsiniz.
+              <h3 className="text-xl font-bold text-slate-800 mb-2">Hələ quiz yaratmamısınız</h3>
+              <p className="text-sm text-slate-500 mb-8 max-w-sm mx-auto leading-relaxed">
+                İlk quizinizi yaradın. Özünüz sual əlavə edin və ya AI ilə saniyələr içində quiz hazırlayın.
               </p>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
                 <button
                   onClick={() => { setSelectedBotId(undefined); setView("create"); }}
-                  className="btn-primary flex items-center gap-2 w-full sm:w-auto justify-center"
+                  className="btn-primary flex items-center gap-2 w-full sm:w-auto justify-center px-6 py-3"
                 >
                   <Plus size={16} /> Quiz Yarat
                 </button>
                 <button
-                  onClick={() => setTab("botlar")}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90 w-full sm:w-auto justify-center"
+                  onClick={() => { setSelectedBotId(undefined); setOpenAI(true); setView("create"); }}
+                  className="flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90 w-full sm:w-auto justify-center"
                   style={{ background: "linear-gradient(135deg,#667eea 0%,#764ba2 100%)" }}
+                >
+                  <Sparkles size={15} /> AI ilə Yarat
+                </button>
+                <button
+                  onClick={() => setTab("botlar")}
+                  className="flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all w-full sm:w-auto justify-center"
                 >
                   <Bot size={15} /> Bot Yarat
                 </button>
@@ -247,187 +291,153 @@ export default function MenimQuizlerimPage() {
             </div>
           )}
 
-          {/* Axtarış + siyahı */}
+          {/* Axtarış */}
           {(loading || quizzes.length > 0) && (
             <>
               {quizzes.length > 0 && (
-                <div className="card-static mb-4">
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <div className="relative flex-1">
-                      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <input
-                        type="text"
-                        value={search}
-                        onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                        placeholder="Ada görə axtar..."
-                        className="input-field pl-8 py-1.5 text-sm h-9"
-                      />
-                    </div>
-                    {search && (
-                      <button
-                        onClick={() => { setSearch(""); setPage(1); }}
-                        className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800 px-2 py-1.5 rounded-lg hover:bg-slate-100 transition-all border border-slate-200 flex-shrink-0"
-                      >
-                        <X size={12} /> <span className="hidden sm:inline">Təmizlə</span>
-                      </button>
-                    )}
-                    <span className="text-xs text-slate-400 flex-shrink-0">{filtered.length} quiz</span>
+                <div className="flex items-center gap-2 sm:gap-3 mb-5">
+                  <div className="relative flex-1 max-w-sm">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      value={search}
+                      onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                      placeholder="Quiz axtar..."
+                      className="input-field pl-9 py-2 text-sm"
+                    />
                   </div>
+                  {search && (
+                    <button
+                      onClick={() => { setSearch(""); setPage(1); }}
+                      className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800 px-3 py-2 rounded-xl hover:bg-slate-100 transition-all border border-slate-200"
+                    >
+                      <X size={12} /> Təmizlə
+                    </button>
+                  )}
+                  <span className="text-xs text-slate-400 ml-auto">{filtered.length} nəticə</span>
                 </div>
               )}
 
-              <div className="card-static overflow-hidden">
-                {loading ? (
-                  <div className="space-y-3">
-                    {[...Array(4)].map((_, i) => (
-                      <div key={i} className="h-14 rounded-xl animate-pulse" style={{ background: "rgba(147,204,255,0.08)" }} />
-                    ))}
-                  </div>
-                ) : (
-                  <>
-                    {/* Mobil kart görünüşü */}
-                    <div className="sm:hidden space-y-3">
-                      {paginated.map((quiz) => (
-                        <div key={quiz.id} className="p-3 rounded-xl border border-slate-100 bg-slate-50/50">
-                          <div className="flex items-start justify-between gap-2 mb-2">
-                            <p className="font-semibold text-sm text-slate-800 leading-tight">{quiz.title}</p>
-                            <div className="flex items-center gap-1 flex-shrink-0">
+              {/* Quiz Card Grid */}
+              {loading ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {[...Array(6)].map((_, i) => (
+                    <div key={i} className="h-44 rounded-2xl animate-pulse"
+                      style={{ background: "rgba(147,204,255,0.08)" }} />
+                  ))}
+                </div>
+              ) : (
+                <>
+                  {filtered.length === 0 && (
+                    <div className="text-center py-12 text-slate-400 text-sm">
+                      Axtarışa uyğun quiz tapılmadı
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {paginated.map((quiz) => {
+                      const grad = getGradient(quiz.id);
+                      const qCount = quiz._count?.questions || 0;
+                      return (
+                        <div
+                          key={quiz.id}
+                          className="group relative bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-200"
+                        >
+                          {/* Rəngli üst zolaq */}
+                          <div className={`h-2 w-full bg-gradient-to-r ${grad}`} />
+
+                          <div className="p-4 sm:p-5">
+                            {/* Tip badge */}
+                            <div className="flex items-center justify-between mb-3">
+                              <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+                                quiz.type === "SINAQ"
+                                  ? "bg-blue-50 text-blue-600 border border-blue-100"
+                                  : "bg-emerald-50 text-emerald-600 border border-emerald-100"
+                              }`}>
+                                {getTypeLabel(quiz.type)}
+                              </span>
+                              <span className="text-xs text-slate-400">
+                                {new Date(quiz.createdAt).toLocaleDateString("az-AZ")}
+                              </span>
+                            </div>
+
+                            {/* Başlıq */}
+                            <h3 className="font-bold text-slate-800 text-sm sm:text-base leading-snug mb-3 line-clamp-2 group-hover:text-[#1a7fe0] transition-colors">
+                              {quiz.title}
+                            </h3>
+
+                            {/* Statistika */}
+                            <div className="flex items-center gap-3 mb-4">
+                              <div className="flex items-center gap-1 text-xs text-slate-500">
+                                <HelpCircle size={12} className="text-slate-400" />
+                                <span>{qCount} sual</span>
+                              </div>
+                              {quiz.timeLimit && (
+                                <div className="flex items-center gap-1 text-xs text-slate-500">
+                                  <Clock size={12} className="text-slate-400" />
+                                  <span>{quiz.timeLimit} dəq</span>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Əməliyyat düymələri */}
+                            <div className="flex items-center gap-2 pt-3 border-t border-slate-100">
                               <a
                                 href={`/quizler/${quiz.id}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="p-1.5 text-[#1f6f43] hover:bg-green-50 rounded-lg transition-all"
+                                className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold text-white transition-all hover:opacity-90"
+                                style={{ background: "linear-gradient(135deg,#1f6f43,#2d9d5f)" }}
                               >
-                                <ChevronRight size={14} />
+                                <ChevronRight size={13} /> Başla
                               </a>
                               <button
                                 onClick={() => handleEdit(quiz)}
                                 disabled={editLoading === quiz.id}
-                                className="p-1.5 text-[#1a7fe0] hover:bg-blue-50 rounded-lg transition-all disabled:opacity-50"
+                                className="flex items-center justify-center w-9 h-9 rounded-xl border border-slate-200 text-slate-500 hover:text-[#1a7fe0] hover:border-blue-200 hover:bg-blue-50 transition-all disabled:opacity-50"
+                                title="Düzəlt"
                               >
-                                {editLoading === quiz.id ? (
-                                  <div className="w-3.5 h-3.5 border-2 border-blue-200 border-t-[#1a7fe0] rounded-full animate-spin" />
-                                ) : <Edit size={14} />}
+                                {editLoading === quiz.id
+                                  ? <Loader2 size={13} className="animate-spin" />
+                                  : <Edit size={13} />}
                               </button>
                               <button
                                 onClick={() => setConfirmDelete(quiz.id)}
                                 disabled={deletingId === quiz.id}
-                                className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-all disabled:opacity-50"
+                                className="flex items-center justify-center w-9 h-9 rounded-xl border border-slate-200 text-slate-500 hover:text-red-500 hover:border-red-200 hover:bg-red-50 transition-all disabled:opacity-50"
+                                title="Sil"
                               >
-                                {deletingId === quiz.id ? (
-                                  <div className="w-3.5 h-3.5 border-2 border-red-200 border-t-red-500 rounded-full animate-spin" />
-                                ) : <Trash2 size={14} />}
+                                {deletingId === quiz.id
+                                  ? <Loader2 size={13} className="animate-spin" />
+                                  : <Trash2 size={13} />}
                               </button>
                             </div>
                           </div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className={quiz.type === "SINAQ" ? "badge-type-sinaq" : "badge-type-test"}>
-                              {getTypeLabel(quiz.type)}
-                            </span>
-                            <span className="text-xs text-slate-400">{quiz._count?.questions || 0} sual</span>
-                            <span className="text-xs text-slate-400">
-                              {new Date(quiz.createdAt).toLocaleDateString("az-AZ")}
-                            </span>
-                          </div>
                         </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Pagination */}
+                  {totalPages > 1 && (
+                    <div className="flex items-center justify-center gap-1.5 mt-6 flex-wrap">
+                      {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                        <button
+                          key={p}
+                          onClick={() => setPage(p)}
+                          className={`w-9 h-9 rounded-xl text-sm font-medium transition-all ${
+                            p === page
+                              ? "bg-[#1f6f43] text-white shadow-sm"
+                              : "border border-slate-200 text-slate-600 hover:border-[#1a7fe0] hover:text-[#1a7fe0]"
+                          }`}
+                        >
+                          {p}
+                        </button>
                       ))}
                     </div>
-
-                    {/* Desktop cədvəl görünüşü */}
-                    <div className="hidden sm:block overflow-x-auto">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="border-b border-slate-100">
-                            {["Başlıq", "Tip", "Suallar", "Tarix", "Əməliyyatlar"].map((h) => (
-                              <th key={h} className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 pr-4">
-                                {h}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50">
-                          {paginated.map((quiz) => (
-                            <tr key={quiz.id} className="hover:bg-slate-50 transition-colors">
-                              <td className="py-3 pr-4 font-medium text-sm text-slate-800 max-w-[220px] truncate">
-                                {quiz.title}
-                              </td>
-                              <td className="py-3 pr-4">
-                                <span className={quiz.type === "SINAQ" ? "badge-type-sinaq" : "badge-type-test"}>
-                                  {getTypeLabel(quiz.type)}
-                                </span>
-                              </td>
-                              <td className="py-3 pr-4 text-sm text-slate-500">
-                                {quiz._count?.questions || 0}
-                              </td>
-                              <td className="py-3 pr-4 text-xs text-slate-400">
-                                {new Date(quiz.createdAt).toLocaleDateString("az-AZ")}
-                              </td>
-                              <td className="py-3">
-                                <div className="flex items-center gap-1.5">
-                                  <a
-                                    href={`/quizler/${quiz.id}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="p-1.5 text-[#1f6f43] hover:bg-green-50 rounded-lg transition-all"
-                                    title="Quizi işlə"
-                                  >
-                                    <ChevronRight size={14} />
-                                  </a>
-                                  <button
-                                    onClick={() => handleEdit(quiz)}
-                                    disabled={editLoading === quiz.id}
-                                    className="p-1.5 text-[#1a7fe0] hover:bg-blue-50 rounded-lg transition-all disabled:opacity-50"
-                                    title="Düzəlt"
-                                  >
-                                    {editLoading === quiz.id ? (
-                                      <div className="w-3.5 h-3.5 border-2 border-blue-200 border-t-[#1a7fe0] rounded-full animate-spin" />
-                                    ) : <Edit size={14} />}
-                                  </button>
-                                  <button
-                                    onClick={() => setConfirmDelete(quiz.id)}
-                                    disabled={deletingId === quiz.id}
-                                    className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-all disabled:opacity-50"
-                                    title="Sil"
-                                  >
-                                    {deletingId === quiz.id ? (
-                                      <div className="w-3.5 h-3.5 border-2 border-red-200 border-t-red-500 rounded-full animate-spin" />
-                                    ) : <Trash2 size={14} />}
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {filtered.length === 0 && !loading && (
-                      <div className="text-center py-10 text-slate-400 text-sm">
-                        Axtarışa uyğun quiz tapılmadı
-                      </div>
-                    )}
-
-                    {/* Pagination */}
-                    {totalPages > 1 && (
-                      <div className="flex items-center justify-center gap-1.5 mt-4 pt-4 border-t border-slate-100 flex-wrap">
-                        {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
-                          <button
-                            key={p}
-                            onClick={() => setPage(p)}
-                            className={`w-8 h-8 rounded-lg text-sm font-medium transition-all ${
-                              p === page
-                                ? "bg-[#1f6f43] text-white shadow-sm"
-                                : "border border-slate-200 text-slate-600 hover:border-[rgb(147,204,255)] hover:text-[#1a7fe0]"
-                            }`}
-                          >
-                            {p}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
+                  )}
+                </>
+              )}
             </>
           )}
         </>
