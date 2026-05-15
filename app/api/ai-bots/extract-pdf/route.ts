@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     const session = await getServerSession(authOptions);
     const userRole = (session?.user as any)?.role;
 
-    if (!session || (userRole !== "ADMIN" && userRole !== "TEACHER")) {
+    if (!session || (userRole !== "ADMIN" && userRole !== "TEACHER" && userRole !== "USER" && userRole !== "STUDENT")) {
       return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
     }
 

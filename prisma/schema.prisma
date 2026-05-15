@@ -34,6 +34,9 @@ model User {
   // Müəllimin yaratdığı quizlər
   createdQuizzes Quiz[] @relation("QuizCreator")
 
+  // İstifadəçinin yaratdığı AI botlar
+  createdBots    AiBot[] @relation("UserBots")
+
   // Müəllimin adminə göndərdiyi sorğular
   requests       Request[] @relation("TeacherRequests")
 
@@ -206,6 +209,11 @@ model AiBot {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  // İstifadəçi tərəfindən yaradılmış bot (null = admin botu)
+  createdById String?
+  createdBy   User?    @relation("UserBots", fields: [createdById], references: [id], onDelete: Cascade)
+
   @@index([active])
   @@index([category])
+  @@index([createdById])
 }

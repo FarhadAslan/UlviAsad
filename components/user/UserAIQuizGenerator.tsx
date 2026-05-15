@@ -9,39 +9,58 @@ interface AiBot {
   name: string;
   category: string;
   active: boolean;
+  isUserBot?: boolean; // istifadəçinin öz botu
 }
 
 interface UserAIQuizGeneratorProps {
   onGenerate: (questions: any[], category?: string) => void;
   onClose: () => void;
   categories: { value: string; label: string }[];
+  preselectedBotId?: string; // UserBotManager-dən gələn bot
 }
 
 export default function UserAIQuizGenerator({
   onGenerate,
   onClose,
   categories,
+  preselectedBotId,
 }: UserAIQuizGeneratorProps) {
   const { success, error } = useToast();
   const [title, setTitle] = useState("");
   const [questionCount, setQuestionCount] = useState(5);
   const [category, setCategory] = useState("");
-  const [botId, setBotId] = useState<string>("");
-  const [bots, setBots] = useState<AiBot[]>([]);
+  const [botId, setBotId] = useState<string>(preselectedBotId || "");
+  const [adminBots, setAdminBots] = useState<AiBot[]>([]);
+  const [userBots, setUserBots] = useState<AiBot[]>([]);
   const [botsLoading, setBotsLoading] = useState(true);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    fetch("/api/ai-bots?active=true", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => {
-        if (Array.isArray(d)) setBots(d);
+    Promise.all([
+      fetch("/api/ai-bots?active=true", { cache: "no-store" }).then((r) => r.json()),
+      fetch("/api/user-bots", { cache: "no-store" }).then((r) => r.json()),
+    ])
+      .then(([admin, user]) => {
+        if (Array.isArray(admin)) setAdminBots(admin);
+        if (Array.isArray(user))
+          setUserBots(user.map((b: AiBot) => ({ ...b, isUserBot: true })));
       })
       .catch(() => {})
       .finally(() => setBotsLoading(false));
   }, []);
 
-  const selectedBot = bots.find((b) => b.id === botId);
+  // Preselected bot gəldikdə kateqoriyanı avtomatik set et
+  useEffect(() => {
+    if (preselectedBotId) {
+      setBotId(preselectedBotId);
+      const allBots = [...adminBots, ...userBots];
+      const bot = allBots.find((b) => b.id === preselectedBotId);
+      if (bot?.category) setCategory(bot.category);
+    }
+  }, [preselectedBotId, adminBots, userBots]);
+
+  const allBots = [...userBots, ...adminBots];
+  const selectedBot = allBots.find((b) => b.id === botId);
 
   const handleGenerate = async () => {
     if (!title.trim()) {
@@ -118,7 +137,7 @@ export default function UserAIQuizGenerator({
 
         {/* Body */}
         <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
-          {/* AI Bot seçimi */}
+          {/* Bot seçimi */}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">
               AI Bot{" "}
@@ -128,7 +147,7 @@ export default function UserAIQuizGenerator({
               <div className="input-field flex items-center gap-2 text-slate-400 text-sm">
                 <Loader2 size={14} className="animate-spin" /> Botlar yüklənir...
               </div>
-            ) : bots.length === 0 ? (
+            ) : allBots.length === 0 ? (
               <div className="rounded-xl border border-dashed border-slate-200 p-3 text-center text-sm text-slate-400">
                 <Bot size={18} className="mx-auto mb-1 opacity-40" />
                 Hələ AI bot mövcud deyil.
@@ -142,7 +161,7 @@ export default function UserAIQuizGenerator({
                   if (val === "") {
                     setCategory("");
                   } else {
-                    const bot = bots.find((b) => b.id === val);
+                    const bot = allBots.find((b) => b.id === val);
                     if (bot?.category) setCategory(bot.category);
                   }
                 }}
@@ -150,17 +169,32 @@ export default function UserAIQuizGenerator({
                 disabled={loading}
               >
                 <option value="">Ümumi AI (Bot olmadan)</option>
-                {bots.map((bot) => (
-                  <option key={bot.id} value={bot.id}>
-                    {bot.name} {bot.category ? `(${bot.category})` : ""}
-                  </option>
-                ))}
+                {userBots.length > 0 && (
+                  <optgroup label="📁 Mənim Botlarım">
+                    {userBots.map((bot) => (
+                      <option key={bot.id} value={bot.id}>
+                        {bot.name} {bot.category ? `(${bot.category})` : ""}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {adminBots.length > 0 && (
+                  <optgroup label="🌐 Ümumi Botlar">
+                    {adminBots.map((bot) => (
+                      <option key={bot.id} value={bot.id}>
+                        {bot.name} {bot.category ? `(${bot.category})` : ""}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             )}
             {selectedBot && (
-              <div className="mt-2 rounded-lg p-2.5 text-xs text-purple-700 bg-purple-50 border border-purple-100">
-                🤖 <strong>{selectedBot.name}</strong> — suallar yalnız bu botun
-                bilik bazasından yaradılacaq
+              <div className="mt-2 rounded-lg p-2.5 text-xs border bg-purple-50 border-purple-100 text-purple-700">
+                🤖 <strong>{selectedBot.name}</strong>
+                {selectedBot.isUserBot
+                  ? " — sizin botunuz, yalnız bu PDF-in məzmunundan sual yaradılacaq"
+                  : " — suallar yalnız bu botun bilik bazasından yaradılacaq"}
               </div>
             )}
           </div>
@@ -188,9 +222,7 @@ export default function UserAIQuizGenerator({
             <input
               type="number"
               value={questionCount}
-              onChange={(e) =>
-                setQuestionCount(parseInt(e.target.value) || 1)
-              }
+              onChange={(e) => setQuestionCount(parseInt(e.target.value) || 1)}
               min={1}
               max={30}
               className="input-field"
@@ -225,7 +257,7 @@ export default function UserAIQuizGenerator({
           <div className="rounded-xl p-3 text-xs text-purple-700 border border-purple-200 bg-purple-50">
             <p className="font-medium mb-1">💡 Məsləhət:</p>
             <ul className="space-y-0.5 text-purple-600">
-              <li>• Bot seçsəniz — AI yalnız botun bilik bazasından sual yaradacaq</li>
+              <li>• "Mənim Botlarım" bölməsindən öz PDF botunuzu seçin</li>
               <li>• Dəqiq mövzu adı daxil edin</li>
               <li>• AI 5-30 saniyə ərzində suallar yaradacaq</li>
             </ul>

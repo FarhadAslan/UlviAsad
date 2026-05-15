@@ -25,9 +25,10 @@ interface UserQuizFormProps {
   quiz?: any;
   onSuccess: () => void;
   onCancel: () => void;
+  preselectedBotId?: string; // Botlar tab-ından gələn bot ID
 }
 
-export default function UserQuizForm({ quiz, onSuccess, onCancel }: UserQuizFormProps) {
+export default function UserQuizForm({ quiz, onSuccess, onCancel, preselectedBotId }: UserQuizFormProps) {
   const { success, error } = useToast();
   const isEditMode = !!quiz;
 
@@ -68,7 +69,7 @@ export default function UserQuizForm({ quiz, onSuccess, onCancel }: UserQuizForm
   }, [categories, isEditMode]);
 
   const [loading, setLoading] = useState(false);
-  const [showAI, setShowAI] = useState(false);
+  const [showAI, setShowAI] = useState(!!preselectedBotId); // Bot seçilmişsə AI paneli avtomatik aç
   const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [uploadingIdx, setUploadingIdx] = useState<number | null>(null);
 
@@ -186,6 +187,7 @@ export default function UserQuizForm({ quiz, onSuccess, onCancel }: UserQuizForm
       {showAI && (
         <UserAIQuizGenerator
           categories={categories}
+          preselectedBotId={preselectedBotId}
           onClose={() => setShowAI(false)}
           onGenerate={(aiQuestions, aiCategory) => {
             setQuestions(aiQuestions);
