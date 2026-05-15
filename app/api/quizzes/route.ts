@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
 
     const where: any = {};
 
-    // myQuizzes=true — yalnız öz quizlərini gətir (giriş etmiş istənilən istifadəçi)
+    // myQuizzes=true — yalnız öz quizlərini gətir
     if (myQuizzes === "true") {
       if (!session || !userId) {
         return NextResponse.json({ error: "Giriş tələb olunur" }, { status: 401 });
@@ -31,15 +31,9 @@ export async function GET(req: NextRequest) {
       const quizzes = await prisma.quiz.findMany({
         where,
         select: {
-          id: true,
-          title: true,
-          category: true,
-          type: true,
-          duration: true,
-          visibility: true,
-          active: true,
-          createdAt: true,
-          createdById: true,
+          id: true, title: true, category: true, type: true,
+          duration: true, visibility: true, active: true,
+          createdAt: true, createdById: true,
           _count: { select: { questions: true, results: true } },
         },
         orderBy: { createdAt: "desc" },
@@ -49,67 +43,73 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    // adminAll=true — admin panel üçün: bütün quizlər (ADMIN icazəsi tələb olunur)
+    if (adminAll === "true" && userRole === "ADMIN") {
+      if (category && category !== "ALL") where.category = category;
+      if (type && type !== "ALL") where.type = type;
+      if (search) where.title = { contains: search, mode: "insensitive" };
+      const quizzes = await prisma.quiz.findMany({
+        where,
+        select: {
+          id: true, title: true, category: true, type: true,
+          duration: true, visibility: true, active: true,
+          createdAt: true, createdById: true,
+          createdBy: { select: { id: true, name: true } },
+          _count: { select: { questions: true, results: true } },
+          results: { orderBy: { score: "desc" }, take: 3, select: { id: true, score: true, user: { select: { name: true } } } },
+        },
+        orderBy: { createdAt: "desc" },
+        ...(limit ? { take: parseInt(limit) } : {}),
+      });
+      return NextResponse.json(quizzes, {
+        headers: { "Cache-Control": "no-store, no-cache, must-revalidate" },
+      });
+    }
+
     // Visibility filter based on role
     if (!userRole || userRole === "USER") {
-      // USER: yalnız PUBLIC quizlər, PRIVATE quizlər görünmür
       where.visibility = "PUBLIC";
-    } else if (userRole === "STUDENT") {
-      // STUDENT: PUBLIC + STUDENT_ONLY, amma PRIVATE deyil
+    } else if (userRole === "STUDENT" || userRole === "TEACHER") {
       where.visibility = { in: ["PUBLIC", "STUDENT_ONLY"] };
     }
-    // ADMIN/TEACHER: bütün visibility-lər görünür (adminAll=true ilə)
+    // ADMIN: visibility filteri yoxdur
 
-    // Active filter
-    if (userRole === "ADMIN" && adminAll === "true") {
-      // admin all — active filter yoxdur
-    } else if (userRole === "TEACHER" && adminAll === "true") {
-      // TEACHER öz quizlərinin hamısını görür (aktiv + deaktiv)
-      where.createdById = userId;
-    } else if (!userRole || userRole === "USER" || userRole === "STUDENT") {
+    // Active filter — ADMIN istisna olmaqla yalnız aktiv quizlər
+    if (userRole !== "ADMIN") {
       where.active = true;
     }
 
-    // STUDENT: yalnız öz müəlliminin + adminin quizlərini görür
-    if (userRole === "STUDENT" && userId) {
-      const student = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { teacherId: true },
-      });
-
-      // Admin id-lərini tap
-      const admins = await prisma.user.findMany({
-        where: { role: "ADMIN" },
-        select: { id: true },
-      });
+    // Yalnız ADMIN və TEACHER-ların yaratdığı quizlər görünsün (ADMIN istisna).
+    // Heç kimin öz yaratdığı quiz /quizler-də görünməsin.
+    if (userRole !== "ADMIN") {
+      const admins = await prisma.user.findMany({ where: { role: "ADMIN" }, select: { id: true } });
       const adminIds = admins.map((a) => a.id);
+      const teachers = await prisma.user.findMany({ where: { role: "TEACHER" }, select: { id: true } });
+      const teacherIds = teachers.map((t) => t.id);
 
-      if (student?.teacherId) {
-        // Müəllimi var: admin quizləri + öz müəlliminin quizləri
-        where.OR = [
-          { createdById: null },
-          { createdById: { in: adminIds } },
-          { createdById: student.teacherId },
-        ];
+      if (userRole === "STUDENT" && userId) {
+        // STUDENT: öz müəlliminin + admin quizlərini görür
+        const student = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { teacherId: true },
+        });
+        if (student?.teacherId) {
+          where.OR = [
+            { createdById: null },
+            { createdById: { in: adminIds } },
+            { createdById: student.teacherId },
+          ];
+        } else {
+          where.OR = [{ createdById: null }, { createdById: { in: adminIds } }];
+        }
       } else {
-        // Müəllimi yoxdur: yalnız admin quizləri
+        // USER, TEACHER: admin + bütün müəllimlərin quizləri
         where.OR = [
           { createdById: null },
           { createdById: { in: adminIds } },
+          { createdById: { in: teacherIds } },
         ];
       }
-    }
-
-    // USER və ya giriş etməmiş: yalnız admin quizləri
-    if (!userRole || userRole === "USER") {
-      const admins = await prisma.user.findMany({
-        where: { role: "ADMIN" },
-        select: { id: true },
-      });
-      const adminIds = admins.map((a) => a.id);
-      where.OR = [
-        { createdById: null },
-        { createdById: { in: adminIds } },
-      ];
     }
 
     if (category && category !== "ALL") {

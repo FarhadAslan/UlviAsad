@@ -27,29 +27,42 @@ async function getQuizzes(category: string, type: string, search: string, userRo
 
   const where: any = { active: true };
 
-  if (isUser) {
+  // Visibility filteri (ADMIN istisna olmaqla PRIVATE quizlər heç vaxt görünmür)
+  if (isAdmin) {
+    // Admin hər şeyi görür — filter yoxdur
+  } else if (isUser) {
     where.visibility = "PUBLIC";
-  } else if (isStudent) {
-    // STUDENT: PUBLIC + STUDENT_ONLY, amma PRIVATE deyil
+  } else if (isStudent || isTeacher) {
     where.visibility = { in: ["PUBLIC", "STUDENT_ONLY"] };
-  } else if (isAdmin || isTeacher) {
-    // ADMIN/TEACHER: PRIVATE quizlər görünməsin (onlar myQuizzes endpoint-i ilə görür)
-    where.visibility = { not: "PRIVATE" };
   }
 
-  if (!isAdmin && !isTeacher) {
+  // Yalnız ADMIN və TEACHER-ların yaratdığı quizlər görünsün.
+  // Heç kimin öz yaratdığı quiz burada görünməsin (ADMIN istisna).
+  if (!isAdmin) {
     const admins   = await prisma.user.findMany({ where: { role: "ADMIN" }, select: { id: true } });
     const adminIds = admins.map((a) => a.id);
+    const teachers = await prisma.user.findMany({ where: { role: "TEACHER" }, select: { id: true } });
+    const teacherIds = teachers.map((t) => t.id);
 
     if (isStudent && userId) {
+      // STUDENT: öz müəlliminin quizlərini + admin quizlərini görür
       const student = await prisma.user.findUnique({ where: { id: userId }, select: { teacherId: true } });
       if (student?.teacherId) {
-        where.OR = [{ createdById: null }, { createdById: { in: adminIds } }, { createdById: student.teacherId }];
+        where.OR = [
+          { createdById: null },
+          { createdById: { in: adminIds } },
+          { createdById: student.teacherId },
+        ];
       } else {
         where.OR = [{ createdById: null }, { createdById: { in: adminIds } }];
       }
-    } else if (isUser) {
-      where.OR = [{ createdById: null }, { createdById: { in: adminIds } }];
+    } else {
+      // USER və TEACHER: yalnız admin + bütün müəllimlərin quizləri
+      where.OR = [
+        { createdById: null },
+        { createdById: { in: adminIds } },
+        { createdById: { in: teacherIds } },
+      ];
     }
   }
 
