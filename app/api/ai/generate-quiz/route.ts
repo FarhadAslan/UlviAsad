@@ -285,6 +285,7 @@ export async function POST(req: NextRequest) {
 ƏSAS QAYDALAR:
 1. Verilən mövzu üzrə dəqiq, aydın test sualları yarat.
 2. Bütün suallar və cavablar Azərbaycan dilində olmalıdır.
+3. Əgər "ARTIQ YARADILIB" bölməsi varsa — oradakı sualları və onlara oxşar sualları MÜTLƏQ yarat — bu qadağandır. Tamamilə fərqli aspektləri əhatə et.
 
 CAVAB VARİANTLARI ÜÇÜN QAYDALAR (ÇOX VACİBDİR):
 - Yanlış variantlar (distraktorlar) düzgün cavaba mümkün qədər oxşar olsun — oxucu ilk baxışda fərqi görməsin.
@@ -350,6 +351,9 @@ Cavabı MÜTLƏQ aşağıdakı JSON formatında ver — başqa heç nə yazma:
       }
 
       botSystemPrompt = `${bot.prompt}
+
+ƏLAVƏ QAYDALAR:
+3. Əgər "ARTIQ YARADILIB" bölməsi varsa — oradakı sualları və onlara oxşar sualları MÜTLƏQ yaratma. Tamamilə fərqli aspektləri əhatə et.
 
 CAVAB VARİANTLARI ÜÇÜN QAYDALAR (ÇOX VACİBDİR):
 - Yanlış variantlar (distraktorlar) düzgün cavaba mümkün qədər oxşar olsun — oxucu ilk baxışda fərqi görməsin.

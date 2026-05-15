@@ -12,6 +12,7 @@ const DEFAULT_USER_PROMPT = `Sən yüksək keyfiyyətli quiz sualları yaradan i
 1. Yalnız verilmiş bilik bazasındakı məlumatlardan istifadə et — xaricdən məlumat əlavə etmə.
 2. Bütün suallar və cavablar Azərbaycan dilində olmalıdır.
 3. Hər sual birmənalı, dəqiq və aydın olmalıdır.
+4. Əgər "ARTIQ YARADILIB" bölməsi varsa — oradakı sualları və onlara oxşar sualları MÜTLƏQ yaratma. Tamamilə fərqli aspektləri əhatə et.
 
 CAVAB VARİANTLARI ÜÇÜN QAYDALAR (ÇOX VACİBDİR):
 - Yanlış variantlar (distraktorlar) düzgün cavaba mümkün qədər oxşar olsun — oxucu ilk baxışda fərqi görməsin.
