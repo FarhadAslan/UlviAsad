@@ -209,11 +209,15 @@ export default function UserBotManager({ onSelectBot }: UserBotManagerProps) {
                       {onSelectBot && (
                         <button
                           onClick={() => onSelectBot(bot)}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold text-white transition-all hover:opacity-90"
-                          style={{ background: `linear-gradient(135deg, ${grad.from}, ${grad.to})` }}
+                          className="relative flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold text-white transition-all hover:scale-105 overflow-hidden"
+                          style={{
+                            background: "linear-gradient(135deg, #a855f7 0%, #6366f1 50%, #ec4899 100%)",
+                            boxShadow: "0 0 14px rgba(168,85,247,0.45)",
+                          }}
                           title="Bu bot ilə quiz yarat"
                         >
-                          <Sparkles size={12} /> Quiz Yarat
+                          <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 -skew-x-12 translate-x-[-100%] hover:translate-x-[200%] transition-transform duration-700" />
+                          <Sparkles size={12} className="animate-pulse" /> Quiz Yarat
                         </button>
                       )}
                       <button
