@@ -194,43 +194,26 @@ function CreateBotForm({ onSuccess, onCancel }: { onSuccess: () => void; onCance
 
   const handlePdfUpload = async (file: File) => {
     if (file.type !== "application/pdf") { error("Yalnız PDF fayl qəbul edilir"); return; }
-    // Limit yoxdur — PDF client-side oxunur, serverə yalnız mətn göndərilir
     setPdfLoading(true);
     try {
-      // pdfjs-dist ilə client-side PDF parsing
-      const pdfjsLib = await import("pdfjs-dist");
-      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+      const formData = new FormData();
+      formData.append("file", file);
 
-      const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      const pageCount = pdf.numPages;
+      const res = await fetch("/api/ai-bots/extract-pdf", {
+        method: "POST",
+        body: formData,
+      });
 
-      const textParts: string[] = [];
-      for (let i = 1; i <= pageCount; i++) {
-        const page = await pdf.getPage(i);
-        const content = await page.getTextContent();
-        const pageText = content.items
-          .map((item: any) => item.str || "")
-          .join(" ");
-        textParts.push(pageText);
-      }
+      const data = await res.json();
 
-      const raw = textParts.join("\n");
-      const cleaned = raw
-        .replace(/\r\n/g, "\n")
-        .replace(/\r/g, "\n")
-        .replace(/\n{3,}/g, "\n\n")
-        .replace(/[ \t]{2,}/g, " ")
-        .trim();
-
-      if (!cleaned || cleaned.length < 50) {
-        error("PDF-dən mətn çıxarıla bilmədi. Skan edilmiş (şəkil) PDF ola bilər.");
+      if (!res.ok) {
+        error(data.error || "PDF oxunarkən xəta baş verdi");
         return;
       }
 
-      setContent(cleaned);
-      setPdfInfo({ name: file.name, chars: cleaned.length, pages: pageCount });
-      success(`PDF oxundu — ${pageCount} səhifə, ${cleaned.length.toLocaleString()} simvol`);
+      setContent(data.text);
+      setPdfInfo({ name: file.name, chars: data.charCount, pages: data.pageCount });
+      success(`PDF oxundu — ${data.pageCount} səhifə, ${data.charCount.toLocaleString()} simvol`);
     } catch (e: any) {
       console.error("PDF parse error:", e);
       error("PDF oxunarkən xəta baş verdi. Faylın zədəli olmadığını yoxlayın.");
