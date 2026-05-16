@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 // Groq modellər — JSON mode dəstəkləyir, sürətli
 const GROQ_MODELS = [
@@ -21,9 +21,9 @@ const OPENROUTER_MODELS = [
   "nousresearch/hermes-3-llama-3.1-405b:free",
 ];
 
-const CHUNK_SIZE   = 4_000;  // 413 xətasından qaçmaq üçün kiçiltdik (~1000 token)
-const DIRECT_LIMIT = 4_000;  // eyni limit
-const BATCH_SIZE   = 25;     // hər AI sorğusunda maksimum sual sayı
+const CHUNK_SIZE   = 4_000;
+const DIRECT_LIMIT = 4_000;
+const BATCH_SIZE   = 15;  // 25→15: daha az sual = daha sürətli cavab
 
 // JSON mətnindən sualları çıxar — bütün formatları handle edir
 function extractQuestions(raw: string): any[] | null {
@@ -84,7 +84,7 @@ async function callAI(opts: {
   retries?: number;
 }): Promise<any[] | null> {
   const { endpoint, apiKey, model, systemPrompt, userPrompt,
-          extraHeaders = {}, useJsonMode = true, retries = 3 } = opts;
+          extraHeaders = {}, useJsonMode = true, retries = 2 } = opts; // 3→2 retry
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     const body: any = {
@@ -104,6 +104,8 @@ async function callAI(opts: {
 
     let res: Response;
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 20000); // 20s per request
       res = await fetch(endpoint, {
         method: "POST",
         headers: {
@@ -112,15 +114,22 @@ async function callAI(opts: {
           ...extraHeaders,
         },
         body: JSON.stringify(body),
+        signal: controller.signal,
       });
-    } catch (fetchErr) {
+      clearTimeout(timeoutId);
+    } catch (fetchErr: any) {
+      if (fetchErr?.name === "AbortError") {
+        console.error(`[${model}] request timed out after 20s`);
+        if (attempt < retries) { await new Promise(r => setTimeout(r, 1000)); continue; }
+        return null;
+      }
       console.error(`[${model}] fetch error:`, fetchErr);
       if (attempt < retries) { await new Promise(r => setTimeout(r, 2000)); continue; }
       return null;
     }
 
     if (res.status === 429 && attempt < retries) {
-      const waitMs = 5000 * (attempt + 1);
+      const waitMs = 2000 * (attempt + 1); // 5000→2000ms
       console.log(`[${model}] rate limit, ${waitMs}ms gözlənilir...`);
       await new Promise(r => setTimeout(r, waitMs));
       continue;
@@ -137,7 +146,7 @@ async function callAI(opts: {
       console.error(`[${model}] HTTP ${res.status}:`, errText.slice(0, 200));
       // 5xx xətalarında retry
       if (res.status >= 500 && attempt < retries) {
-        await new Promise(r => setTimeout(r, 3000));
+        await new Promise(r => setTimeout(r, 1500)); // 3000→1500ms
         continue;
       }
       return null;
@@ -205,13 +214,12 @@ async function fetchUntilFull(opts: {
   buildPrompt: (chunk: string, ci: number, count: number) => string;
   maxAttempts?: number;
 }): Promise<any[]> {
-  const { needed, maxAttempts = 8 } = opts;
+  const { needed, maxAttempts = 4 } = opts; // 8→4: hər attempt ~20s, 4×20=80s max
   const collected: any[] = [];
   let attempts = 0;
 
   while (collected.length < needed && attempts < maxAttempts) {
     const stillNeed = needed - collected.length;
-    // Modelin az qaytarma ehtimalına qarşı 30% artıq istə (min 2 əlavə), üst limit yoxdur
     const askFor = stillNeed + Math.max(2, Math.ceil(stillNeed * 0.3));
     const userPrompt = opts.buildPrompt(opts.chunk, opts.chunkIndex, askFor);
 
@@ -229,7 +237,6 @@ async function fetchUntilFull(opts: {
     }
 
     if (Array.isArray(questions) && questions.length > 0) {
-      // Artıq gəlmiş sualları duplikat yoxlaması ilə əlavə et
       const existingTexts = new Set(collected.map((q: any) => q.text?.trim().toLowerCase()));
       for (const q of questions) {
         const key = q.text?.trim().toLowerCase();
@@ -242,9 +249,8 @@ async function fetchUntilFull(opts: {
     }
 
     attempts++;
-    // Hələ çatmırsa qısa gözlə
     if (collected.length < needed && attempts < maxAttempts) {
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 300)); // 500→300ms
     }
   }
 
