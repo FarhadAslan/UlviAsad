@@ -135,19 +135,16 @@ export async function PUT(
 
     const quiz = await prisma.$transaction(async (tx) => {
       await tx.question.deleteMany({ where: { quizId: params.id } });
-      return (tx.quiz as any).update({
+      return tx.quiz.update({
         where: { id: params.id },
         data: {
           title, category, type,
           duration: type === "SINAQ" ? (duration || null) : null,
           visibility,
           active: active !== undefined ? Boolean(active) : true,
-          // Passage sahələri — yalnız METN tipi üçün
           passageTitle:    type === "METN" ? (passageTitle?.trim() || null) : null,
           passageContent:  type === "METN" ? passageContent : null,
           passageImageUrl: type === "METN" ? (passageImageUrl || null) : null,
-          // sourceBotId — əgər göndərilibsə saxla, yoxsa mövcud dəyəri dəyişmə
-          ...(sourceBotId !== undefined ? { sourceBotId: sourceBotId || null } : {}),
           questions: {
             create: questions.map((q: any, index: number) => ({
               text: q.text,
@@ -163,6 +160,15 @@ export async function PUT(
         },
       });
     });
+
+    // sourceBotId — raw SQL ilə yaz
+    if (sourceBotId !== undefined) {
+      try {
+        await prisma.$executeRaw`UPDATE "Quiz" SET "sourceBotId" = ${sourceBotId || null} WHERE id = ${params.id}`;
+      } catch (e) {
+        console.warn("[quiz update] sourceBotId yazıla bilmədi:", e);
+      }
+    }
 
     return NextResponse.json(quiz, {
       headers: { "Cache-Control": "no-store" },

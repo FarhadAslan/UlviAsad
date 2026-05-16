@@ -316,33 +316,40 @@ Cavabı MÜTLƏQ aşağıdakı JSON formatında ver — başqa heç nə yazma:
         // Bu botla yaradılmış quizləri tap (sourceBotId ilə)
         let previousQuizzes: any[] = [];
         try {
-          previousQuizzes = await (prisma.quiz as any).findMany({
-            where: {
-              createdById: userId,
-              sourceBotId: botId,
-            },
-            select: {
-              id: true,
-              questions: {
-                select: {
-                  id: true,
-                  text: true,
-                  options: true,
-                  correctOption: true,
-                  points: true,
-                  questionType: true,
+          // Raw SQL — Prisma client cache-indən asılı deyil
+          const rows = await prisma.$queryRaw<any[]>`
+            SELECT q.id as quiz_id
+            FROM "Quiz" q
+            WHERE q."createdById" = ${userId}
+              AND q."sourceBotId" = ${botId}
+            ORDER BY q."createdAt" DESC
+            LIMIT 30
+          `;
+          if (rows.length > 0) {
+            const quizIds = rows.map((r: any) => r.quiz_id);
+            previousQuizzes = await prisma.quiz.findMany({
+              where: { id: { in: quizIds } },
+              select: {
+                id: true,
+                questions: {
+                  select: {
+                    id: true,
+                    text: true,
+                    options: true,
+                    correctOption: true,
+                    points: true,
+                    questionType: true,
+                  },
+                },
+                results: {
+                  where: { userId },
+                  orderBy: { createdAt: "desc" },
+                  take: 1,
+                  select: { answers: true },
                 },
               },
-              results: {
-                where: { userId },
-                orderBy: { createdAt: "desc" },
-                take: 1,
-                select: { answers: true },
-              },
-            },
-            orderBy: { createdAt: "desc" },
-            take: 30,
-          });
+            });
+          }
         } catch (dbErr: any) {
           console.warn("[generate-quiz] previousQuizzes sorğusu uğursuz:", dbErr?.message);
           previousQuizzes = [];

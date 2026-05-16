@@ -196,23 +196,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const quiz = await (prisma.quiz as any).create({
+    const quiz = await prisma.quiz.create({
       data: {
         title,
         category,
         type,
         duration: type === "SINAQ" ? duration : null,
-        // Müəllim yaratdıqda default deaktiv, admin yaratdıqda aktiv, user/student yaratdıqda PRIVATE (yalnız özü görür)
         active: userRole === "TEACHER" ? false : (userRole === "ADMIN" ? (active !== undefined ? active : true) : true),
-        // USER/STUDENT yaratdıqda visibility PRIVATE (yalnız özü görür)
         visibility: (userRole === "USER" || userRole === "STUDENT") ? "PRIVATE" : (visibility || "PUBLIC"),
         createdById: userId,
-        // Passage sahələri — yalnız METN tipi üçün
         passageTitle:    type === "METN" ? (passageTitle?.trim() || null) : null,
         passageContent:  type === "METN" ? passageContent : null,
         passageImageUrl: type === "METN" ? (passageImageUrl || null) : null,
-        // Hansı AI botla yaradıldığını saxla
-        sourceBotId: sourceBotId || null,
         questions: {
           create: questions.map((q: any, index: number) => ({
             text: q.text,
@@ -230,6 +225,15 @@ export async function POST(req: NextRequest) {
         questions: true,
       },
     });
+
+    // sourceBotId — raw SQL ilə yaz (Prisma client schema cache-indən asılı deyil)
+    if (sourceBotId) {
+      try {
+        await prisma.$executeRaw`UPDATE "Quiz" SET "sourceBotId" = ${sourceBotId} WHERE id = ${quiz.id}`;
+      } catch (e) {
+        console.warn("[quiz create] sourceBotId yazıla bilmədi:", e);
+      }
+    }
 
     return NextResponse.json(quiz, { status: 201 });
   } catch (error) {
