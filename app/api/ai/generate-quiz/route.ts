@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 55; // Vercel Hobby plan: 60s limit — 55s to get clean timeout before hard kill
 
 // Groq modellər — JSON mode dəstəkləyir, sürətli
 const GROQ_MODELS = [
@@ -115,12 +115,12 @@ async function callAI(opts: {
       });
     } catch (fetchErr: any) {
       console.error(`[${model}] fetch error:`, fetchErr);
-      if (attempt < retries) { await new Promise(r => setTimeout(r, 2000)); continue; }
+      if (attempt < retries) { await new Promise(r => setTimeout(r, 1000)); continue; } // 2000→1000ms
       return null;
     }
 
     if (res.status === 429 && attempt < retries) {
-      const waitMs = 5000 * (attempt + 1);
+      const waitMs = 1500 * (attempt + 1); // 1.5s, 3s, 4.5s — Hobby plan üçün qısa gözləmə
       console.log(`[${model}] rate limit, ${waitMs}ms gözlənilir...`);
       await new Promise(r => setTimeout(r, waitMs));
       continue;
@@ -137,7 +137,7 @@ async function callAI(opts: {
       console.error(`[${model}] HTTP ${res.status}:`, errText.slice(0, 200));
       // 5xx xətalarında retry
       if (res.status >= 500 && attempt < retries) {
-        await new Promise(r => setTimeout(r, 3000));
+        await new Promise(r => setTimeout(r, 1500)); // 3000→1500ms
         continue;
       }
       return null;
@@ -205,7 +205,7 @@ async function fetchUntilFull(opts: {
   buildPrompt: (chunk: string, ci: number, count: number) => string;
   maxAttempts?: number;
 }): Promise<any[]> {
-  const { needed, maxAttempts = 8 } = opts;
+  const { needed, maxAttempts = 4 } = opts; // 8→4: Vercel 60s limitinə uyğun
   const collected: any[] = [];
   let attempts = 0;
 
@@ -241,7 +241,7 @@ async function fetchUntilFull(opts: {
 
     attempts++;
     if (collected.length < needed && attempts < maxAttempts) {
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 300)); // 500→300ms
     }
   }
 
