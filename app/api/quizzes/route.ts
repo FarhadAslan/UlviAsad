@@ -196,15 +196,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const quiz = await prisma.quiz.create({
+    const quiz = await (prisma.quiz as any).create({
       data: {
         title,
         category,
         type,
         duration: type === "SINAQ" ? duration : null,
+        // Müəllim yaratdıqda default deaktiv, admin yaratdıqda aktiv, user/student yaratdıqda PRIVATE (yalnız özü görür)
         active: userRole === "TEACHER" ? false : (userRole === "ADMIN" ? (active !== undefined ? active : true) : true),
+        // USER/STUDENT yaratdıqda visibility PRIVATE (yalnız özü görür)
         visibility: (userRole === "USER" || userRole === "STUDENT") ? "PRIVATE" : (visibility || "PUBLIC"),
         createdById: userId,
+        // Passage sahələri — yalnız METN tipi üçün
         passageTitle:    type === "METN" ? (passageTitle?.trim() || null) : null,
         passageContent:  type === "METN" ? passageContent : null,
         passageImageUrl: type === "METN" ? (passageImageUrl || null) : null,

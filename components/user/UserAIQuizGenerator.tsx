@@ -54,8 +54,6 @@ export default function UserAIQuizGenerator({
     if (count < 1 || count > 50) { error("Sual sayı 1-50 arasında olmalıdır"); return; }
     setLoading(true);
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 55000);
       const res = await fetch("/api/ai/generate-quiz", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -65,9 +63,7 @@ export default function UserAIQuizGenerator({
           language: "az",
           botId: botId || undefined,
         }),
-        signal: controller.signal,
       });
-      clearTimeout(timeoutId);
       const data = await res.json();
       if (!res.ok) { error(data.error || "AI quiz yarada bilmədi"); return; }
       if (!data.questions?.length && !data.reviewQuestions?.length) { error("AI sual yarada bilmədi"); return; }
@@ -82,12 +78,8 @@ export default function UserAIQuizGenerator({
 
       onGenerate(newQs, reviewQs, botId || undefined);
       onClose();
-    } catch (err: any) {
-      if (err?.name === "AbortError") {
-        error("Sorğu vaxtı bitdi (55s). Sual sayını azaldıb yenidən cəhd edin.");
-      } else {
-        error("Şəbəkə xətası baş verdi. İnternet bağlantınızı yoxlayın.");
-      }
+    } catch {
+      error("Şəbəkə xətası baş verdi");
     } finally {
       setLoading(false);
     }

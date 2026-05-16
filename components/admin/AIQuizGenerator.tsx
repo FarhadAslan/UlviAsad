@@ -43,34 +43,19 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
     if (questionCount < 1 || questionCount > 50) { error("Sual sayı 1-50 arasında olmalıdır"); return; }
     setLoading(true);
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 55000);
       const res = await fetch("/api/ai/generate-quiz", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title, questionCount, category, language, botId: botId || undefined }),
-        signal: controller.signal,
       });
-      clearTimeout(timeoutId);
       const data = await res.json();
       if (!res.ok) { error(data.error || "AI quiz yarada bilmədi"); return; }
-      if (!data.questions?.length && !data.reviewQuestions?.length) { error("AI sual yarada bilmədi"); return; }
-      const newQs: any[] = data.questions || [];
-      const reviewQs: any[] = data.reviewQuestions || [];
-      const totalMsg = reviewQs.length > 0
-        ? `${newQs.length} yeni + ${reviewQs.length} təkrar sual əlavə edildi!`
-        : `${newQs.length} sual yaradıldı!`;
-      success(totalMsg);
-      // Əvvəlcə təkrar suallar, sonra yeni suallar
-      const combined = [...reviewQs.map((q: any) => ({ ...q, isReview: undefined })), ...newQs];
-      onGenerate(combined.length > 0 ? combined : newQs, category || undefined);
+      if (!data.questions?.length) { error("AI sual yarada bilmədi"); return; }
+      success(`${data.questions.length} sual yaradıldı!`);
+      onGenerate(data.questions, category || undefined);
       onClose();
-    } catch (err: any) {
-      if (err?.name === "AbortError") {
-        error("Sorğu vaxtı bitdi (55s). Sual sayını azaldıb yenidən cəhd edin.");
-      } else {
-        error("Şəbəkə xətası baş verdi. İnternet bağlantınızı yoxlayın.");
-      }
+    } catch {
+      error("Şəbəkə xətası baş verdi");
     } finally {
       setLoading(false);
     }
