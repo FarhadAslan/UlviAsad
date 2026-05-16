@@ -409,9 +409,9 @@ Cavabı MÜTLƏQ aşağıdakı JSON formatında ver — başqa heç nə yazma:
         // Səhv cavablanmış sualları topla (heç vaxt düzgün cavablanmamış)
         // Bunları birbaşa yeni quizə əlavə edəcəyik
         const wrongTextSet = new Set<string>();
-        for (const [text, correct] of questionStatusMap.entries()) {
+        Array.from(questionStatusMap.entries()).forEach(([text, correct]) => {
           if (!correct) wrongTextSet.add(text);
-        }
+        });
 
         if (wrongTextSet.size > 0) {
           // Bütün əvvəlki quizlərdən həmin sualların tam məlumatını tap
