@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 // Groq modellər — JSON mode dəstəkləyir, sürətli
 const GROQ_MODELS = [
@@ -23,7 +23,7 @@ const OPENROUTER_MODELS = [
 
 const CHUNK_SIZE   = 4_000;
 const DIRECT_LIMIT = 4_000;
-const BATCH_SIZE   = 15;  // 25→15: daha az sual = daha sürətli cavab
+const BATCH_SIZE   = 25;
 
 // JSON mətnindən sualları çıxar — bütün formatları handle edir
 function extractQuestions(raw: string): any[] | null {
@@ -120,7 +120,7 @@ async function callAI(opts: {
     }
 
     if (res.status === 429 && attempt < retries) {
-      const waitMs = 2000 * (attempt + 1); // 5000→2000ms
+      const waitMs = 5000 * (attempt + 1);
       console.log(`[${model}] rate limit, ${waitMs}ms gözlənilir...`);
       await new Promise(r => setTimeout(r, waitMs));
       continue;
@@ -137,7 +137,7 @@ async function callAI(opts: {
       console.error(`[${model}] HTTP ${res.status}:`, errText.slice(0, 200));
       // 5xx xətalarında retry
       if (res.status >= 500 && attempt < retries) {
-        await new Promise(r => setTimeout(r, 1500)); // 3000→1500ms
+        await new Promise(r => setTimeout(r, 3000));
         continue;
       }
       return null;
@@ -205,7 +205,7 @@ async function fetchUntilFull(opts: {
   buildPrompt: (chunk: string, ci: number, count: number) => string;
   maxAttempts?: number;
 }): Promise<any[]> {
-  const { needed, maxAttempts = 3 } = opts;
+  const { needed, maxAttempts = 8 } = opts;
   const collected: any[] = [];
   let attempts = 0;
 
@@ -241,7 +241,7 @@ async function fetchUntilFull(opts: {
 
     attempts++;
     if (collected.length < needed && attempts < maxAttempts) {
-      await new Promise(r => setTimeout(r, 300)); // 500→300ms
+      await new Promise(r => setTimeout(r, 500));
     }
   }
 

@@ -1,8 +1,3 @@
 {
-  "framework": "nextjs",
-  "functions": {
-    "app/api/ai/generate-quiz/route.ts": {
-      "maxDuration": 60
-    }
-  }
+  "framework": "nextjs"
 }
