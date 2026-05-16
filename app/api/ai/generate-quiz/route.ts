@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-export const maxDuration = 55; // Vercel Hobby plan: 60s limit — 55s to get clean timeout before hard kill
+export const maxDuration = 120;
 
 // Groq modellər — JSON mode dəstəkləyir, sürətli
 const GROQ_MODELS = [
@@ -115,12 +115,12 @@ async function callAI(opts: {
       });
     } catch (fetchErr: any) {
       console.error(`[${model}] fetch error:`, fetchErr);
-      if (attempt < retries) { await new Promise(r => setTimeout(r, 1000)); continue; } // 2000→1000ms
+      if (attempt < retries) { await new Promise(r => setTimeout(r, 2000)); continue; }
       return null;
     }
 
     if (res.status === 429 && attempt < retries) {
-      const waitMs = 1500 * (attempt + 1); // 1.5s, 3s, 4.5s — Hobby plan üçün qısa gözləmə
+      const waitMs = 5000 * (attempt + 1);
       console.log(`[${model}] rate limit, ${waitMs}ms gözlənilir...`);
       await new Promise(r => setTimeout(r, waitMs));
       continue;
@@ -137,7 +137,7 @@ async function callAI(opts: {
       console.error(`[${model}] HTTP ${res.status}:`, errText.slice(0, 200));
       // 5xx xətalarında retry
       if (res.status >= 500 && attempt < retries) {
-        await new Promise(r => setTimeout(r, 1500)); // 3000→1500ms
+        await new Promise(r => setTimeout(r, 3000));
         continue;
       }
       return null;
@@ -205,7 +205,7 @@ async function fetchUntilFull(opts: {
   buildPrompt: (chunk: string, ci: number, count: number) => string;
   maxAttempts?: number;
 }): Promise<any[]> {
-  const { needed, maxAttempts = 4 } = opts; // 8→4: Vercel 60s limitinə uyğun
+  const { needed, maxAttempts = 8 } = opts;
   const collected: any[] = [];
   let attempts = 0;
 
@@ -241,7 +241,7 @@ async function fetchUntilFull(opts: {
 
     attempts++;
     if (collected.length < needed && attempts < maxAttempts) {
-      await new Promise(r => setTimeout(r, 300)); // 500→300ms
+      await new Promise(r => setTimeout(r, 500));
     }
   }
 
@@ -313,151 +313,8 @@ Cavabı MÜTLƏQ aşağıdakı JSON formatında ver — başqa heç nə yazma:
 
       const userId = (session?.user as any)?.id;
       if (userId) {
-        // Bu botla yaradılmış quizləri tap (sourceBotId ilə)
-        // sourceBotId sütunu mövcud deyilsə (migration tətbiq edilməyibsə) — xətanı tut və keç
-        let previousQuizzes: any[] = [];
-        try {
-          previousQuizzes = await (prisma.quiz as any).findMany({
-            where: {
-              createdById: userId,
-              sourceBotId: botId,
-            },
-            select: {
-              id: true,
-              questions: {
-                select: {
-                  id: true,
-                  text: true,
-                  options: true,
-                  correctOption: true,
-                  points: true,
-                  questionType: true,
-                },
-              },
-              results: {
-                where: { userId },
-                orderBy: { createdAt: "desc" },
-                take: 1, // hər quizin ən son nəticəsi
-                select: { answers: true },
-              },
-            },
-            orderBy: { createdAt: "desc" },
-            take: 30,
-          });
-        } catch (dbErr: any) {
-          // sourceBotId sütunu hələ DB-də yoxdur — migration tətbiq edilməyib
-          // Bu halda sadəcə keçirik, quiz generasiyası normal davam edir
-          console.warn("[generate-quiz] sourceBotId sorğusu uğursuz (migration lazımdır):", dbErr?.message);
-          previousQuizzes = [];
-        }
-
-        // Sualları iki qrupa ayır:
-        // 1. Heç vaxt düzgün cavablanmamış (və ya ən son nəticədə səhv olan) suallar
-        // 2. Bütün əvvəlki sualların mətni (AI-a göndərmək üçün)
-        const allPrevTexts: string[] = [];
-
-        // questionId → ən son nəticədə düzgün cavablanıb-cavablanmadığı
-        // Bir sual birdən çox quizdə ola bilməz (hər quiz öz suallarını yaradır),
-        // amma eyni mətnli suallar fərqli quizlərdə ola bilər.
-        // Məntiqi: sualın MƏTNİ əsasında izləyirik.
-
-        // questionText (normalized) → son nəticədə isCorrect
-        const questionStatusMap = new Map<string, boolean>(); // text → lastCorrect
-
-        for (const pq of previousQuizzes) {
-          // Bu quizin ən son nəticəsini al
-          const lastResult = pq.results[0];
-          let answersArr: any[] = [];
-          if (lastResult?.answers) {
-            try {
-              answersArr = JSON.parse(lastResult.answers);
-            } catch {
-              answersArr = [];
-            }
-          }
-
-          // answersArr: [{questionId, selected, isCorrect, ...}]
-          const answerMap = new Map<string, boolean>(); // questionId → isCorrect
-          for (const ans of answersArr) {
-            if (ans.questionId) {
-              answerMap.set(ans.questionId, !!ans.isCorrect);
-            }
-          }
-
-          for (const q of pq.questions) {
-            const cleanText = q.text.replace(/<[^>]+>/g, "").trim();
-            if (cleanText.length > 5) {
-              allPrevTexts.push(cleanText);
-            }
-
-            // Bu sual bu quizdə cavablanıbmı?
-            const isCorrect = answerMap.get(q.id);
-            const normalizedText = cleanText.toLowerCase();
-
-            // Quizlər ən yenidən köhnəyə gəlir (orderBy: desc).
-            // Bir sualın statusunu yalnız ilk dəfə gördükdə set edirik —
-            // bu onun ən son nəticəsini əks etdirir.
-            // İstisna: əgər hər hansı quizdə düzgün cavablanıbsa, "düzgün" kimi işarələ
-            // (bir dəfə düzgün cavablandısa — artıq təkrarlama lazım deyil)
-            if (isCorrect === true) {
-              // Düzgün cavablandı — həmişə "düzgün" kimi işarələ (override et)
-              questionStatusMap.set(normalizedText, true);
-            } else if (isCorrect === false) {
-              // Səhv cavablandı — yalnız əvvəlcədən "düzgün" işarələnməyibsə set et
-              if (questionStatusMap.get(normalizedText) !== true) {
-                questionStatusMap.set(normalizedText, false);
-              }
-            }
-            // isCorrect === undefined: bu quiz həll edilməyib — statusu dəyişmə
-          }
-        }
-
-        // Səhv cavablanmış sualları topla (heç vaxt düzgün cavablanmamış)
-        // Bunları birbaşa yeni quizə əlavə edəcəyik
-        const wrongTextSet = new Set<string>();
-        Array.from(questionStatusMap.entries()).forEach(([text, correct]) => {
-          if (!correct) wrongTextSet.add(text);
-        });
-
-        if (wrongTextSet.size > 0) {
-          // Bütün əvvəlki quizlərdən həmin sualların tam məlumatını tap
-          // (options, correctOption saxlamaq üçün)
-          // Maksimum 10 səhv sual əlavə et — quiz çox böyüməsin
-          const MAX_REVIEW_QUESTIONS = 10;
-          const seenTexts = new Set<string>();
-          for (const pq of previousQuizzes) {
-            if (wrongAnsweredQuestions.length >= MAX_REVIEW_QUESTIONS) break;
-            for (const q of pq.questions) {
-              if (wrongAnsweredQuestions.length >= MAX_REVIEW_QUESTIONS) break;
-              const cleanText = q.text.replace(/<[^>]+>/g, "").trim();
-              const normalizedText = cleanText.toLowerCase();
-              if (wrongTextSet.has(normalizedText) && !seenTexts.has(normalizedText)) {
-                seenTexts.add(normalizedText);
-                try {
-                  wrongAnsweredQuestions.push({
-                    text: q.text,
-                    options: typeof q.options === "string" ? JSON.parse(q.options) : q.options,
-                    correctOption: q.correctOption,
-                    points: q.points ?? 1,
-                    questionType: q.questionType || "CHOICE",
-                    imageUrl: "",
-                    openAnswerExample: "",
-                  });
-                } catch {
-                  // options parse xətası — bu sualı atla
-                }
-              }
-            }
-          }
-        }
-
-        if (allPrevTexts.length > 0) {
-          // Maks 80 sual xülasəsi göndər (token limitinə görə)
-          const limited = allPrevTexts.slice(0, 80);
-          previousQuestionsSummary = limited
-            .map((t, i) => `${i + 1}. ${t.slice(0, 120)}`)
-            .join("\n");
-        }
+        // sourceBotId sütunu DB-də mövcud deyil — migration tətbiq olunandan sonra aktiv et
+        // previousQuizzes və wrongAnsweredQuestions funksionallığı deaktivdir
       }
 
       botSystemPrompt = `${bot.prompt}

@@ -211,8 +211,8 @@ export async function POST(req: NextRequest) {
         passageTitle:    type === "METN" ? (passageTitle?.trim() || null) : null,
         passageContent:  type === "METN" ? passageContent : null,
         passageImageUrl: type === "METN" ? (passageImageUrl || null) : null,
-        // Hansı AI botla yaradıldığını saxla
-        sourceBotId: sourceBotId || null,
+        // Hansı AI botla yaradıldığını saxla — sourceBotId sütunu DB-də olduqda aktiv et
+        // sourceBotId: sourceBotId || null,
         questions: {
           create: questions.map((q: any, index: number) => ({
             text: q.text,
