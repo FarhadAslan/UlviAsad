@@ -112,7 +112,7 @@ export default function CreateQuizSection() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center">
 
           {/* ── Sol: Şəkil ── */}
-          <div className="relative order-2 lg:order-1">
+          <div className="relative order-1 lg:order-1">
             {/* Parıltı effekti arxada */}
             <div
               className="absolute inset-0 rounded-3xl blur-3xl opacity-25 pointer-events-none"
@@ -165,7 +165,7 @@ export default function CreateQuizSection() {
           </div>
 
           {/* ── Sağ: Mətn + addımlar ── */}
-          <div className="order-1 lg:order-2">
+          <div className="order-2 lg:order-2">
             {/* Badge */}
             <div className="inline-flex items-center gap-2 mb-4">
               <span
