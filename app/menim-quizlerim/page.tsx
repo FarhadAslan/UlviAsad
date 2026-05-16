@@ -146,7 +146,7 @@ export default function MenimQuizlerimPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-6 sm:py-8 max-w-6xl">
+    <div className="container mx-auto px-4 py-6 sm:py-8 max-w-6xl overflow-x-hidden">
       <ConfirmModal
         open={!!confirmDelete}
         title="Quizi sil"
@@ -247,13 +247,15 @@ export default function MenimQuizlerimPage() {
 
       {/* ── BOTLAR TAB ── */}
       {tab === "botlar" && (
-        <UserBotManager
-          onSelectBot={(bot) => {
-            setSelectedBotId(bot.id);
-            setTab("quizler");
-            setView("create");
-          }}
-        />
+        <div className="w-full min-w-0">
+          <UserBotManager
+            onSelectBot={(bot) => {
+              setSelectedBotId(bot.id);
+              setTab("quizler");
+              setView("create");
+            }}
+          />
+        </div>
       )}
 
       {/* ── QUİZLƏR TAB ── */}

@@ -77,7 +77,7 @@ export default function UserBotManager({ onSelectBot }: UserBotManagerProps) {
   };
 
   return (
-    <div>
+    <div className="w-full min-w-0">
       <ConfirmModal
         open={!!confirmDelete}
         title="Botu sil"
@@ -332,7 +332,7 @@ function CreateBotForm({ onSuccess, onCancel }: { onSuccess: () => void; onCance
       </div>
 
       <form onSubmit={handleSubmit} className="p-5 space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 min-w-0">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">
               Bot Adı <span className="text-red-500">*</span>
