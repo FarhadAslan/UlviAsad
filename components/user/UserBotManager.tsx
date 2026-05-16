@@ -90,8 +90,8 @@ export default function UserBotManager({ onSelectBot }: UserBotManagerProps) {
 
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
-        <div>
-          <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Mənim Botlarım</h2>
+        <div className="min-w-0">
+          <h2 className="text-xl sm:text-2xl font-bold text-slate-900 break-words">Mənim Botlarım</h2>
           <p className="text-sm text-slate-500 mt-0.5">
             PDF yükləyin, bot yaradın, quiz generasiyasında istifadə edin
           </p>

@@ -166,12 +166,12 @@ export default function MenimQuizlerimPage() {
         <div className="absolute top-4 right-24 w-16 h-16 rounded-full opacity-5 bg-white" />
 
         <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-2 mb-1">
-              <Trophy size={18} className="text-yellow-300" />
+              <Trophy size={18} className="text-yellow-300 flex-shrink-0" />
               <span className="text-white/80 text-sm font-medium">Şəxsi Məkan</span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-white mb-1">Mənim Quizlərim</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold text-white mb-1 break-words">Mənim Quizlərim</h1>
             <p className="text-white/70 text-sm">
               Öz quizlərini yarat, AI ilə genişləndir, bilikini test et
             </p>
