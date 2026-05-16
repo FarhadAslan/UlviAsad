@@ -313,8 +313,107 @@ Cavabı MÜTLƏQ aşağıdakı JSON formatında ver — başqa heç nə yazma:
 
       const userId = (session?.user as any)?.id;
       if (userId) {
-        // sourceBotId sütunu DB-də mövcud deyil — migration tətbiq olunandan sonra aktiv et
-        // previousQuizzes və wrongAnsweredQuestions funksionallığı deaktivdir
+        // Bu botla yaradılmış quizləri tap (sourceBotId ilə)
+        let previousQuizzes: any[] = [];
+        try {
+          previousQuizzes = await (prisma.quiz as any).findMany({
+            where: {
+              createdById: userId,
+              sourceBotId: botId,
+            },
+            select: {
+              id: true,
+              questions: {
+                select: {
+                  id: true,
+                  text: true,
+                  options: true,
+                  correctOption: true,
+                  points: true,
+                  questionType: true,
+                },
+              },
+              results: {
+                where: { userId },
+                orderBy: { createdAt: "desc" },
+                take: 1,
+                select: { answers: true },
+              },
+            },
+            orderBy: { createdAt: "desc" },
+            take: 30,
+          });
+        } catch (dbErr: any) {
+          console.warn("[generate-quiz] previousQuizzes sorğusu uğursuz:", dbErr?.message);
+          previousQuizzes = [];
+        }
+
+        const allPrevTexts: string[] = [];
+        const questionStatusMap = new Map<string, boolean>();
+
+        for (const pq of previousQuizzes) {
+          const lastResult = pq.results[0];
+          let answersArr: any[] = [];
+          if (lastResult?.answers) {
+            try { answersArr = JSON.parse(lastResult.answers); } catch { answersArr = []; }
+          }
+          const answerMap = new Map<string, boolean>();
+          for (const ans of answersArr) {
+            if (ans.questionId) answerMap.set(ans.questionId, !!ans.isCorrect);
+          }
+          for (const q of pq.questions) {
+            const cleanText = q.text.replace(/<[^>]+>/g, "").trim();
+            if (cleanText.length > 5) allPrevTexts.push(cleanText);
+            const isCorrect = answerMap.get(q.id);
+            const normalizedText = cleanText.toLowerCase();
+            if (isCorrect === true) {
+              questionStatusMap.set(normalizedText, true);
+            } else if (isCorrect === false) {
+              if (questionStatusMap.get(normalizedText) !== true) {
+                questionStatusMap.set(normalizedText, false);
+              }
+            }
+          }
+        }
+
+        const wrongTextSet = new Set<string>();
+        Array.from(questionStatusMap.entries()).forEach(([text, correct]) => {
+          if (!correct) wrongTextSet.add(text);
+        });
+
+        if (wrongTextSet.size > 0) {
+          const MAX_REVIEW_QUESTIONS = 10;
+          const seenTexts = new Set<string>();
+          for (const pq of previousQuizzes) {
+            if (wrongAnsweredQuestions.length >= MAX_REVIEW_QUESTIONS) break;
+            for (const q of pq.questions) {
+              if (wrongAnsweredQuestions.length >= MAX_REVIEW_QUESTIONS) break;
+              const cleanText = q.text.replace(/<[^>]+>/g, "").trim();
+              const normalizedText = cleanText.toLowerCase();
+              if (wrongTextSet.has(normalizedText) && !seenTexts.has(normalizedText)) {
+                seenTexts.add(normalizedText);
+                try {
+                  wrongAnsweredQuestions.push({
+                    text: q.text,
+                    options: typeof q.options === "string" ? JSON.parse(q.options) : q.options,
+                    correctOption: q.correctOption,
+                    points: q.points ?? 1,
+                    questionType: q.questionType || "CHOICE",
+                    imageUrl: "",
+                    openAnswerExample: "",
+                  });
+                } catch { /* options parse xətası — atla */ }
+              }
+            }
+          }
+        }
+
+        if (allPrevTexts.length > 0) {
+          const limited = allPrevTexts.slice(0, 80);
+          previousQuestionsSummary = limited
+            .map((t, i) => `${i + 1}. ${t.slice(0, 120)}`)
+            .join("\n");
+        }
       }
 
       botSystemPrompt = `${bot.prompt}

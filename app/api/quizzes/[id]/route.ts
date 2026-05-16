@@ -146,8 +146,8 @@ export async function PUT(
           passageTitle:    type === "METN" ? (passageTitle?.trim() || null) : null,
           passageContent:  type === "METN" ? passageContent : null,
           passageImageUrl: type === "METN" ? (passageImageUrl || null) : null,
-          // sourceBotId — DB-də sütun olduqda aktiv et
-          // ...(sourceBotId !== undefined ? { sourceBotId: sourceBotId || null } : {}),
+          // sourceBotId — əgər göndərilibsə saxla, yoxsa mövcud dəyəri dəyişmə
+          ...(sourceBotId !== undefined ? { sourceBotId: sourceBotId || null } : {}),
           questions: {
             create: questions.map((q: any, index: number) => ({
               text: q.text,
