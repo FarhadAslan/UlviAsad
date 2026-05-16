@@ -5,6 +5,7 @@ import QuizCard from "@/components/QuizCard";
 import MaterialCard from "@/components/MaterialCard";
 import ArticleCard from "@/components/ArticleCard";
 import CTASection from "@/components/CTASection";
+import CreateQuizSection from "@/components/CreateQuizSection";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { getServerSession } from "next-auth";
@@ -216,6 +217,9 @@ export default async function HomePage() {
 
       {/* Stats — dərhal göstərilir */}
       <StatsSection stats={statsData} />
+
+      {/* AI Quiz Yarat seksiyonu */}
+      <CreateQuizSection />
 
       {/* Quizzes — streaming ilə yüklənir */}
       <Suspense fallback={
