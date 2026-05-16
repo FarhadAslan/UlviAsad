@@ -119,7 +119,7 @@ export async function PUT(
 
     const body = await req.json();
     const { title, category, type, duration, visibility, questions, active,
-            passageTitle, passageContent, passageImageUrl } = body;
+            passageTitle, passageContent, passageImageUrl, sourceBotId } = body;
 
     if (!title || !category || !type || !questions?.length) {
       return NextResponse.json({ error: "Bütün sahələr tələb olunur" }, { status: 400 });
@@ -135,7 +135,7 @@ export async function PUT(
 
     const quiz = await prisma.$transaction(async (tx) => {
       await tx.question.deleteMany({ where: { quizId: params.id } });
-      return tx.quiz.update({
+      return (tx.quiz as any).update({
         where: { id: params.id },
         data: {
           title, category, type,
@@ -146,6 +146,8 @@ export async function PUT(
           passageTitle:    type === "METN" ? (passageTitle?.trim() || null) : null,
           passageContent:  type === "METN" ? passageContent : null,
           passageImageUrl: type === "METN" ? (passageImageUrl || null) : null,
+          // sourceBotId — əgər göndərilibsə saxla, yoxsa mövcud dəyəri dəyişmə
+          ...(sourceBotId !== undefined ? { sourceBotId: sourceBotId || null } : {}),
           questions: {
             create: questions.map((q: any, index: number) => ({
               text: q.text,

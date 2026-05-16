@@ -57,6 +57,10 @@ export default function UserQuizForm({ quiz, onSuccess, onCancel, preselectedBot
   const [showAI, setShowAI] = useState(!!(preselectedBotId || autoOpenAI));
   const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [uploadingIdx, setUploadingIdx] = useState<number | null>(null);
+  // Hansı botla yaradıldığını izləmək üçün (sourceBotId)
+  const [sourceBotId, setSourceBotId] = useState<string | undefined>(
+    quiz?.sourceBotId || preselectedBotId || undefined
+  );
 
   const handleImageUpload = async (qi: number, file: File) => {
     if (!file.type.startsWith("image/")) { error("Yalnız şəkil faylı yükləyə bilərsiniz"); return; }
@@ -96,6 +100,7 @@ export default function UserQuizForm({ quiz, onSuccess, onCancel, preselectedBot
         visibility: "PRIVATE",
         active: true,
         questions,
+        sourceBotId: sourceBotId || null,
       };
       const res = await fetch(quiz ? `/api/quizzes/${quiz.id}` : "/api/quizzes", {
         method: quiz ? "PUT" : "POST",
@@ -153,8 +158,13 @@ export default function UserQuizForm({ quiz, onSuccess, onCancel, preselectedBot
         <UserAIQuizGenerator
           preselectedBotId={preselectedBotId}
           onClose={() => setShowAI(false)}
-          onGenerate={(aiQuestions) => {
-            setQuestions(aiQuestions);
+          onGenerate={(aiQuestions, reviewQuestions, usedBotId) => {
+            // Əvvəlcə təkrar (səhv cavablanmış) suallar, sonra yeni suallar
+            const review = (reviewQuestions || []).map((q: any) => ({ ...q, isReview: undefined }));
+            const combined = [...review, ...aiQuestions];
+            setQuestions(combined.length > 0 ? combined : [emptyQuestion()]);
+            // Hansı botla yaradıldığını saxla
+            if (usedBotId) setSourceBotId(usedBotId);
           }}
         />
       )}

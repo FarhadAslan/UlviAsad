@@ -179,7 +179,7 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const { title, category, type, duration, visibility, questions, active,
-            passageTitle, passageContent, passageImageUrl } = body;
+            passageTitle, passageContent, passageImageUrl, sourceBotId } = body;
 
     if (!title || !category || !type || !questions?.length) {
       return NextResponse.json(
@@ -196,7 +196,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const quiz = await prisma.quiz.create({
+    const quiz = await (prisma.quiz as any).create({
       data: {
         title,
         category,
@@ -211,6 +211,8 @@ export async function POST(req: NextRequest) {
         passageTitle:    type === "METN" ? (passageTitle?.trim() || null) : null,
         passageContent:  type === "METN" ? passageContent : null,
         passageImageUrl: type === "METN" ? (passageImageUrl || null) : null,
+        // Hansı AI botla yaradıldığını saxla
+        sourceBotId: sourceBotId || null,
         questions: {
           create: questions.map((q: any, index: number) => ({
             text: q.text,

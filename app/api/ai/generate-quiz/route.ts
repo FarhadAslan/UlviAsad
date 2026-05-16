@@ -285,7 +285,7 @@ export async function POST(req: NextRequest) {
 ƏSAS QAYDALAR:
 1. Verilən mövzu üzrə dəqiq, aydın test sualları yarat.
 2. Bütün suallar və cavablar Azərbaycan dilində olmalıdır.
-3. Əgər "ARTIQ YARADILIB" bölməsi varsa — oradakı sualları və onlara oxşar sualları MÜTLƏQ yarat — bu qadağandır. Tamamilə fərqli aspektləri əhatə et.
+3. Əgər "ARTIQ YARADILIB" bölməsi varsa — oradakı sualları və onlara oxşar sualları MÜTLƏQ yaratma. Tamamilə fərqli aspektləri əhatə et.
 
 CAVAB VARİANTLARI ÜÇÜN QAYDALAR (ÇOX VACİBDİR):
 - Yanlış variantlar (distraktorlar) düzgün cavaba mümkün qədər oxşar olsun — oxucu ilk baxışda fərqi görməsin.
@@ -300,6 +300,10 @@ Cavabı MÜTLƏQ aşağıdakı JSON formatında ver — başqa heç nə yazma:
     let botChunks: string[] = [""];
     let previousQuestionsSummary = ""; // Bu bot ilə əvvəl yaradılmış sualların xülasəsi
 
+    // Səhv cavablanmış suallar — birbaşa yeni quizə əlavə olunacaq
+    // { questionId, text, options (parsed), correctOption, points }
+    let wrongAnsweredQuestions: any[] = [];
+
     if (botId) {
       const bot = await prisma.aiBot.findUnique({
         where: { id: botId, active: true },
@@ -310,33 +314,133 @@ Cavabı MÜTLƏQ aşağıdakı JSON formatında ver — başqa heç nə yazma:
         return NextResponse.json({ error: "Seçilmiş AI bot tapılmadı" }, { status: 404 });
       }
 
-      // Bu bot ilə əvvəl yaradılmış quizlərin suallarını çək
       const userId = (session?.user as any)?.id;
       if (userId) {
-        const previousQuizzes = await prisma.quiz.findMany({
+        // Bu botla yaradılmış quizləri tap (sourceBotId ilə)
+        const previousQuizzes = await (prisma.quiz as any).findMany({
           where: {
             createdById: userId,
-            // Bu botla yaradılmış quizlər — title-da bot adı ola bilər, amma
-            // daha etibarlı yol: bu botun content-i ilə yaradılmış bütün quizlər
-            // Sadəcə bu user-in bütün quizlərinin suallarını götürürük
+            sourceBotId: botId,
           },
           select: {
+            id: true,
             questions: {
-              select: { text: true },
-              take: 5, // hər quizdən maks 5 sual
+              select: {
+                id: true,
+                text: true,
+                options: true,
+                correctOption: true,
+                points: true,
+                questionType: true,
+              },
+            },
+            results: {
+              where: { userId },
+              orderBy: { createdAt: "desc" },
+              take: 1, // hər quizin ən son nəticəsi
+              select: { answers: true },
             },
           },
           orderBy: { createdAt: "desc" },
-          take: 20, // son 20 quiz
+          take: 30,
         });
 
+        // Sualları iki qrupa ayır:
+        // 1. Heç vaxt düzgün cavablanmamış (və ya ən son nəticədə səhv olan) suallar
+        // 2. Bütün əvvəlki sualların mətni (AI-a göndərmək üçün)
         const allPrevTexts: string[] = [];
+
+        // questionId → ən son nəticədə düzgün cavablanıb-cavablanmadığı
+        // Bir sual birdən çox quizdə ola bilməz (hər quiz öz suallarını yaradır),
+        // amma eyni mətnli suallar fərqli quizlərdə ola bilər.
+        // Məntiqi: sualın MƏTNİ əsasında izləyirik.
+
+        // questionText (normalized) → son nəticədə isCorrect
+        const questionStatusMap = new Map<string, boolean>(); // text → lastCorrect
+
         for (const pq of previousQuizzes) {
+          // Bu quizin ən son nəticəsini al
+          const lastResult = pq.results[0];
+          let answersArr: any[] = [];
+          if (lastResult?.answers) {
+            try {
+              answersArr = JSON.parse(lastResult.answers);
+            } catch {
+              answersArr = [];
+            }
+          }
+
+          // answersArr: [{questionId, selected, isCorrect, ...}]
+          const answerMap = new Map<string, boolean>(); // questionId → isCorrect
+          for (const ans of answersArr) {
+            if (ans.questionId) {
+              answerMap.set(ans.questionId, !!ans.isCorrect);
+            }
+          }
+
           for (const q of pq.questions) {
-            if (q.text) {
-              // HTML taglarını sil, qısa xülasə üçün
-              const clean = q.text.replace(/<[^>]+>/g, "").trim();
-              if (clean.length > 5) allPrevTexts.push(clean);
+            const cleanText = q.text.replace(/<[^>]+>/g, "").trim();
+            if (cleanText.length > 5) {
+              allPrevTexts.push(cleanText);
+            }
+
+            // Bu sual bu quizdə cavablanıbmı?
+            const isCorrect = answerMap.get(q.id);
+            const normalizedText = cleanText.toLowerCase();
+
+            // Quizlər ən yenidən köhnəyə gəlir (orderBy: desc).
+            // Bir sualın statusunu yalnız ilk dəfə gördükdə set edirik —
+            // bu onun ən son nəticəsini əks etdirir.
+            // İstisna: əgər hər hansı quizdə düzgün cavablanıbsa, "düzgün" kimi işarələ
+            // (bir dəfə düzgün cavablandısa — artıq təkrarlama lazım deyil)
+            if (isCorrect === true) {
+              // Düzgün cavablandı — həmişə "düzgün" kimi işarələ (override et)
+              questionStatusMap.set(normalizedText, true);
+            } else if (isCorrect === false) {
+              // Səhv cavablandı — yalnız əvvəlcədən "düzgün" işarələnməyibsə set et
+              if (questionStatusMap.get(normalizedText) !== true) {
+                questionStatusMap.set(normalizedText, false);
+              }
+            }
+            // isCorrect === undefined: bu quiz həll edilməyib — statusu dəyişmə
+          }
+        }
+
+        // Səhv cavablanmış sualları topla (heç vaxt düzgün cavablanmamış)
+        // Bunları birbaşa yeni quizə əlavə edəcəyik
+        const wrongTextSet = new Set<string>();
+        for (const [text, correct] of questionStatusMap.entries()) {
+          if (!correct) wrongTextSet.add(text);
+        }
+
+        if (wrongTextSet.size > 0) {
+          // Bütün əvvəlki quizlərdən həmin sualların tam məlumatını tap
+          // (options, correctOption saxlamaq üçün)
+          // Maksimum 10 səhv sual əlavə et — quiz çox böyüməsin
+          const MAX_REVIEW_QUESTIONS = 10;
+          const seenTexts = new Set<string>();
+          for (const pq of previousQuizzes) {
+            if (wrongAnsweredQuestions.length >= MAX_REVIEW_QUESTIONS) break;
+            for (const q of pq.questions) {
+              if (wrongAnsweredQuestions.length >= MAX_REVIEW_QUESTIONS) break;
+              const cleanText = q.text.replace(/<[^>]+>/g, "").trim();
+              const normalizedText = cleanText.toLowerCase();
+              if (wrongTextSet.has(normalizedText) && !seenTexts.has(normalizedText)) {
+                seenTexts.add(normalizedText);
+                try {
+                  wrongAnsweredQuestions.push({
+                    text: q.text,
+                    options: typeof q.options === "string" ? JSON.parse(q.options) : q.options,
+                    correctOption: q.correctOption,
+                    points: q.points ?? 1,
+                    questionType: q.questionType || "CHOICE",
+                    imageUrl: "",
+                    openAnswerExample: "",
+                  });
+                } catch {
+                  // options parse xətası — bu sualı atla
+                }
+              }
             }
           }
         }
@@ -508,7 +612,7 @@ Cavabı YALNIZ JSON formatında ver, ${count} sual ilə:
       }
     }
 
-    if (allQuestions.length === 0) {
+    if (allQuestions.length === 0 && wrongAnsweredQuestions.length === 0) {
       return NextResponse.json(
         { error: "AI sual yarada bilmədi. Groq və OpenRouter hər ikisi uğursuz oldu. Bir az gözləyib yenidən cəhd edin." },
         { status: 502 }
@@ -560,7 +664,48 @@ Cavabı YALNIZ JSON formatında ver, ${count} sual ilə:
       };
     });
 
-    return NextResponse.json({ questions: normalized });
+    // Səhv cavablanmış sualları da shuffle et (variantların yerini qarışdır)
+    const normalizedWrong = wrongAnsweredQuestions.map((q: any) => {
+      const rawOptions = Array.isArray(q.options)
+        ? q.options.map((o: any) => ({ label: o.label || "A", text: o.text || "" }))
+        : [
+            { label: "A", text: "" },
+            { label: "B", text: "" },
+            { label: "C", text: "" },
+            { label: "D", text: "" },
+          ];
+      const correctLabel = q.correctOption || "A";
+      const correctText = rawOptions.find((o: any) => o.label === correctLabel)?.text || rawOptions[0]?.text || "";
+
+      const shuffled = [...rawOptions];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+
+      let newCorrectLabel = "A";
+      const newOptions = shuffled.map((o: any, idx: number) => {
+        const label = LABELS[idx] || String.fromCharCode(65 + idx);
+        if (o.text === correctText) newCorrectLabel = label;
+        return { label, text: o.text };
+      });
+
+      return {
+        text: q.text || "",
+        imageUrl: q.imageUrl || "",
+        questionType: q.questionType || "CHOICE",
+        openAnswerExample: q.openAnswerExample || "",
+        options: newOptions,
+        correctOption: newCorrectLabel,
+        points: q.points ?? 1,
+        isReview: true, // Bu sualın "təkrar" sual olduğunu bildirmək üçün
+      };
+    });
+
+    return NextResponse.json({
+      questions: normalized,
+      reviewQuestions: normalizedWrong, // Səhv cavablanmış suallar — frontend bunları əlavə edəcək
+    });
   } catch (err: any) {
     console.error("AI generate-quiz error:", err?.message ?? err);
     return NextResponse.json({ error: "Server xətası" }, { status: 500 });

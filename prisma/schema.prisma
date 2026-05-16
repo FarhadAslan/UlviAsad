@@ -67,6 +67,9 @@ model Quiz {
   passageContent  String?   // Passage HTML mətni (METN tipi üçün şərti məcburi)
   passageImageUrl String?   // Passage başlıq şəklinin URL-i (isteğe bağlı)
 
+  // Bu quizi yaradan AI bot (yalnız bot ilə yaradılmış quizlər üçün)
+  sourceBotId     String?   // AiBot.id — hansı botla yaradıldığını izləmək üçün
+
   @@index([active, createdAt])
   @@index([category, active])
   @@index([type, active])

@@ -13,7 +13,7 @@ interface AiBot {
 }
 
 interface UserAIQuizGeneratorProps {
-  onGenerate: (questions: any[]) => void;
+  onGenerate: (questions: any[], reviewQuestions?: any[], usedBotId?: string) => void;
   onClose: () => void;
   preselectedBotId?: string;
 }
@@ -65,9 +65,17 @@ export default function UserAIQuizGenerator({
       });
       const data = await res.json();
       if (!res.ok) { error(data.error || "AI quiz yarada bilmədi"); return; }
-      if (!data.questions?.length) { error("AI sual yarada bilmədi"); return; }
-      success(`${data.questions.length} sual yaradıldı!`);
-      onGenerate(data.questions);
+      if (!data.questions?.length && !data.reviewQuestions?.length) { error("AI sual yarada bilmədi"); return; }
+
+      const newQs: any[] = data.questions || [];
+      const reviewQs: any[] = data.reviewQuestions || [];
+
+      const totalMsg = reviewQs.length > 0
+        ? `${newQs.length} yeni + ${reviewQs.length} təkrar sual əlavə edildi!`
+        : `${newQs.length} sual yaradıldı!`;
+      success(totalMsg);
+
+      onGenerate(newQs, reviewQs, botId || undefined);
       onClose();
     } catch {
       error("Şəbəkə xətası baş verdi");
@@ -140,6 +148,7 @@ export default function UserAIQuizGenerator({
             {selectedBot && (
               <div className="mt-2 rounded-lg p-2.5 text-xs bg-purple-50 border border-purple-100 text-purple-700">
                 🤖 <strong>{selectedBot.name}</strong> — yalnız bu PDF-in məzmunundan sual yaradılacaq
+                <p className="mt-1 text-purple-600">♻️ Əvvəlki quizlərinizdə <strong>səhv cavabladığınız suallar</strong> da avtomatik əlavə ediləcək</p>
               </div>
             )}
           </div>
