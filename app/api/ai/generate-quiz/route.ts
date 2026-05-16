@@ -7,10 +7,10 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-// Groq modellər — JSON mode dəstəkləyir, sürətli
+// Groq modellər — sürətli modellər əvvəl
 const GROQ_MODELS = [
-  "llama-3.3-70b-versatile",   // 6000 TPM — ən yüksək keyfiyyət
-  "llama-3.1-8b-instant",      // 20000 TPM — sürətli (kiçik mətn üçün)
+  "llama-3.1-8b-instant",      // 20000 TPM — ən sürətli
+  "llama-3.3-70b-versatile",   // 6000 TPM — yüksək keyfiyyət
 ];
 
 // OpenRouter — "openrouter/auto" avtomatik ən yaxşı pulsuz modeli seçir
@@ -84,7 +84,7 @@ async function callAI(opts: {
   retries?: number;
 }): Promise<any[] | null> {
   const { endpoint, apiKey, model, systemPrompt, userPrompt,
-          extraHeaders = {}, useJsonMode = true, retries = 3 } = opts;
+          extraHeaders = {}, useJsonMode = true, retries = 1 } = opts;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     const body: any = {
@@ -115,12 +115,12 @@ async function callAI(opts: {
       });
     } catch (fetchErr: any) {
       console.error(`[${model}] fetch error:`, fetchErr);
-      if (attempt < retries) { await new Promise(r => setTimeout(r, 2000)); continue; }
+      if (attempt < retries) { await new Promise(r => setTimeout(r, 500)); continue; }
       return null;
     }
 
     if (res.status === 429 && attempt < retries) {
-      const waitMs = 5000 * (attempt + 1);
+      const waitMs = 2000 * (attempt + 1);
       console.log(`[${model}] rate limit, ${waitMs}ms gözlənilir...`);
       await new Promise(r => setTimeout(r, waitMs));
       continue;
@@ -137,7 +137,7 @@ async function callAI(opts: {
       console.error(`[${model}] HTTP ${res.status}:`, errText.slice(0, 200));
       // 5xx xətalarında retry
       if (res.status >= 500 && attempt < retries) {
-        await new Promise(r => setTimeout(r, 3000));
+        await new Promise(r => setTimeout(r, 1000));
         continue;
       }
       return null;
@@ -205,7 +205,7 @@ async function fetchUntilFull(opts: {
   buildPrompt: (chunk: string, ci: number, count: number) => string;
   maxAttempts?: number;
 }): Promise<any[]> {
-  const { needed, maxAttempts = 8 } = opts;
+  const { needed, maxAttempts = 3 } = opts;
   const collected: any[] = [];
   let attempts = 0;
 
@@ -241,7 +241,7 @@ async function fetchUntilFull(opts: {
 
     attempts++;
     if (collected.length < needed && attempts < maxAttempts) {
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 200));
     }
   }
 

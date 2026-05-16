@@ -44,7 +44,7 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
     setLoading(true);
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 110000);
+      const timeoutId = setTimeout(() => controller.abort(), 55000);
       const res = await fetch("/api/ai/generate-quiz", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
