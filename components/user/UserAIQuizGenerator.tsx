@@ -25,7 +25,7 @@ export default function UserAIQuizGenerator({
 }: UserAIQuizGeneratorProps) {
   const { success, error } = useToast();
   const [title, setTitle] = useState("");
-  const [questionCount, setQuestionCount] = useState(5);
+  const [questionCount, setQuestionCount] = useState<string>("5");
   const [botId, setBotId] = useState<string>(preselectedBotId || "");
   const [userBots, setUserBots] = useState<AiBot[]>([]);
   const [botsLoading, setBotsLoading] = useState(true);
@@ -49,8 +49,9 @@ export default function UserAIQuizGenerator({
   const selectedBot = userBots.find((b) => b.id === botId);
 
   const handleGenerate = async () => {
+    const count = parseInt(questionCount) || 0;
     if (!title.trim()) { error("Quiz mövzusu daxil edin"); return; }
-    if (questionCount < 1 || questionCount > 50) { error("Sual sayı 1-50 arasında olmalıdır"); return; }
+    if (count < 1 || count > 50) { error("Sual sayı 1-50 arasında olmalıdır"); return; }
     setLoading(true);
     try {
       const res = await fetch("/api/ai/generate-quiz", {
@@ -58,7 +59,7 @@ export default function UserAIQuizGenerator({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title,
-          questionCount,
+          questionCount: count,
           language: "az",
           botId: botId || undefined,
         }),
@@ -176,7 +177,11 @@ export default function UserAIQuizGenerator({
             <input
               type="number"
               value={questionCount}
-              onChange={(e) => setQuestionCount(parseInt(e.target.value) || 1)}
+              onChange={(e) => setQuestionCount(e.target.value)}
+              onBlur={() => {
+                const n = parseInt(questionCount) || 1;
+                setQuestionCount(String(Math.min(50, Math.max(1, n))));
+              }}
               min={1}
               max={50}
               className="input-field"
