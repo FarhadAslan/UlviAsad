@@ -84,7 +84,7 @@ async function callAI(opts: {
   retries?: number;
 }): Promise<any[] | null> {
   const { endpoint, apiKey, model, systemPrompt, userPrompt,
-          extraHeaders = {}, useJsonMode = true, retries = 2 } = opts; // 3→2 retry
+          extraHeaders = {}, useJsonMode = true, retries = 3 } = opts;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     const body: any = {
@@ -104,8 +104,6 @@ async function callAI(opts: {
 
     let res: Response;
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 20000); // 20s per request
       res = await fetch(endpoint, {
         method: "POST",
         headers: {
@@ -114,15 +112,8 @@ async function callAI(opts: {
           ...extraHeaders,
         },
         body: JSON.stringify(body),
-        signal: controller.signal,
       });
-      clearTimeout(timeoutId);
     } catch (fetchErr: any) {
-      if (fetchErr?.name === "AbortError") {
-        console.error(`[${model}] request timed out after 20s`);
-        if (attempt < retries) { await new Promise(r => setTimeout(r, 1000)); continue; }
-        return null;
-      }
       console.error(`[${model}] fetch error:`, fetchErr);
       if (attempt < retries) { await new Promise(r => setTimeout(r, 2000)); continue; }
       return null;
@@ -214,7 +205,7 @@ async function fetchUntilFull(opts: {
   buildPrompt: (chunk: string, ci: number, count: number) => string;
   maxAttempts?: number;
 }): Promise<any[]> {
-  const { needed, maxAttempts = 4 } = opts; // 8→4: hər attempt ~20s, 4×20=80s max
+  const { needed, maxAttempts = 3 } = opts;
   const collected: any[] = [];
   let attempts = 0;
 
