@@ -314,33 +314,42 @@ Cavabı MÜTLƏQ aşağıdakı JSON formatında ver — başqa heç nə yazma:
       const userId = (session?.user as any)?.id;
       if (userId) {
         // Bu botla yaradılmış quizləri tap (sourceBotId ilə)
-        const previousQuizzes = await (prisma.quiz as any).findMany({
-          where: {
-            createdById: userId,
-            sourceBotId: botId,
-          },
-          select: {
-            id: true,
-            questions: {
-              select: {
-                id: true,
-                text: true,
-                options: true,
-                correctOption: true,
-                points: true,
-                questionType: true,
+        // sourceBotId sütunu mövcud deyilsə (migration tətbiq edilməyibsə) — xətanı tut və keç
+        let previousQuizzes: any[] = [];
+        try {
+          previousQuizzes = await (prisma.quiz as any).findMany({
+            where: {
+              createdById: userId,
+              sourceBotId: botId,
+            },
+            select: {
+              id: true,
+              questions: {
+                select: {
+                  id: true,
+                  text: true,
+                  options: true,
+                  correctOption: true,
+                  points: true,
+                  questionType: true,
+                },
+              },
+              results: {
+                where: { userId },
+                orderBy: { createdAt: "desc" },
+                take: 1, // hər quizin ən son nəticəsi
+                select: { answers: true },
               },
             },
-            results: {
-              where: { userId },
-              orderBy: { createdAt: "desc" },
-              take: 1, // hər quizin ən son nəticəsi
-              select: { answers: true },
-            },
-          },
-          orderBy: { createdAt: "desc" },
-          take: 30,
-        });
+            orderBy: { createdAt: "desc" },
+            take: 30,
+          });
+        } catch (dbErr: any) {
+          // sourceBotId sütunu hələ DB-də yoxdur — migration tətbiq edilməyib
+          // Bu halda sadəcə keçirik, quiz generasiyası normal davam edir
+          console.warn("[generate-quiz] sourceBotId sorğusu uğursuz (migration lazımdır):", dbErr?.message);
+          previousQuizzes = [];
+        }
 
         // Sualları iki qrupa ayır:
         // 1. Heç vaxt düzgün cavablanmamış (və ya ən son nəticədə səhv olan) suallar
