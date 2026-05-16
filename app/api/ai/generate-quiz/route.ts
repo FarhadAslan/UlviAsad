@@ -262,7 +262,7 @@ export async function POST(req: NextRequest) {
 
     if (!groqKey && !orKey) {
       return NextResponse.json(
-        { error: "AI API açarı konfiqurasiya edilməyib." },
+        { error: `AI API açarı konfiqurasiya edilməyib. [env: GROQ=${!!groqKey}, OR=${!!orKey}]` },
         { status: 503 }
       );
     }
