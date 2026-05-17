@@ -157,7 +157,7 @@ async function worker(
     ...(orKey   ? OR_MODELS   : []),
   ];
 
-  if (allModels.length === 0) return [];
+  if (allModels.length === 0) return { questions: [] };
 
   let attempt = 0;
 
