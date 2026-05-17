@@ -18,7 +18,7 @@ const GROQ_MODELS: ModelConfig[] = [
   { id: "llama-3.3-70b-versatile",                   provider: "groq", jsonMode: true  },
   { id: "llama-3.1-8b-instant",                      provider: "groq", jsonMode: true  },
   { id: "meta-llama/llama-4-scout-17b-16e-instruct", provider: "groq", jsonMode: false },
-  { id: "openai/gpt-oss-120b",                       provider: "groq", jsonMode: true  },
+  // openai/gpt-oss-120b çıxarıldı — Groq-da qeyri-sabitdir, retry-ı israf edir
 ];
 
 const OR_MODELS: ModelConfig[] = [
@@ -101,7 +101,7 @@ async function callModel(
       { role: "user",   content: userPrompt   },
     ],
     temperature: 0.7,
-    max_tokens: 6000,
+    max_tokens: 12000, // Azərbaycan dilindəki 10 sual üçün 12000 token lazımdır
   };
   if (cfg.jsonMode) body.response_format = { type: "json_object" };
 
@@ -116,8 +116,12 @@ async function callModel(
       body: JSON.stringify(body),
     });
 
-    if (res.status === 429) { console.warn(`[${cfg.id}] rate limit`); return null; }
-    if (!res.ok)            { console.warn(`[${cfg.id}] HTTP ${res.status}`); return null; }
+    if (res.status === 429) {
+      console.warn(`[${cfg.id}] rate limit — gözlənilir...`);
+      // 429-da birbaşa null qaytarmaq əvəzinə geri çəkilirik ki worker retry edə bilsin
+      return null;
+    }
+    if (!res.ok) { console.warn(`[${cfg.id}] HTTP ${res.status}`); return null; }
 
     const data = await res.json().catch(() => null);
     const content = data?.choices?.[0]?.message?.content;
@@ -137,7 +141,7 @@ async function worker(
   buildPrompt: (count: number, attempt: number) => string,
   groqKey: string | undefined,
   orKey: string | undefined,
-  maxAttempts = 3,
+  maxAttempts = 5, // 3-dən 5-ə qaldırıldı
 ): Promise<any[]> {
   const collected: any[] = [];
   const seenTexts = new Set<string>();
@@ -153,8 +157,9 @@ async function worker(
 
   while (collected.length < needed && attempt < maxAttempts) {
     const stillNeed = needed - collected.length;
-    // Sadəcə lazım olan qədər + 2 ehtiyat — çox istəmə, JSON truncate olur
-    const askFor = stillNeed + 2;
+    // Ehtiyat sual say: az qalıqda +2, çox qalıqda +3 (amma çox istəmə)
+    const buffer = stillNeed <= 5 ? 2 : 3;
+    const askFor = stillNeed + buffer;
 
     const model = allModels[attempt % allModels.length];
     const userPrompt = buildPrompt(askFor, attempt);
@@ -175,7 +180,9 @@ async function worker(
     attempt++;
 
     if (collected.length < needed && attempt < maxAttempts) {
-      await new Promise((r) => setTimeout(r, 150));
+      // Eksponensial geri çəkilmə: 500ms, 1000ms, 1500ms, 2000ms
+      const backoffMs = attempt * 500;
+      await new Promise((r) => setTimeout(r, backoffMs));
     }
   }
 
@@ -190,12 +197,12 @@ async function generateParallel(
   groqKey: string | undefined,
   orKey: string | undefined,
 ): Promise<any[]> {
-  // Dinamik bölmə (Chunking): Hər sorğuda max 10 sual
-  // Məsələn, 50 sual 5 paralel işçiyə bölünəcək (hər biri 10)
-  const CHUNK_SIZE = 10;
+  // CHUNK_SIZE = 17: 50 sual üçün cəmi 3 paralel sorğu (əvvəl 5 idi → rate limit)
+  // 3 sorğu Groq-un TPM limitini aşmır və hər birinin JSON truncate riski minimumdur
+  const CHUNK_SIZE = 17;
   const workerCount = Math.ceil(totalCount / CHUNK_SIZE);
   const shares: number[] = [];
-  
+
   let remaining = totalCount;
   for (let i = 0; i < workerCount; i++) {
     const share = Math.min(remaining, CHUNK_SIZE);
@@ -205,12 +212,12 @@ async function generateParallel(
 
   const workerTasks = shares.map(async (share, i) => {
     if (share === 0) return [];
-    
-    // Rate limitin qarşısını almaq üçün kiçik gecikmə (staggering)
+
+    // Sorğular arasında 1500ms interval — Groq rate limitini keçmir
     if (i > 0) {
-      await new Promise(r => setTimeout(r, i * 400));
+      await new Promise(r => setTimeout(r, i * 1500));
     }
-    
+
     return worker(
       share,
       systemPrompt,
@@ -236,7 +243,7 @@ async function generateParallel(
     }
   }
 
-  // Hələ çatmırsa — sürətli fill-up (tək sorğu, artıq sual istə)
+  // Fill-up: çatmayan sualları kiçik chunk-larla worker() vasitəsilə doldur
   if (allQuestions.length < totalCount) {
     const deficit = totalCount - allQuestions.length;
     console.log(`[parallel] ${deficit} sual çatmır, fill-up başlayır...`);
@@ -247,31 +254,37 @@ async function generateParallel(
         }\n`
       : "";
 
-    // Fill-up üçün birbaşa tək model sorğusu (worker overhead olmadan)
-    const allModels: ModelConfig[] = [
-      ...(groqKey ? GROQ_MODELS : []),
-      ...(orKey   ? OR_MODELS   : []),
-    ];
+    // Fill-up üçün worker() istifadə et (retry mexanizmi olan)
+    // Max 10 sual ilə çağır ki JSON truncate olmasın
+    const fillChunks: number[] = [];
+    let fillRemaining = deficit;
+    while (fillRemaining > 0) {
+      const chunk = Math.min(fillRemaining, 10);
+      fillChunks.push(chunk);
+      fillRemaining -= chunk;
+    }
 
-    for (const model of allModels) {
+    for (const chunkSize of fillChunks) {
       if (allQuestions.length >= totalCount) break;
-      const stillNeed = totalCount - allQuestions.length;
-      // Kiçik qalıqlar üçün 1-2 artıq sual kifayətdir, çox yükləmə
-      const extraCount = stillNeed + Math.min(2, Math.ceil(stillNeed * 0.5));
-      const extra = await callModel(
-        model, groqKey, orKey,
+      const fillResult = await worker(
+        chunkSize,
         systemPrompt,
-        buildPrompt(extraCount, 99, 0) + avoidNote,
+        (count, attempt) => buildPrompt(count, 99, attempt) + avoidNote,
+        groqKey,
+        orKey,
+        3, // fill-up üçün 3 cəhd kifayətdir
       );
-      if (extra) {
-        for (const q of extra) {
-          const key = q.text?.trim().toLowerCase();
-          if (key && !seenTexts.has(key)) {
-            seenTexts.add(key);
-            allQuestions.push(q);
-            if (allQuestions.length >= totalCount) break;
-          }
+      for (const q of fillResult) {
+        const key = q.text?.trim().toLowerCase();
+        if (key && !seenTexts.has(key)) {
+          seenTexts.add(key);
+          allQuestions.push(q);
+          if (allQuestions.length >= totalCount) break;
         }
+      }
+      // Fill-up chunk-ları arasında 1 saniyə gözlə
+      if (allQuestions.length < totalCount) {
+        await new Promise(r => setTimeout(r, 1000));
       }
     }
   }
