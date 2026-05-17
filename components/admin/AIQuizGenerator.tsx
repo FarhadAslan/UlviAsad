@@ -17,9 +17,8 @@ interface AIQuizGeneratorProps {
   categories: { value: string; label: string }[];
 }
 
-// Server özü paralel işləyir — frontend tək sorğu göndərir
-// Yalnız 50 sual üçün 2 sorğuya böl (hər biri 25, server retry ilə tamamlayır)
-const SPLIT_THRESHOLD = 49;
+// Həmişə 2 paralel sorğu göndərilir — hər biri server-daxili paralel işləyir
+const SPLIT_THRESHOLD = 49; // artıq istifadə edilmir, saxlanılır
 
 export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQuizGeneratorProps) {
   const { success, error } = useToast();
@@ -79,73 +78,68 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
     if (questionCount < 1 || questionCount > 50) { error("Sual sayı 1-50 arasında olmalıdır"); return; }
 
     setLoading(true);
-    setProgress(5);
+    setProgress(0);
     setFailedCount(0);
     setProgressText("AI modellər işə başlayır...");
 
     const controller = new AbortController();
     abortRef.current = controller;
 
+    // ── Fake progress animation — server cavab verənə qədər bar hərəkət edir ──
+    let fakeProgress = 0;
+    const progressInterval = setInterval(() => {
+      fakeProgress += Math.random() * 3 + 1; // hər 400ms ~1-4% artır
+      if (fakeProgress > 88) fakeProgress = 88; // 88%-də dayanır, cavab gəlincə
+      setProgress(Math.round(fakeProgress));
+    }, 400);
+
     try {
       let allQuestions: any[] = [];
       let reviewQuestions: any[] = [];
 
-      if (questionCount <= SPLIT_THRESHOLD) {
-        // ── Tək sorğu — server içəridə bütün modelləri paralel işlədir ──
-        setProgressText(`${questionCount} sual üçün paralel sorğu göndərilir...`);
-        setProgress(20);
+      // ── Həmişə 2 paralel sorğu göndər ──
+      // Hər biri server-daxili 4 modeli paralel işlədir + retry edir
+      // Bu şəkildə 60s timeout-a sığır və tam say alınır
+      const half1 = Math.ceil(questionCount / 2);
+      const half2 = questionCount - half1;
 
-        const data = await fetchQuestions(questionCount, [], controller.signal);
-        allQuestions    = data.questions       || [];
-        reviewQuestions = data.reviewQuestions || [];
-        setProgress(90);
+      setProgressText(`${questionCount} sual — paralel yaradılır...`);
 
+      const [res1, res2] = await Promise.allSettled([
+        fetchQuestions(half1, [], controller.signal),
+        fetchQuestions(half2, [], controller.signal),
+      ]);
+
+      let failed = 0;
+
+      if (res1.status === "fulfilled") {
+        allQuestions.push(...(res1.value.questions || []));
+        reviewQuestions = res1.value.reviewQuestions || [];
       } else {
-        // ── İki paralel sorğu: hər biri yarısını alır ──
-        const half1 = Math.ceil(questionCount / 2);
-        const half2 = questionCount - half1;
-
-        setProgressText(`${questionCount} sual — 2 paralel sorğu göndərilir...`);
-        setProgress(15);
-
-        const [res1, res2] = await Promise.allSettled([
-          fetchQuestions(half1, [], controller.signal),
-          fetchQuestions(half2, [], controller.signal),
-        ]);
-
-        let failed = 0;
-
-        if (res1.status === "fulfilled") {
-          allQuestions.push(...(res1.value.questions || []));
-          reviewQuestions = res1.value.reviewQuestions || [];
-        } else {
-          if (res1.reason?.name === "AbortError") throw res1.reason;
-          console.error("Sorğu 1 uğursuz:", res1.reason?.message);
-          failed++;
-        }
-
-        if (res2.status === "fulfilled") {
-          // Dublikatları sil
-          const existingTexts = new Set(allQuestions.map((q: any) => q.text?.trim().toLowerCase()));
-          for (const q of (res2.value.questions || [])) {
-            const key = q.text?.trim().toLowerCase();
-            if (key && !existingTexts.has(key)) {
-              existingTexts.add(key);
-              allQuestions.push(q);
-            }
-          }
-          if (reviewQuestions.length === 0) {
-            reviewQuestions = res2.value.reviewQuestions || [];
-          }
-        } else {
-          if (res2.reason?.name === "AbortError") throw res2.reason;
-          console.error("Sorğu 2 uğursuz:", res2.reason?.message);
-          failed++;
-        }
-
-        setFailedCount(failed);
-        setProgress(90);
+        if (res1.reason?.name === "AbortError") throw res1.reason;
+        console.error("Sorğu 1 uğursuz:", res1.reason?.message);
+        failed++;
       }
+
+      if (res2.status === "fulfilled") {
+        const existingTexts = new Set(allQuestions.map((q: any) => q.text?.trim().toLowerCase()));
+        for (const q of (res2.value.questions || [])) {
+          const key = q.text?.trim().toLowerCase();
+          if (key && !existingTexts.has(key)) {
+            existingTexts.add(key);
+            allQuestions.push(q);
+          }
+        }
+        if (reviewQuestions.length === 0) {
+          reviewQuestions = res2.value.reviewQuestions || [];
+        }
+      } else {
+        if (res2.reason?.name === "AbortError") throw res2.reason;
+        console.error("Sorğu 2 uğursuz:", res2.reason?.message);
+        failed++;
+      }
+
+      setFailedCount(failed);
 
       if (allQuestions.length === 0) {
         error("AI heç bir sual yarada bilmədi. Bir az gözləyib yenidən cəhd edin.");
@@ -155,11 +149,12 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
       const finalQuestions = allQuestions.slice(0, questionCount);
       const allFinal = [...finalQuestions, ...reviewQuestions];
 
+      clearInterval(progressInterval);
       setProgress(100);
       setProgressText(`${allFinal.length} sual hazırdır!`);
-      await new Promise((r) => setTimeout(r, 350));
+      await new Promise((r) => setTimeout(r, 500));
 
-      if (failedCount > 0) {
+      if (failed > 0) {
         success(`${finalQuestions.length} sual yaradıldı (bəzi sorğular uğursuz oldu)`);
       } else {
         success(`${allFinal.length} sual yaradıldı!`);
@@ -177,6 +172,7 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
         error(err?.message || "Xəta baş verdi. Yenidən cəhd edin.");
       }
     } finally {
+      clearInterval(progressInterval);
       setLoading(false);
       setProgress(0);
       setProgressText("");
@@ -281,14 +277,16 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
             <div className="w-56 space-y-2">
               <div className="w-full bg-white/10 rounded-full h-1.5 overflow-hidden">
                 <div
-                  className="h-1.5 rounded-full transition-all duration-700"
+                  className="h-1.5 rounded-full transition-all duration-500"
                   style={{
                     width: `${progress}%`,
                     background: "linear-gradient(90deg, #ad5fff, #667eea)",
                   }}
                 />
               </div>
-              <p className="text-center text-white/60 text-xs">{progressText}</p>
+              <p className="text-center text-white/60 text-xs">
+                {progressText || `${questionCount} sual yaradılır...`}
+              </p>
             </div>
 
             {/* Dayandır düyməsi */}

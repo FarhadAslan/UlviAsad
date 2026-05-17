@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 60; // Hər sorğu max 25 sual — 60s kifayətdir
 
 // ─── Model konfiqurasiyası ────────────────────────────────────────────────────
 interface ModelConfig {
@@ -119,20 +119,17 @@ async function callModel(
 }
 
 // ─── Worker: öz payını toplayana qədər retry ─────────────────────────────────
-// Hər worker müstəqil işləyir — lazım olan sayı toplayana qədər
-// fərqli modelləri sırayla sınayır.
 async function worker(
   needed: number,
   systemPrompt: string,
   buildPrompt: (count: number, attempt: number) => string,
   groqKey: string | undefined,
   orKey: string | undefined,
-  maxAttempts = 6,
+  maxAttempts = 4, // az retry, amma hər dəfə daha çox sual istə
 ): Promise<any[]> {
   const collected: any[] = [];
   const seenTexts = new Set<string>();
 
-  // Mövcud modellərin siyahısı (groq + openrouter)
   const allModels: ModelConfig[] = [
     ...(groqKey ? GROQ_MODELS : []),
     ...(orKey   ? OR_MODELS   : []),
@@ -144,10 +141,11 @@ async function worker(
 
   while (collected.length < needed && attempt < maxAttempts) {
     const stillNeed = needed - collected.length;
-    // Bir az artıq istə — bəzən az gəlir
-    const askFor = stillNeed + Math.max(2, Math.ceil(stillNeed * 0.3));
+    // İlk cəhddə tam sayı + 50% artıq istə — az retry lazım olsun
+    const askFor = attempt === 0
+      ? needed + Math.ceil(needed * 0.5)
+      : stillNeed + Math.max(3, Math.ceil(stillNeed * 0.4));
 
-    // Bu cəhddə hansı modeli istifadə et (rotation)
     const model = allModels[attempt % allModels.length];
     const userPrompt = buildPrompt(askFor, attempt);
 
@@ -166,9 +164,8 @@ async function worker(
 
     attempt++;
 
-    // Hələ çatmırsa qısa gözlə
     if (collected.length < needed && attempt < maxAttempts) {
-      await new Promise((r) => setTimeout(r, 300));
+      await new Promise((r) => setTimeout(r, 200));
     }
   }
 
@@ -185,9 +182,10 @@ async function generateParallel(
   groqKey: string | undefined,
   orKey: string | undefined,
 ): Promise<any[]> {
-  // Worker sayını müəyyən et — çox worker = daha sürətli, amma rate limit riski
-  // Optimal: 3-4 worker
-  const WORKER_COUNT = Math.min(4, Math.ceil(totalCount / 10));
+  // Worker sayını müəyyən et
+  // 25 sual → 3 worker (hər biri ~8-9 sual, tez tamamlanır)
+  // 10 sual → 2 worker
+  const WORKER_COUNT = Math.min(3, Math.max(2, Math.ceil(totalCount / 10)));
   const baseShare = Math.floor(totalCount / WORKER_COUNT);
   const remainder = totalCount % WORKER_COUNT;
 
