@@ -192,12 +192,121 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
   const workerCount = questionCount <= SPLIT_THRESHOLD ? 4 : 8;
 
   return (
+    <>
+      {/* Loader CSS */}
+      <style>{`
+        .ai-loader-wrapper {
+          position: relative;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 160px;
+          height: 160px;
+          font-family: "Inter", sans-serif;
+          font-size: 1.1em;
+          font-weight: 300;
+          color: white;
+          border-radius: 50%;
+          background-color: transparent;
+          user-select: none;
+        }
+        .ai-loader {
+          position: absolute;
+          top: 0; left: 0;
+          width: 100%;
+          aspect-ratio: 1 / 1;
+          border-radius: 50%;
+          background-color: transparent;
+          animation: ai-loader-rotate 2s linear infinite;
+          z-index: 0;
+        }
+        @keyframes ai-loader-rotate {
+          0%   { transform: rotate(90deg);  box-shadow: 0 10px 20px 0 #fff inset, 0 20px 30px 0 #ad5fff inset, 0 60px 60px 0 #471eec inset; }
+          50%  { transform: rotate(270deg); box-shadow: 0 10px 20px 0 #fff inset, 0 20px 10px 0 #d60a47 inset, 0 40px 60px 0 #311e80 inset; }
+          100% { transform: rotate(450deg); box-shadow: 0 10px 20px 0 #fff inset, 0 20px 30px 0 #ad5fff inset, 0 60px 60px 0 #471eec inset; }
+        }
+        .ai-loader-letter {
+          display: inline-block;
+          opacity: 0.4;
+          transform: translateY(0);
+          animation: ai-loader-letter-anim 2s infinite;
+          z-index: 1;
+        }
+        .ai-loader-letter:nth-child(1)  { animation-delay: 0s;   }
+        .ai-loader-letter:nth-child(2)  { animation-delay: 0.1s; }
+        .ai-loader-letter:nth-child(3)  { animation-delay: 0.2s; }
+        .ai-loader-letter:nth-child(4)  { animation-delay: 0.3s; }
+        .ai-loader-letter:nth-child(5)  { animation-delay: 0.4s; }
+        .ai-loader-letter:nth-child(6)  { animation-delay: 0.5s; }
+        .ai-loader-letter:nth-child(7)  { animation-delay: 0.6s; }
+        .ai-loader-letter:nth-child(8)  { animation-delay: 0.7s; }
+        .ai-loader-letter:nth-child(9)  { animation-delay: 0.8s; }
+        .ai-loader-letter:nth-child(10) { animation-delay: 0.9s; }
+        @keyframes ai-loader-letter-anim {
+          0%,100% { opacity: 0.4; transform: translateY(0);    }
+          20%     { opacity: 1;   transform: scale(1.15);      }
+          40%     { opacity: 0.7; transform: translateY(0);    }
+        }
+      `}</style>
+
     <div
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
       style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
       onClick={(e) => { if (e.target === e.currentTarget && !loading) onClose(); }}
     >
-      <div className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col max-h-[92vh] sm:max-h-[88vh]">
+      <div className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col max-h-[92vh] sm:max-h-[88vh] relative overflow-hidden">
+
+        {/* ── Loading overlay ── */}
+        {loading && (
+          <div
+            className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-6"
+            style={{ background: "linear-gradient(135deg, #1a0533 0%, #2d1060 50%, #1a0533 100%)" }}
+          >
+            {/* Animasiyalı loader */}
+            <div className="ai-loader-wrapper">
+              <span className="ai-loader-letter">G</span>
+              <span className="ai-loader-letter">e</span>
+              <span className="ai-loader-letter">n</span>
+              <span className="ai-loader-letter">e</span>
+              <span className="ai-loader-letter">r</span>
+              <span className="ai-loader-letter">a</span>
+              <span className="ai-loader-letter">t</span>
+              <span className="ai-loader-letter">i</span>
+              <span className="ai-loader-letter">n</span>
+              <span className="ai-loader-letter">g</span>
+              <div className="ai-loader" />
+            </div>
+
+            {/* Progress bar */}
+            <div className="w-56 space-y-2">
+              <div className="w-full bg-white/10 rounded-full h-1.5 overflow-hidden">
+                <div
+                  className="h-1.5 rounded-full transition-all duration-700"
+                  style={{
+                    width: `${progress}%`,
+                    background: "linear-gradient(90deg, #ad5fff, #667eea)",
+                  }}
+                />
+              </div>
+              <p className="text-center text-white/60 text-xs">{progressText}</p>
+            </div>
+
+            {/* Dayandır düyməsi */}
+            <button
+              onClick={handleCancel}
+              className="mt-2 px-5 py-2 rounded-xl text-sm font-medium text-white/70 border border-white/20 hover:text-white hover:border-white/40 transition-all"
+            >
+              Dayandır
+            </button>
+
+            {failedCount > 0 && (
+              <p className="text-xs text-amber-400 flex items-center gap-1">
+                <AlertCircle size={12} />
+                Bəzi sorğular uğursuz oldu, davam edir...
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Drag handle */}
         <div className="flex justify-center pt-3 pb-1 sm:hidden flex-shrink-0">
@@ -224,34 +333,6 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
 
         {/* Body */}
         <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
-
-          {/* Progress */}
-          {loading && (
-            <div className="rounded-xl border border-purple-200 bg-purple-50 p-4 space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-purple-700 font-medium flex items-center gap-1.5">
-                  <Loader2 size={14} className="animate-spin" />
-                  {progressText}
-                </span>
-                <span className="text-purple-500 text-xs">{progress}%</span>
-              </div>
-              <div className="w-full bg-purple-100 rounded-full h-2 overflow-hidden">
-                <div
-                  className="h-2 rounded-full transition-all duration-700"
-                  style={{
-                    width: `${progress}%`,
-                    background: "linear-gradient(90deg,#667eea,#764ba2)",
-                  }}
-                />
-              </div>
-              {failedCount > 0 && (
-                <p className="text-xs text-amber-600 flex items-center gap-1">
-                  <AlertCircle size={12} />
-                  Bəzi sorğular uğursuz oldu, mövcud nəticələr qaytarılır...
-                </p>
-              )}
-            </div>
-          )}
 
           {/* AI Bot */}
           <div>
@@ -373,21 +454,13 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
         {/* Footer */}
         <div className="flex gap-3 px-4 sm:px-6 py-3 sm:py-4 border-t border-slate-100 bg-slate-50 flex-shrink-0">
           {loading ? (
-            <>
-              <div
-                className="flex-1 py-2.5 rounded-xl font-semibold text-sm text-white flex items-center justify-center gap-2 opacity-80 cursor-not-allowed"
-                style={{ background: "linear-gradient(135deg,#667eea 0%,#764ba2 100%)" }}
-              >
-                <Loader2 size={16} className="animate-spin" />
-                Yaradılır... {progress}%
-              </div>
-              <button
-                onClick={handleCancel}
-                className="btn-secondary px-4 sm:px-6 text-sm text-red-500 border-red-200 hover:bg-red-50"
-              >
-                Dayandır
-              </button>
-            </>
+            <div
+              className="flex-1 py-2.5 rounded-xl font-semibold text-sm text-white flex items-center justify-center gap-2 opacity-60 cursor-not-allowed"
+              style={{ background: "linear-gradient(135deg,#667eea 0%,#764ba2 100%)" }}
+            >
+              <Loader2 size={16} className="animate-spin" />
+              Yaradılır...
+            </div>
           ) : (
             <>
               <button
@@ -410,5 +483,6 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
         </div>
       </div>
     </div>
+    </>
   );
 }
