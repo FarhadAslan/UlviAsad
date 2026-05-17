@@ -189,92 +189,90 @@ async function worker(
   return collected.slice(0, needed);
 }
 
-// ─── Paralel worker strategiyası ─────────────────────────────────────────────
-async function generateParallel(
+// ─── Ardıcıl (Sequential) worker strategiyası ────────────────────────────────
+// Groq və OpenRouter kimi API-lərdə "Rate Limit" (429) almamaq üçün ən təhlükəsiz yol:
+// Paralel deyil, ardıcıl olaraq 10 suallıq kiçik sorğular atmaqdır.
+// 10 sualın yaranması təxminən 3-5 saniyə çəkir. 50 sual (5 sorğu) ~25 saniyəyə bitəcək.
+// Bu Vercel-in 60 saniyəlik limitinə asanlıqla sığır.
+async function generateSequential(
   totalCount: number,
   systemPrompt: string,
   buildPrompt: (count: number, workerIdx: number, attempt: number) => string,
   groqKey: string | undefined,
   orKey: string | undefined,
 ): Promise<any[]> {
-  // CHUNK_SIZE = 17: 50 sual üçün cəmi 3 paralel sorğu (əvvəl 5 idi → rate limit)
-  // 3 sorğu Groq-un TPM limitini aşmır və hər birinin JSON truncate riski minimumdur
-  const CHUNK_SIZE = 17;
-  const workerCount = Math.ceil(totalCount / CHUNK_SIZE);
-  const shares: number[] = [];
-
-  let remaining = totalCount;
-  for (let i = 0; i < workerCount; i++) {
-    const share = Math.min(remaining, CHUNK_SIZE);
-    shares.push(share);
-    remaining -= share;
-  }
-
-  const workerTasks = shares.map(async (share, i) => {
-    if (share === 0) return [];
-
-    // Sorğular arasında 1500ms interval — Groq rate limitini keçmir
-    if (i > 0) {
-      await new Promise(r => setTimeout(r, i * 1500));
-    }
-
-    return worker(
-      share,
-      systemPrompt,
-      (count, attempt) => buildPrompt(count, i, attempt),
-      groqKey,
-      orKey,
-    );
-  });
-
-  const results = await Promise.all(workerTasks);
-
-  // Nəticələri birləşdir, dublikatları sil
+  const CHUNK_SIZE = 10;
+  const numChunks = Math.ceil(totalCount / CHUNK_SIZE);
+  
   const allQuestions: any[] = [];
   const seenTexts = new Set<string>();
 
-  for (const qs of results) {
-    for (const q of qs) {
+  for (let i = 0; i < numChunks; i++) {
+    if (allQuestions.length >= totalCount) break;
+    
+    const stillNeed = totalCount - allQuestions.length;
+    const chunkCount = Math.min(stillNeed, CHUNK_SIZE);
+
+    // Hər sonrakı sorğuda əvvəlki yaranan sualların bəzilərini istisna edirik ki təkrar olmasın
+    const avoidNote = allQuestions.length > 0
+      ? `\n\nBU SUALLAR ARTIQ VAR — BUNLARA OXŞAR YARATMA:\n${
+          allQuestions.slice(-20).map((q: any) => q.text?.slice(0, 60)).filter(Boolean).join("\n")
+        }\n`
+      : "";
+
+    console.log(`[sequential] Chunk ${i + 1}/${numChunks} - ${chunkCount} sual istənilir...`);
+
+    const chunkResults = await worker(
+      chunkCount,
+      systemPrompt,
+      (count, attempt) => buildPrompt(count, i, attempt) + avoidNote,
+      groqKey,
+      orKey,
+      4 // 4 cəhd hər chunk üçün
+    );
+
+    for (const q of chunkResults) {
       const key = q.text?.trim().toLowerCase();
       if (key && !seenTexts.has(key)) {
         seenTexts.add(key);
         allQuestions.push(q);
+        if (allQuestions.length >= totalCount) break;
       }
+    }
+
+    // Sorğular arası 1 saniyə gözləmə (API-ni boğmamaq üçün)
+    if (allQuestions.length < totalCount) {
+      await new Promise(r => setTimeout(r, 1000));
     }
   }
 
-  // Fill-up: çatmayan sualları kiçik chunk-larla worker() vasitəsilə doldur
+  // Əgər yenə də çatmırsa (məsələn bəzi suallar təkrar çıxıb silinib), təkrar kiçik fill-up dövrəsi
   if (allQuestions.length < totalCount) {
     const deficit = totalCount - allQuestions.length;
-    console.log(`[parallel] ${deficit} sual çatmır, fill-up başlayır...`);
-
+    console.log(`[sequential] ${deficit} sual çatmır, əlavə fill-up başlayır...`);
+    
     const avoidNote = allQuestions.length > 0
       ? `\n\nBU SUALLAR ARTIQ VAR — BUNLARA OXŞAR YARATMA:\n${
-          allQuestions.slice(0, 20).map((q: any) => q.text?.slice(0, 60)).filter(Boolean).join("\n")
+          allQuestions.slice(-30).map((q: any) => q.text?.slice(0, 60)).filter(Boolean).join("\n")
         }\n`
       : "";
 
-    // Fill-up üçün worker() istifadə et (retry mexanizmi olan)
-    // Max 10 sual ilə çağır ki JSON truncate olmasın
-    const fillChunks: number[] = [];
-    let fillRemaining = deficit;
-    while (fillRemaining > 0) {
-      const chunk = Math.min(fillRemaining, 10);
-      fillChunks.push(chunk);
-      fillRemaining -= chunk;
-    }
-
-    for (const chunkSize of fillChunks) {
-      if (allQuestions.length >= totalCount) break;
-      const fillResult = await worker(
-        chunkSize,
+    // Fill-up üçün eyni worker-i istifadə edirik
+    let fillAttempts = 0;
+    while (allQuestions.length < totalCount && fillAttempts < 2) {
+      const needNow = totalCount - allQuestions.length;
+      const fillChunk = Math.min(needNow, 10);
+      
+      const extra = await worker(
+        fillChunk,
         systemPrompt,
         (count, attempt) => buildPrompt(count, 99, attempt) + avoidNote,
         groqKey,
         orKey,
-        3, // fill-up üçün 3 cəhd kifayətdir
+        3
       );
-      for (const q of fillResult) {
+      
+      for (const q of extra) {
         const key = q.text?.trim().toLowerCase();
         if (key && !seenTexts.has(key)) {
           seenTexts.add(key);
@@ -282,7 +280,8 @@ async function generateParallel(
           if (allQuestions.length >= totalCount) break;
         }
       }
-      // Fill-up chunk-ları arasında 1 saniyə gözlə
+      
+      fillAttempts++;
       if (allQuestions.length < totalCount) {
         await new Promise(r => setTimeout(r, 1000));
       }
@@ -556,8 +555,8 @@ Cavabı YALNIZ JSON formatında ver, ${count} sual ilə:
 {"questions":[{"text":"Sual mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"}]}`;
     };
 
-    // ── Paralel generasiya ──
-    const rawQuestions = await generateParallel(
+    // ─── Ardıcıl generasiya ──
+    const rawQuestions = await generateSequential(
       questionCount,
       systemPrompt,
       buildPrompt,
