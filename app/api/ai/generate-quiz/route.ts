@@ -82,7 +82,7 @@ async function callModel(
   orKey: string | undefined,
   systemPrompt: string,
   userPrompt: string,
-): Promise<any[] | null> {
+): Promise<any[] | { error: string } | null> {
   const apiKey = cfg.provider === "groq" ? groqKey : orKey;
   if (!apiKey) return null;
 
