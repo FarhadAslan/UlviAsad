@@ -8,25 +8,23 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 // ─── Model konfiqurasiyası ────────────────────────────────────────────────────
-// Hər model öz batch limitini bilir — paralel işlədikdə bu qədər sual alır
 interface ModelConfig {
   id: string;
   provider: "groq" | "openrouter";
-  batchSize: number;   // bir sorğuda neçə sual istəmək optimal
   jsonMode: boolean;
 }
 
-const GROQ_WORKERS: ModelConfig[] = [
-  { id: "llama-3.3-70b-versatile",                   provider: "groq",       batchSize: 15, jsonMode: true  },
-  { id: "llama-3.1-8b-instant",                      provider: "groq",       batchSize: 15, jsonMode: true  },
-  { id: "meta-llama/llama-4-scout-17b-16e-instruct", provider: "groq",       batchSize: 10, jsonMode: false },
-  { id: "openai/gpt-oss-120b",                       provider: "groq",       batchSize: 10, jsonMode: true  },
+const GROQ_MODELS: ModelConfig[] = [
+  { id: "llama-3.3-70b-versatile",                   provider: "groq", jsonMode: true  },
+  { id: "llama-3.1-8b-instant",                      provider: "groq", jsonMode: true  },
+  { id: "meta-llama/llama-4-scout-17b-16e-instruct", provider: "groq", jsonMode: false },
+  { id: "openai/gpt-oss-120b",                       provider: "groq", jsonMode: true  },
 ];
 
-const OR_WORKERS: ModelConfig[] = [
-  { id: "meta-llama/llama-3.3-70b-instruct:free",    provider: "openrouter", batchSize: 10, jsonMode: false },
-  { id: "meta-llama/llama-3.1-8b-instruct:free",     provider: "openrouter", batchSize: 10, jsonMode: false },
-  { id: "mistralai/mistral-7b-instruct:free",        provider: "openrouter", batchSize: 10, jsonMode: false },
+const OR_MODELS: ModelConfig[] = [
+  { id: "meta-llama/llama-3.3-70b-instruct:free",    provider: "openrouter", jsonMode: false },
+  { id: "meta-llama/llama-3.1-8b-instruct:free",     provider: "openrouter", jsonMode: false },
+  { id: "mistralai/mistral-7b-instruct:free",        provider: "openrouter", jsonMode: false },
 ];
 
 // ─── JSON parser ──────────────────────────────────────────────────────────────
@@ -98,14 +96,16 @@ async function callModel(
   try {
     const res = await fetch(endpoint, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}`, ...extraHeaders },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+        ...extraHeaders,
+      },
       body: JSON.stringify(body),
     });
 
-    if (!res.ok) {
-      console.warn(`[${cfg.id}] HTTP ${res.status}`);
-      return null;
-    }
+    if (res.status === 429) { console.warn(`[${cfg.id}] rate limit`); return null; }
+    if (!res.ok)            { console.warn(`[${cfg.id}] HTTP ${res.status}`); return null; }
 
     const data = await res.json().catch(() => null);
     const content = data?.choices?.[0]?.message?.content;
@@ -118,88 +118,139 @@ async function callModel(
   }
 }
 
-// ─── Paralel worker strategiyası ─────────────────────────────────────────────
-// totalCount sualı mümkün qədər çox modeli eyni anda işlədərək topla.
-// Hər model öz batchSize-ına görə pay alır.
-async function generateWithParallelWorkers(
-  totalCount: number,
+// ─── Worker: öz payını toplayana qədər retry ─────────────────────────────────
+// Hər worker müstəqil işləyir — lazım olan sayı toplayana qədər
+// fərqli modelləri sırayla sınayır.
+async function worker(
+  needed: number,
   systemPrompt: string,
-  buildPrompt: (count: number, workerIdx: number) => string,
+  buildPrompt: (count: number, attempt: number) => string,
   groqKey: string | undefined,
   orKey: string | undefined,
+  maxAttempts = 6,
 ): Promise<any[]> {
-  // Mövcud workerləri müəyyən et
-  const workers: ModelConfig[] = [
-    ...(groqKey ? GROQ_WORKERS : []),
-    ...(orKey   ? OR_WORKERS   : []),
-  ];
-
-  if (workers.length === 0) return [];
-
-  // Sualları workerlər arasında paylaşdır
-  // Hər worker öz batchSize-ı qədər sual alır, cəm totalCount-a çatana qədər
-  const assignments: { worker: ModelConfig; count: number }[] = [];
-  let remaining = totalCount;
-  let wi = 0;
-
-  while (remaining > 0 && wi < workers.length * 3) { // max 3 tur
-    const w = workers[wi % workers.length];
-    const count = Math.min(remaining, w.batchSize);
-    assignments.push({ worker: w, count });
-    remaining -= count;
-    wi++;
-  }
-
-  // Bütün assignmentları paralel işlət
-  const results = await Promise.allSettled(
-    assignments.map(({ worker, count }, idx) =>
-      callModel(worker, groqKey, orKey, systemPrompt, buildPrompt(count, idx))
-    )
-  );
-
-  // Nəticələri birləşdir, dublikatları sil
   const collected: any[] = [];
   const seenTexts = new Set<string>();
 
-  for (const r of results) {
-    if (r.status !== "fulfilled" || !r.value) continue;
-    for (const q of r.value) {
-      const key = q.text?.trim().toLowerCase();
-      if (key && !seenTexts.has(key)) {
-        seenTexts.add(key);
-        collected.push(q);
-      }
-    }
-  }
+  // Mövcud modellərin siyahısı (groq + openrouter)
+  const allModels: ModelConfig[] = [
+    ...(groqKey ? GROQ_MODELS : []),
+    ...(orKey   ? OR_MODELS   : []),
+  ];
 
-  // Hələ çatmırsa — uğurlu olan ilk modellə əlavə sorğu göndər
-  if (collected.length < totalCount) {
-    const deficit = totalCount - collected.length;
-    const fallbackWorker = workers[0];
-    const avoidList = collected.slice(0, 30).map((q: any) => q.text?.slice(0, 80)).filter(Boolean);
-    const avoidPart = avoidList.length > 0
-      ? `\n\nBU SUALLAR ARTIQ VAR — BUNLARA OXŞAR YARATMA:\n${avoidList.join("\n")}\n`
-      : "";
+  if (allModels.length === 0) return [];
 
-    const extra = await callModel(
-      fallbackWorker, groqKey, orKey,
-      systemPrompt,
-      buildPrompt(deficit + 3, 99) + avoidPart,
-    );
+  let attempt = 0;
 
-    if (extra) {
-      for (const q of extra) {
+  while (collected.length < needed && attempt < maxAttempts) {
+    const stillNeed = needed - collected.length;
+    // Bir az artıq istə — bəzən az gəlir
+    const askFor = stillNeed + Math.max(2, Math.ceil(stillNeed * 0.3));
+
+    // Bu cəhddə hansı modeli istifadə et (rotation)
+    const model = allModels[attempt % allModels.length];
+    const userPrompt = buildPrompt(askFor, attempt);
+
+    const questions = await callModel(model, groqKey, orKey, systemPrompt, userPrompt);
+
+    if (Array.isArray(questions) && questions.length > 0) {
+      for (const q of questions) {
         const key = q.text?.trim().toLowerCase();
         if (key && !seenTexts.has(key)) {
           seenTexts.add(key);
           collected.push(q);
-          if (collected.length >= totalCount) break;
         }
+        if (collected.length >= needed) break;
+      }
+    }
+
+    attempt++;
+
+    // Hələ çatmırsa qısa gözlə
+    if (collected.length < needed && attempt < maxAttempts) {
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  }
+
+  return collected.slice(0, needed);
+}
+
+// ─── Paralel worker strategiyası ─────────────────────────────────────────────
+// totalCount sualı bir neçə worker-ə böl, hamısı eyni anda işləsin.
+// Hər worker öz payını toplayana qədər retry edir.
+async function generateParallel(
+  totalCount: number,
+  systemPrompt: string,
+  buildPrompt: (count: number, workerIdx: number, attempt: number) => string,
+  groqKey: string | undefined,
+  orKey: string | undefined,
+): Promise<any[]> {
+  // Worker sayını müəyyən et — çox worker = daha sürətli, amma rate limit riski
+  // Optimal: 3-4 worker
+  const WORKER_COUNT = Math.min(4, Math.ceil(totalCount / 10));
+  const baseShare = Math.floor(totalCount / WORKER_COUNT);
+  const remainder = totalCount % WORKER_COUNT;
+
+  // Hər worker-ə pay ver
+  const workerTasks = Array.from({ length: WORKER_COUNT }, (_, i) => {
+    const share = baseShare + (i < remainder ? 1 : 0);
+    if (share === 0) return Promise.resolve([] as any[]);
+
+    return worker(
+      share,
+      systemPrompt,
+      (count, attempt) => buildPrompt(count, i, attempt),
+      groqKey,
+      orKey,
+    );
+  });
+
+  // Hamısını paralel işlət
+  const results = await Promise.all(workerTasks);
+
+  // Nəticələri birləşdir, dublikatları sil
+  const allQuestions: any[] = [];
+  const seenTexts = new Set<string>();
+
+  for (const qs of results) {
+    for (const q of qs) {
+      const key = q.text?.trim().toLowerCase();
+      if (key && !seenTexts.has(key)) {
+        seenTexts.add(key);
+        allQuestions.push(q);
       }
     }
   }
 
-  return collected.slice(0, totalCount);
+  // Hələ çatmırsa — əlavə tək worker ilə tamamla
+  if (allQuestions.length < totalCount) {
+    const deficit = totalCount - allQuestions.length;
+    console.log(`[parallel] ${deficit} sual çatmır, fill-up worker işə salınır...`);
+
+    const avoidList = allQuestions.slice(0, 40).map((q: any) => q.text?.slice(0, 80)).filter(Boolean);
+    const avoidNote = avoidList.length > 0
+      ? `\n\nBU SUALLAR ARTIQ VAR — BUNLARA OXŞAR YARATMA:\n${avoidList.join("\n")}\n`
+      : "";
+
+    const extra = await worker(
+      deficit,
+      systemPrompt,
+      (count, attempt) => buildPrompt(count, 99, attempt) + avoidNote,
+      groqKey,
+      orKey,
+    );
+
+    for (const q of extra) {
+      const key = q.text?.trim().toLowerCase();
+      if (key && !seenTexts.has(key)) {
+        seenTexts.add(key);
+        allQuestions.push(q);
+        if (allQuestions.length >= totalCount) break;
+      }
+    }
+  }
+
+  return allQuestions.slice(0, totalCount);
 }
 
 // ─── Normalize ────────────────────────────────────────────────────────────────
@@ -363,7 +414,7 @@ export async function POST(req: NextRequest) {
       category,
       language = "az",
       botId,
-      avoidTexts = [],   // frontend-dən gələn əvvəlki suallar (batch rejimində)
+      avoidTexts = [],
     } = body;
 
     if (!title?.trim()) {
@@ -426,11 +477,10 @@ Cavabı YALNIZ JSON formatında ver:
     }
 
     // ── Prompt builder ──
-    const langLabel      = language === "az" ? "Azərbaycan dilində" : language === "ru" ? "Rus dilində" : "İngilis dilində";
-    const categoryLabel  = category || "ümumi bilik";
-    const contextPart    = botContent ? `\n\nBilik bazası:\n---\n${botContent.slice(0, 3000)}\n---\n` : "";
+    const langLabel     = language === "az" ? "Azərbaycan dilində" : language === "ru" ? "Rus dilində" : "İngilis dilində";
+    const categoryLabel = category || "ümumi bilik";
+    const contextPart   = botContent ? `\n\nBilik bazası:\n---\n${botContent.slice(0, 3000)}\n---\n` : "";
 
-    // Avoid list: frontend-dən + DB-dən
     const allAvoidTexts = [
       ...avoidTexts.slice(0, 30),
       ...(previousQuestionsSummary ? previousQuestionsSummary.split("\n").slice(0, 30) : []),
@@ -440,18 +490,19 @@ Cavabı YALNIZ JSON formatında ver:
       ? `\n\nAŞAĞIDAKI SUALLAR ARTIQ YARADILIB — BUNLARI VƏ BUNLARA OXŞAR SUALLAR YARATMA:\n---\n${allAvoidTexts.join("\n")}\n---\n`
       : "";
 
-    // buildPrompt: hər worker öz count-unu alır, workerIdx fərqli aspektlər üçün
     const aspectHints = [
-      "", // default
+      "",
       " Fərqli aspektlərə fokuslan.",
       " Praktiki tətbiq sualları yarat.",
       " Tarixi və nəzəri suallar yarat.",
       " Müqayisəli suallar yarat.",
     ];
 
-    const buildPrompt = (count: number, workerIdx: number): string => {
+    // buildPrompt: workerIdx fərqli aspektlər üçün, attempt retry sayı
+    const buildPrompt = (count: number, workerIdx: number, attempt: number): string => {
       const hint = aspectHints[workerIdx % aspectHints.length] || "";
-      return `${langLabel} "${title}" mövzusu üzrə DƏQIQ ${count} ədəd test sualı yarat.${hint} Nə az, nə çox — məhz ${count} sual.
+      const retryNote = attempt > 0 ? ` (cəhd ${attempt + 1} — əvvəlkindən tamamilə fərqli suallar yarat)` : "";
+      return `${langLabel} "${title}" mövzusu üzrə DƏQIQ ${count} ədəd test sualı yarat.${hint}${retryNote} Nə az, nə çox — məhz ${count} sual.
 Kateqoriya: ${categoryLabel}${contextPart}${avoidPart}
 Tələblər:
 - Hər sualın 4 variant cavabı olsun (A, B, C, D)
@@ -467,7 +518,7 @@ Cavabı YALNIZ JSON formatında ver, ${count} sual ilə:
     };
 
     // ── Paralel generasiya ──
-    const rawQuestions = await generateWithParallelWorkers(
+    const rawQuestions = await generateParallel(
       questionCount,
       systemPrompt,
       buildPrompt,
@@ -488,11 +539,9 @@ Cavabı YALNIZ JSON formatında ver, ${count} sual ilə:
     return NextResponse.json({
       questions:       normalized,
       reviewQuestions: normalizedWrong,
-      // Debug məlumatı
       meta: {
         requested: questionCount,
         generated: normalized.length,
-        workers:   [...(groqKey ? GROQ_WORKERS : []), ...(orKey ? OR_WORKERS : [])].length,
       },
     });
   } catch (err: any) {

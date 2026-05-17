@@ -17,8 +17,9 @@ interface AIQuizGeneratorProps {
   categories: { value: string; label: string }[];
 }
 
-// 25-dən çox sual istənəndə 2 sorğuya böl (hər biri server-daxili paralel işləyir)
-const SPLIT_THRESHOLD = 25;
+// Server özü paralel işləyir — frontend tək sorğu göndərir
+// Yalnız 50 sual üçün 2 sorğuya böl (hər biri 25, server retry ilə tamamlayır)
+const SPLIT_THRESHOLD = 49;
 
 export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQuizGeneratorProps) {
   const { success, error } = useToast();
