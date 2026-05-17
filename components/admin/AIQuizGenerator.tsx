@@ -42,21 +42,41 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
     if (!title.trim()) { error("Quiz mövzusu daxil edin"); return; }
     if (questionCount < 1 || questionCount > 50) { error("Sual sayı 1-50 arasında olmalıdır"); return; }
     setLoading(true);
+
+    // 150 saniyə timeout — server maxDuration=120s-dən bir az artıq
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 150_000);
+
     try {
       const res = await fetch("/api/ai/generate-quiz", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title, questionCount, category, language, botId: botId || undefined }),
+        signal: controller.signal,
       });
       const data = await res.json();
       if (!res.ok) { error(data.error || "AI quiz yarada bilmədi"); return; }
       if (!data.questions?.length) { error("AI sual yarada bilmədi"); return; }
-      success(`${data.questions.length} sual yaradıldı!`);
-      onGenerate(data.questions, category || undefined);
+
+      // Əsas suallar + səhv cavablanmış suallar (review)
+      const allQuestions = [
+        ...(data.questions || []),
+        ...(data.reviewQuestions || []),
+      ];
+
+      success(`${allQuestions.length} sual yaradıldı!`);
+      onGenerate(allQuestions, category || undefined);
       onClose();
-    } catch {
-      error("Şəbəkə xətası baş verdi");
+    } catch (err: any) {
+      if (err?.name === "AbortError") {
+        error("Sorğu vaxtı bitdi (150s). Sual sayını azaldıb yenidən cəhd edin.");
+      } else if (!navigator.onLine) {
+        error("İnternet bağlantısı yoxdur. Bağlantını yoxlayıb yenidən cəhd edin.");
+      } else {
+        error("Şəbəkə xətası baş verdi. Bir az gözləyib yenidən cəhd edin.");
+      }
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   };

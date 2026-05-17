@@ -9,16 +9,18 @@ export const maxDuration = 120;
 
 // Groq modellər — JSON mode dəstəkləyir, sürətli
 const GROQ_MODELS = [
-  "llama-3.3-70b-versatile",   // 6000 TPM — ən yüksək keyfiyyət
-  "llama-3.1-8b-instant",      // 20000 TPM — sürətli (kiçik mətn üçün)
+  "llama-3.3-70b-versatile",              // 300K TPM — ən yüksək keyfiyyət
+  "llama-3.1-8b-instant",                 // 250K TPM — sürətli
+  "meta-llama/llama-4-scout-17b-16e-instruct", // 300K TPM — yeni model
+  "openai/gpt-oss-120b",                  // 250K TPM — alternativ
 ];
 
-// OpenRouter — "openrouter/auto" avtomatik ən yaxşı pulsuz modeli seçir
-// Alternativ olaraq konkret modellər
+// OpenRouter — pulsuz modellər
 const OPENROUTER_MODELS = [
-  "openrouter/auto",                          // avtomatik seçim
-  "meta-llama/llama-3.2-3b-instruct:free",
-  "nousresearch/hermes-3-llama-3.1-405b:free",
+  "meta-llama/llama-3.3-70b-instruct:free",
+  "meta-llama/llama-3.1-8b-instruct:free",
+  "mistralai/mistral-7b-instruct:free",
+  "openrouter/auto",
 ];
 
 const CHUNK_SIZE   = 4_000;
@@ -94,7 +96,7 @@ async function callAI(opts: {
         { role: "user",   content: userPrompt },
       ],
       temperature: 0.7,
-      max_tokens: 16000,
+      max_tokens: 8000,
     };
 
     // JSON mode yalnız dəstəkləyən modellər üçün
@@ -120,10 +122,16 @@ async function callAI(opts: {
     }
 
     if (res.status === 429 && attempt < retries) {
-      const waitMs = 5000 * (attempt + 1);
-      console.log(`[${model}] rate limit, ${waitMs}ms gözlənilir...`);
+      const waitMs = 2000 * (attempt + 1);
+      console.log(`[${model}] rate limit (429), ${waitMs}ms gözlənilir...`);
       await new Promise(r => setTimeout(r, waitMs));
       continue;
+    }
+
+    // 401 — API açarı yanlışdır, retry etmə
+    if (res.status === 401) {
+      console.error(`[${model}] 401 - API açarı yanlışdır`);
+      return null;
     }
 
     // 413 — mətn çox böyükdür, retry etmə
@@ -217,8 +225,12 @@ async function fetchUntilFull(opts: {
     let questions: any[] | null = null;
 
     if (opts.groqKey) {
-      const model = GROQ_MODELS[attempts % GROQ_MODELS.length];
-      questions = await callGroq(opts.groqKey, model, opts.systemPrompt, userPrompt);
+      // Hər cəhddə fərqli Groq modeli sına (rotation)
+      for (let mi = 0; mi < GROQ_MODELS.length; mi++) {
+        const model = GROQ_MODELS[(attempts + mi) % GROQ_MODELS.length];
+        questions = await callGroq(opts.groqKey, model, opts.systemPrompt, userPrompt);
+        if (questions) break;
+      }
     }
     if (!questions && opts.orKey) {
       for (const model of OPENROUTER_MODELS) {
@@ -613,7 +625,7 @@ Cavabı YALNIZ JSON formatında ver, ${count} sual ilə:
 
     if (allQuestions.length === 0 && wrongAnsweredQuestions.length === 0) {
       return NextResponse.json(
-        { error: "AI sual yarada bilmədi. Groq və OpenRouter hər ikisi uğursuz oldu. Bir az gözləyib yenidən cəhd edin." },
+        { error: "AI sual yarada bilmədi. Groq rate limit dolmuş ola bilər — bir neçə dəqiqə gözləyib yenidən cəhd edin, və ya OpenRouter API açarını yoxlayın." },
         { status: 502 }
       );
     }
