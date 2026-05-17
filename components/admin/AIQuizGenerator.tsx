@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Sparkles, X, Loader2, Bot, CheckCircle2, AlertCircle } from "lucide-react";
+import { Sparkles, X, Loader2, Bot, AlertCircle } from "lucide-react";
 import { useToast } from "@/components/ui/toast-1";
 
 interface AiBot {
@@ -17,10 +17,8 @@ interface AIQuizGeneratorProps {
   categories: { value: string; label: string }[];
 }
 
-// Hər batch üçün maksimum sual sayı
-const BATCH_SIZE = 10;
-// Paralel göndərilən batch sayı
-const PARALLEL_BATCHES = 3;
+// 25-dən çox sual istənəndə 2 sorğuya böl (hər biri server-daxili paralel işləyir)
+const SPLIT_THRESHOLD = 25;
 
 export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQuizGeneratorProps) {
   const { success, error } = useToast();
@@ -32,9 +30,9 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
   const [bots, setBots]                   = useState<AiBot[]>([]);
   const [botsLoading, setBotsLoading]     = useState(true);
   const [loading, setLoading]             = useState(false);
-  const [progress, setProgress]           = useState(0);       // 0-100
+  const [progress, setProgress]           = useState(0);
   const [progressText, setProgressText]   = useState("");
-  const [failedBatches, setFailedBatches] = useState(0);
+  const [failedCount, setFailedCount]     = useState(0);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -47,23 +45,21 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
 
   const selectedBot = bots.find((b) => b.id === botId);
 
-  // Tək batch sorğusu
-  const fetchOneBatch = async (
-    batchIndex: number,
-    batchSize: number,
+  // Tək API sorğusu
+  const fetchQuestions = async (
+    count: number,
     avoidTexts: string[],
     signal: AbortSignal,
-  ): Promise<any[]> => {
+  ): Promise<{ questions: any[]; reviewQuestions: any[] }> => {
     const res = await fetch("/api/ai/generate-quiz", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         title,
+        questionCount: count,
         category,
         language,
         botId: botId || undefined,
-        batchIndex,
-        batchSize,
         avoidTexts,
       }),
       signal,
@@ -74,8 +70,7 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
       throw new Error(data.error || `HTTP ${res.status}`);
     }
 
-    const data = await res.json();
-    return data.questions || [];
+    return res.json();
   };
 
   const handleGenerate = async () => {
@@ -83,117 +78,99 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
     if (questionCount < 1 || questionCount > 50) { error("Sual sayı 1-50 arasında olmalıdır"); return; }
 
     setLoading(true);
-    setProgress(0);
-    setFailedBatches(0);
-    setProgressText("Hazırlanır...");
+    setProgress(5);
+    setFailedCount(0);
+    setProgressText("AI modellər işə başlayır...");
 
     const controller = new AbortController();
     abortRef.current = controller;
 
     try {
-      // Batch-ləri hesabla
-      const batches: number[] = [];
-      let remaining = questionCount;
-      while (remaining > 0) {
-        batches.push(Math.min(remaining, BATCH_SIZE));
-        remaining -= BATCH_SIZE;
-      }
-
-      const totalBatches = batches.length;
-      const allQuestions: any[] = [];
+      let allQuestions: any[] = [];
       let reviewQuestions: any[] = [];
-      let completedBatches = 0;
-      let failed = 0;
 
-      setProgressText(`0 / ${questionCount} sual yaradılır...`);
+      if (questionCount <= SPLIT_THRESHOLD) {
+        // ── Tək sorğu — server içəridə bütün modelləri paralel işlədir ──
+        setProgressText(`${questionCount} sual üçün paralel sorğu göndərilir...`);
+        setProgress(20);
 
-      // Batch-ləri PARALLEL_BATCHES qədər paralel işlət
-      for (let i = 0; i < totalBatches; i += PARALLEL_BATCHES) {
-        if (controller.signal.aborted) break;
+        const data = await fetchQuestions(questionCount, [], controller.signal);
+        allQuestions    = data.questions       || [];
+        reviewQuestions = data.reviewQuestions || [];
+        setProgress(90);
 
-        const chunk = batches.slice(i, i + PARALLEL_BATCHES);
+      } else {
+        // ── İki paralel sorğu: hər biri yarısını alır ──
+        const half1 = Math.ceil(questionCount / 2);
+        const half2 = questionCount - half1;
 
-        // Bu qrup batch-ləri paralel göndər
-        const results = await Promise.allSettled(
-          chunk.map((batchSize, offset) => {
-            const batchIndex = i + offset;
-            // Artıq yaradılmış sualların mətnlərini göndər (dublikat olmasın)
-            const avoidTexts = allQuestions
-              .slice(0, 40) // max 40 sual göndər (token limit)
-              .map((q: any) => q.text?.slice(0, 80))
-              .filter(Boolean);
+        setProgressText(`${questionCount} sual — 2 paralel sorğu göndərilir...`);
+        setProgress(15);
 
-            return fetchOneBatch(batchIndex, batchSize, avoidTexts, controller.signal);
-          })
-        );
+        const [res1, res2] = await Promise.allSettled([
+          fetchQuestions(half1, [], controller.signal),
+          fetchQuestions(half2, [], controller.signal),
+        ]);
 
-        for (const result of results) {
-          if (result.status === "fulfilled") {
-            allQuestions.push(...result.value);
-            completedBatches++;
-          } else {
-            // Abort xətasını yenidən throw et
-            if (result.reason?.name === "AbortError") throw result.reason;
-            console.error("Batch xətası:", result.reason?.message);
-            failed++;
-            completedBatches++;
-          }
+        let failed = 0;
+
+        if (res1.status === "fulfilled") {
+          allQuestions.push(...(res1.value.questions || []));
+          reviewQuestions = res1.value.reviewQuestions || [];
+        } else {
+          if (res1.reason?.name === "AbortError") throw res1.reason;
+          console.error("Sorğu 1 uğursuz:", res1.reason?.message);
+          failed++;
         }
 
-        setFailedBatches(failed);
-        const pct = Math.round((completedBatches / totalBatches) * 100);
-        setProgress(pct);
-        setProgressText(`${Math.min(allQuestions.length, questionCount)} / ${questionCount} sual yaradıldı...`);
-      }
-
-      // İlk batch-dən reviewQuestions al (əgər bot seçilibsə)
-      if (botId) {
-        try {
-          const firstRes = await fetch("/api/ai/generate-quiz", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              title, category, language,
-              botId: botId || undefined,
-              batchIndex: 0, batchSize: 1,
-              avoidTexts: [],
-              reviewOnly: true,
-            }),
-            signal: controller.signal,
-          });
-          if (firstRes.ok) {
-            const d = await firstRes.json();
-            reviewQuestions = d.reviewQuestions || [];
+        if (res2.status === "fulfilled") {
+          // Dublikatları sil
+          const existingTexts = new Set(allQuestions.map((q: any) => q.text?.trim().toLowerCase()));
+          for (const q of (res2.value.questions || [])) {
+            const key = q.text?.trim().toLowerCase();
+            if (key && !existingTexts.has(key)) {
+              existingTexts.add(key);
+              allQuestions.push(q);
+            }
           }
-        } catch { /* review sualları olmasa da olur */ }
+          if (reviewQuestions.length === 0) {
+            reviewQuestions = res2.value.reviewQuestions || [];
+          }
+        } else {
+          if (res2.reason?.name === "AbortError") throw res2.reason;
+          console.error("Sorğu 2 uğursuz:", res2.reason?.message);
+          failed++;
+        }
+
+        setFailedCount(failed);
+        setProgress(90);
       }
 
-      const finalQuestions = allQuestions.slice(0, questionCount);
-
-      if (finalQuestions.length === 0) {
+      if (allQuestions.length === 0) {
         error("AI heç bir sual yarada bilmədi. Bir az gözləyib yenidən cəhd edin.");
         return;
       }
 
+      const finalQuestions = allQuestions.slice(0, questionCount);
       const allFinal = [...finalQuestions, ...reviewQuestions];
 
       setProgress(100);
       setProgressText(`${allFinal.length} sual hazırdır!`);
+      await new Promise((r) => setTimeout(r, 350));
 
-      await new Promise((r) => setTimeout(r, 400)); // qısa animasiya
-
-      if (failed > 0 && finalQuestions.length < questionCount) {
-        success(`${finalQuestions.length} sual yaradıldı (${failed} batch uğursuz oldu)`);
+      if (failedCount > 0) {
+        success(`${finalQuestions.length} sual yaradıldı (bəzi sorğular uğursuz oldu)`);
       } else {
         success(`${allFinal.length} sual yaradıldı!`);
       }
 
       onGenerate(allFinal, category || undefined);
       onClose();
+
     } catch (err: any) {
       if (err?.name === "AbortError") {
         error("Əməliyyat ləğv edildi.");
-      } else if (!navigator.onLine) {
+      } else if (typeof navigator !== "undefined" && !navigator.onLine) {
         error("İnternet bağlantısı yoxdur.");
       } else {
         error(err?.message || "Xəta baş verdi. Yenidən cəhd edin.");
@@ -210,6 +187,9 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
     abortRef.current?.abort();
   };
 
+  // Neçə model paralel işləyəcəyini göstər
+  const workerCount = questionCount <= SPLIT_THRESHOLD ? 4 : 8;
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
@@ -218,7 +198,7 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
     >
       <div className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col max-h-[92vh] sm:max-h-[88vh]">
 
-        {/* Drag handle — mobil */}
+        {/* Drag handle */}
         <div className="flex justify-center pt-3 pb-1 sm:hidden flex-shrink-0">
           <div className="w-10 h-1 rounded-full bg-slate-200" />
         </div>
@@ -244,7 +224,7 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
         {/* Body */}
         <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
 
-          {/* Progress — yüklənərkən göstər */}
+          {/* Progress */}
           {loading && (
             <div className="rounded-xl border border-purple-200 bg-purple-50 p-4 space-y-2">
               <div className="flex items-center justify-between text-sm">
@@ -256,23 +236,23 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
               </div>
               <div className="w-full bg-purple-100 rounded-full h-2 overflow-hidden">
                 <div
-                  className="h-2 rounded-full transition-all duration-500"
+                  className="h-2 rounded-full transition-all duration-700"
                   style={{
                     width: `${progress}%`,
                     background: "linear-gradient(90deg,#667eea,#764ba2)",
                   }}
                 />
               </div>
-              {failedBatches > 0 && (
+              {failedCount > 0 && (
                 <p className="text-xs text-amber-600 flex items-center gap-1">
                   <AlertCircle size={12} />
-                  {failedBatches} batch uğursuz oldu, davam edir...
+                  Bəzi sorğular uğursuz oldu, mövcud nəticələr qaytarılır...
                 </p>
               )}
             </div>
           )}
 
-          {/* AI Bot seçimi */}
+          {/* AI Bot */}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">
               AI Bot <span className="text-slate-400 text-xs">(isteğe bağlı)</span>
@@ -349,9 +329,11 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
               className="input-field"
               disabled={loading}
             />
-            {questionCount > 10 && (
+            {!loading && questionCount > 0 && (
               <p className="mt-1 text-xs text-slate-400">
-                {Math.ceil(questionCount / BATCH_SIZE)} batch paralel göndəriləcək
+                {questionCount <= SPLIT_THRESHOLD
+                  ? `~4 model eyni anda işləyəcək`
+                  : `~8 model 2 paralel sorğu ilə işləyəcək`}
               </p>
             )}
           </div>
@@ -378,11 +360,11 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
 
           {/* Məsləhət */}
           <div className="rounded-xl p-3 text-xs text-purple-700 border border-purple-200 bg-purple-50">
-            <p className="font-medium mb-1">💡 Məsləhət:</p>
+            <p className="font-medium mb-1">⚡ Necə işləyir:</p>
             <ul className="space-y-0.5 text-purple-600">
-              <li>• Bot seçsəniz — AI yalnız botun bilik bazasından sual yaradacaq</li>
-              <li>• 50 sual üçün ~30-60 saniyə lazımdır</li>
-              <li>• Suallar batch-batch yaradılır, progress izlənilir</li>
+              <li>• Groq + OpenRouter modelləri eyni anda paralel işləyir</li>
+              <li>• Hər model öz payını alır, nəticələr birləşdirilir</li>
+              <li>• 50 sual üçün ~15-25 saniyə kifayətdir</li>
             </ul>
           </div>
         </div>
