@@ -17,32 +17,16 @@ interface AIQuizGeneratorProps {
   categories: { value: string; label: string }[];
 }
 
-/* ─── Loader CSS ─────────────────────────────────────────────────────────── */
 const LOADER_CSS = `
 .ai-loader-wrapper {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 160px;
-  height: 160px;
-  font-family: "Inter", sans-serif;
-  font-size: 1.1em;
-  font-weight: 300;
-  color: white;
-  border-radius: 50%;
-  background-color: transparent;
-  user-select: none;
+  position: relative; display: flex; align-items: center; justify-content: center;
+  width: 160px; height: 160px; font-family: "Inter", sans-serif; font-size: 1.1em;
+  font-weight: 300; color: white; border-radius: 50%; background-color: transparent; user-select: none;
 }
 .ai-loader {
-  position: absolute;
-  top: 0; left: 0;
-  width: 100%;
-  aspect-ratio: 1 / 1;
-  border-radius: 50%;
-  background-color: transparent;
-  animation: ai-loader-rotate 2s linear infinite;
-  z-index: 0;
+  position: absolute; top: 0; left: 0; width: 100%; aspect-ratio: 1 / 1;
+  border-radius: 50%; background-color: transparent;
+  animation: ai-loader-rotate 2s linear infinite; z-index: 0;
 }
 @keyframes ai-loader-rotate {
   0%   { transform: rotate(90deg);  box-shadow: 0 10px 20px 0 #fff inset, 0 20px 30px 0 #ad5fff inset, 0 60px 60px 0 #471eec inset; }
@@ -50,11 +34,8 @@ const LOADER_CSS = `
   100% { transform: rotate(450deg); box-shadow: 0 10px 20px 0 #fff inset, 0 20px 30px 0 #ad5fff inset, 0 60px 60px 0 #471eec inset; }
 }
 .ai-loader-letter {
-  display: inline-block;
-  opacity: 0.4;
-  transform: translateY(0);
-  animation: ai-loader-letter-anim 2s infinite;
-  z-index: 1;
+  display: inline-block; opacity: 0.4; transform: translateY(0);
+  animation: ai-loader-letter-anim 2s infinite; z-index: 1;
 }
 .ai-loader-letter:nth-child(1)  { animation-delay: 0s;   }
 .ai-loader-letter:nth-child(2)  { animation-delay: 0.1s; }
@@ -67,11 +48,14 @@ const LOADER_CSS = `
 .ai-loader-letter:nth-child(9)  { animation-delay: 0.8s; }
 .ai-loader-letter:nth-child(10) { animation-delay: 0.9s; }
 @keyframes ai-loader-letter-anim {
-  0%,100% { opacity: 0.4; transform: translateY(0);  }
-  20%     { opacity: 1;   transform: scale(1.15);    }
-  40%     { opacity: 0.7; transform: translateY(0);  }
+  0%,100% { opacity: 0.4; transform: translateY(0); }
+  20%     { opacity: 1;   transform: scale(1.15);   }
+  40%     { opacity: 0.7; transform: translateY(0); }
 }
 `;
+
+// Sorğuları N hissəyə böl — hər hissə ~12-13 sual, 60s-ə asanlıqla sığır
+const PARTS = 4;
 
 export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQuizGeneratorProps) {
   const { success, error } = useToast();
@@ -86,8 +70,8 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
   const [progress, setProgress]           = useState(0);
   const [progressText, setProgressText]   = useState("");
   const [failedCount, setFailedCount]     = useState(0);
-  const abortRef       = useRef<AbortController | null>(null);
-  const intervalRef    = useRef<ReturnType<typeof setInterval> | null>(null);
+  const abortRef        = useRef<AbortController | null>(null);
+  const intervalRef     = useRef<ReturnType<typeof setInterval> | null>(null);
   const fakeProgressRef = useRef(0);
 
   useEffect(() => {
@@ -98,7 +82,6 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
       .finally(() => setBotsLoading(false));
   }, []);
 
-  // Cleanup interval on unmount
   useEffect(() => {
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, []);
@@ -120,7 +103,7 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
     setProgress(final);
   };
 
-  const fetchQuestions = async (
+  const fetchPart = async (
     count: number,
     signal: AbortSignal,
   ): Promise<{ questions: any[]; reviewQuestions: any[] }> => {
@@ -137,7 +120,6 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
       }),
       signal,
     });
-
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       throw new Error(data.error || `HTTP ${res.status}`);
@@ -149,61 +131,54 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
     if (!title.trim()) { error("Quiz mövzusu daxil edin"); return; }
     if (questionCount < 1 || questionCount > 50) { error("Sual sayı 1-50 arasında olmalıdır"); return; }
 
-    // State-i set et, sonra bir tick gözlə ki React render etsin
     setLoading(true);
     setProgress(0);
     setFailedCount(0);
     setProgressText(`${questionCount} sual yaradılır...`);
 
-    // React-ın render etməsi üçün bir tick gözlə
-    await new Promise((r) => setTimeout(r, 50));
-
+    await new Promise((r) => setTimeout(r, 50)); // React render üçün tick
     startFakeProgress();
 
     const controller = new AbortController();
     abortRef.current = controller;
 
     try {
-      // Həmişə 2 paralel sorğu — hər biri server-daxili 3 worker ilə işləyir
-      const half1 = Math.ceil(questionCount / 2);
-      const half2 = questionCount - half1;
+      // 4 paralel sorğu — 50 sual → [13, 13, 12, 12]
+      // Hər hissə server-daxili 2 worker ilə işləyir
+      // ~12-13 sual 60s-ə asanlıqla sığır
+      const base  = Math.floor(questionCount / PARTS);
+      const rem   = questionCount % PARTS;
+      const parts = Array.from({ length: PARTS }, (_, i) => base + (i < rem ? 1 : 0))
+                        .filter(n => n > 0);
 
-      const [res1, res2] = await Promise.allSettled([
-        fetchQuestions(half1, controller.signal),
-        fetchQuestions(half2, controller.signal),
-      ]);
+      const settled = await Promise.allSettled(
+        parts.map((count) => fetchPart(count, controller.signal))
+      );
 
       let allQuestions: any[] = [];
       let reviewQuestions: any[] = [];
       let failed = 0;
 
-      if (res1.status === "fulfilled") {
-        allQuestions.push(...(res1.value.questions || []));
-        reviewQuestions = res1.value.reviewQuestions || [];
-      } else {
-        if (res1.reason?.name === "AbortError") throw res1.reason;
-        failed++;
-      }
-
-      if (res2.status === "fulfilled") {
-        // Dublikat yoxlaması — yalnız tam eyni mətn varsa sil (lowercase trim)
-        const existingTexts = new Set(
-          allQuestions.map((q: any) => q.text?.trim().toLowerCase())
-        );
-        for (const q of (res2.value.questions || [])) {
-          const key = q.text?.trim().toLowerCase();
-          // Boş sualları da əlavə et — server artıq dublikatları idarə edir
-          if (!key || !existingTexts.has(key)) {
-            if (key) existingTexts.add(key);
-            allQuestions.push(q);
+      for (const result of settled) {
+        if (result.status === "fulfilled") {
+          const existingTexts = new Set(
+            allQuestions.map((q: any) => q.text?.trim().toLowerCase())
+          );
+          for (const q of (result.value.questions || [])) {
+            const key = q.text?.trim().toLowerCase();
+            if (!key || !existingTexts.has(key)) {
+              if (key) existingTexts.add(key);
+              allQuestions.push(q);
+            }
           }
+          if (reviewQuestions.length === 0) {
+            reviewQuestions = result.value.reviewQuestions || [];
+          }
+        } else {
+          if (result.reason?.name === "AbortError") throw result.reason;
+          console.error("Part uğursuz:", result.reason?.message);
+          failed++;
         }
-        if (reviewQuestions.length === 0) {
-          reviewQuestions = res2.value.reviewQuestions || [];
-        }
-      } else {
-        if (res2.reason?.name === "AbortError") throw res2.reason;
-        failed++;
       }
 
       setFailedCount(failed);
@@ -247,13 +222,11 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
     <>
       <style>{LOADER_CSS}</style>
 
-      {/* ── Loading overlay — modal-dan KƏNARDA, fixed ── */}
       {loading && (
         <div
           className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-8"
           style={{ background: "linear-gradient(135deg, #0f0020 0%, #1a0533 40%, #2d1060 70%, #1a0533 100%)" }}
         >
-          {/* Animasiyalı loader */}
           <div className="ai-loader-wrapper">
             <span className="ai-loader-letter">G</span>
             <span className="ai-loader-letter">e</span>
@@ -267,33 +240,21 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
             <span className="ai-loader-letter">g</span>
             <div className="ai-loader" />
           </div>
-
-          {/* Progress bar + text */}
           <div className="w-64 space-y-3">
             <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
               <div
                 className="h-2 rounded-full transition-all duration-500"
-                style={{
-                  width: `${progress}%`,
-                  background: "linear-gradient(90deg, #ad5fff, #667eea, #ad5fff)",
-                  backgroundSize: "200% 100%",
-                  animation: "shimmer 2s linear infinite",
-                }}
+                style={{ width: `${progress}%`, background: "linear-gradient(90deg, #ad5fff, #667eea)" }}
               />
             </div>
-            <p className="text-center text-white/60 text-sm">
-              {progressText}
-            </p>
+            <p className="text-center text-white/60 text-sm">{progressText}</p>
           </div>
-
-          {/* Dayandır */}
           <button
             onClick={handleCancel}
             className="px-6 py-2.5 rounded-xl text-sm font-medium text-white/60 border border-white/15 hover:text-white hover:border-white/35 transition-all"
           >
             Dayandır
           </button>
-
           {failedCount > 0 && (
             <p className="text-xs text-amber-400 flex items-center gap-1.5">
               <AlertCircle size={13} />
@@ -303,20 +264,15 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
         </div>
       )}
 
-      {/* ── Modal ── */}
       <div
         className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
         style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
         onClick={(e) => { if (e.target === e.currentTarget && !loading) onClose(); }}
       >
         <div className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col max-h-[92vh] sm:max-h-[88vh]">
-
-          {/* Drag handle */}
           <div className="flex justify-center pt-3 pb-1 sm:hidden flex-shrink-0">
             <div className="w-10 h-1 rounded-full bg-slate-200" />
           </div>
-
-          {/* Header */}
           <div
             className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-100 flex-shrink-0"
             style={{ background: "linear-gradient(135deg,#667eea 0%,#764ba2 100%)" }}
@@ -325,19 +281,13 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
               <Sparkles size={18} />
               <h2 className="text-base sm:text-lg font-bold">AI ilə Quiz Yarat</h2>
             </div>
-            <button
-              onClick={onClose}
-              disabled={loading}
-              className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-all disabled:opacity-50"
-            >
+            <button onClick={onClose} disabled={loading}
+              className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-all disabled:opacity-50">
               <X size={18} />
             </button>
           </div>
 
-          {/* Body */}
           <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
-
-            {/* AI Bot */}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">
                 AI Bot <span className="text-slate-400 text-xs">(isteğe bağlı)</span>
@@ -350,31 +300,18 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
                 <div className="rounded-xl border border-dashed border-slate-200 p-3 text-center text-sm text-slate-400">
                   <Bot size={18} className="mx-auto mb-1 opacity-40" />
                   Hələ AI bot yaradılmayıb.{" "}
-                  <a href="/admin/ai-botlar" target="_blank" className="text-[#1a7fe0] hover:underline font-medium">
-                    Bot yarat →
-                  </a>
+                  <a href="/admin/ai-botlar" target="_blank" className="text-[#1a7fe0] hover:underline font-medium">Bot yarat →</a>
                 </div>
               ) : (
-                <select
-                  value={botId}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setBotId(val);
-                    if (val === "") {
-                      setCategory("");
-                    } else {
-                      const bot = bots.find((b) => b.id === val);
-                      if (bot?.category) setCategory(bot.category);
-                    }
-                  }}
-                  className="select-field"
-                  disabled={loading}
-                >
+                <select value={botId} onChange={(e) => {
+                  const val = e.target.value;
+                  setBotId(val);
+                  if (val === "") { setCategory(""); }
+                  else { const bot = bots.find((b) => b.id === val); if (bot?.category) setCategory(bot.category); }
+                }} className="select-field" disabled={loading}>
                   <option value="">Ümumi AI (Bot olmadan)</option>
                   {bots.map((bot) => (
-                    <option key={bot.id} value={bot.id}>
-                      {bot.name} {bot.category ? `(${bot.category})` : ""}
-                    </option>
+                    <option key={bot.id} value={bot.id}>{bot.name} {bot.category ? `(${bot.category})` : ""}</option>
                   ))}
                 </select>
               )}
@@ -385,88 +322,58 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
               )}
             </div>
 
-            {/* Mövzu */}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">
                 Quiz Mövzusu <span className="text-red-500">*</span>
               </label>
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
+              <input type="text" value={title} onChange={(e) => setTitle(e.target.value)}
                 placeholder="Məs: Azərbaycan Konstitusiyası, Cəbr..."
-                className="input-field"
-                disabled={loading}
-              />
+                className="input-field" disabled={loading} />
             </div>
 
-            {/* Sual sayı */}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">
                 Sual Sayı <span className="text-red-500">*</span>
               </label>
-              <input
-                type="number"
-                value={questionCount}
+              <input type="number" value={questionCount}
                 onChange={(e) => setQuestionCount(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))}
-                min={1}
-                max={50}
-                className="input-field"
-                disabled={loading}
-              />
+                min={1} max={50} className="input-field" disabled={loading} />
               <p className="mt-1 text-xs text-slate-400">
-                Groq + OpenRouter modelləri paralel işləyir
+                {PARTS} paralel sorğu — hər biri ~{Math.ceil(50 / PARTS)} sual
               </p>
             </div>
 
-            {/* Kateqoriya */}
             {categories.length > 0 && (
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">
                   Kateqoriya <span className="text-slate-400 text-xs">(isteğe bağlı)</span>
                 </label>
-                <select
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  className="select-field"
-                  disabled={loading}
-                >
+                <select value={category} onChange={(e) => setCategory(e.target.value)}
+                  className="select-field" disabled={loading}>
                   <option value="">Avtomatik seç</option>
-                  {categories.map((c) => (
-                    <option key={c.value} value={c.value}>{c.label}</option>
-                  ))}
+                  {categories.map((c) => (<option key={c.value} value={c.value}>{c.label}</option>))}
                 </select>
               </div>
             )}
 
-            {/* Məsləhət */}
             <div className="rounded-xl p-3 text-xs text-purple-700 border border-purple-200 bg-purple-50">
               <p className="font-medium mb-1">⚡ Necə işləyir:</p>
               <ul className="space-y-0.5 text-purple-600">
-                <li>• Groq + OpenRouter modelləri eyni anda paralel işləyir</li>
-                <li>• Hər model öz payını alır, nəticələr birləşdirilir</li>
-                <li>• 50 sual üçün ~20-40 saniyə kifayətdir</li>
+                <li>• {PARTS} sorğu eyni anda göndərilir</li>
+                <li>• Hər sorğu Groq + OpenRouter modelləri ilə işləyir</li>
+                <li>• 50 sual üçün ~20-35 saniyə kifayətdir</li>
               </ul>
             </div>
           </div>
 
-          {/* Footer */}
           <div className="flex gap-3 px-4 sm:px-6 py-3 sm:py-4 border-t border-slate-100 bg-slate-50 flex-shrink-0">
-            <button
-              onClick={handleGenerate}
-              disabled={loading || !title.trim()}
+            <button onClick={handleGenerate} disabled={loading || !title.trim()}
               className="flex-1 py-2.5 rounded-xl font-semibold text-sm text-white flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
-              style={{ background: "linear-gradient(135deg,#667eea 0%,#764ba2 100%)" }}
-            >
-              {loading
-                ? <><Loader2 size={16} className="animate-spin" /> Yaradılır...</>
-                : <><Sparkles size={16} /> Quiz Yarat</>}
+              style={{ background: "linear-gradient(135deg,#667eea 0%,#764ba2 100%)" }}>
+              {loading ? <><Loader2 size={16} className="animate-spin" /> Yaradılır...</> : <><Sparkles size={16} /> Quiz Yarat</>}
             </button>
-            <button
-              onClick={onClose}
-              disabled={loading}
-              className="btn-secondary px-4 sm:px-6 text-sm disabled:opacity-50"
-            >
+            <button onClick={onClose} disabled={loading}
+              className="btn-secondary px-4 sm:px-6 text-sm disabled:opacity-50">
               Ləğv et
             </button>
           </div>

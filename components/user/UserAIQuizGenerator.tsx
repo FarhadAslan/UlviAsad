@@ -171,44 +171,41 @@ export default function UserAIQuizGenerator({
     abortRef.current = controller;
 
     try {
-      // Həmişə 2 paralel sorğu — hər biri server-daxili 3 worker ilə işləyir
-      const half1 = Math.ceil(count / 2);
-      const half2 = count - half1;
+      // 4 paralel sorğu — hər biri ~12-13 sual, 60s-ə asanlıqla sığır
+      const PARTS = 4;
+      const base  = Math.floor(count / PARTS);
+      const rem   = count % PARTS;
+      const parts = Array.from({ length: PARTS }, (_, i) => base + (i < rem ? 1 : 0))
+                        .filter(n => n > 0);
 
-      const [res1, res2] = await Promise.allSettled([
-        fetchQuestions(half1, controller.signal),
-        fetchQuestions(half2, controller.signal),
-      ]);
+      const settled = await Promise.allSettled(
+        parts.map((partCount) => fetchQuestions(partCount, controller.signal))
+      );
 
       let allQuestions: any[] = [];
       let reviewQuestions: any[] = [];
       let failed = 0;
 
-      if (res1.status === "fulfilled") {
-        allQuestions.push(...(res1.value.questions || []));
-        reviewQuestions = res1.value.reviewQuestions || [];
-      } else {
-        if (res1.reason?.name === "AbortError") throw res1.reason;
-        failed++;
-      }
-
-      if (res2.status === "fulfilled") {
-        const existingTexts = new Set(
-          allQuestions.map((q: any) => q.text?.trim().toLowerCase())
-        );
-        for (const q of (res2.value.questions || [])) {
-          const key = q.text?.trim().toLowerCase();
-          if (!key || !existingTexts.has(key)) {
-            if (key) existingTexts.add(key);
-            allQuestions.push(q);
+      for (const result of settled) {
+        if (result.status === "fulfilled") {
+          const existingTexts = new Set(
+            allQuestions.map((q: any) => q.text?.trim().toLowerCase())
+          );
+          for (const q of (result.value.questions || [])) {
+            const key = q.text?.trim().toLowerCase();
+            if (!key || !existingTexts.has(key)) {
+              if (key) existingTexts.add(key);
+              allQuestions.push(q);
+            }
           }
+          if (reviewQuestions.length === 0) {
+            reviewQuestions = result.value.reviewQuestions || [];
+          }
+        } else {
+          if (result.reason?.name === "AbortError") throw result.reason;
+          console.error("Part uğursuz:", result.reason?.message);
+          failed++;
         }
-        if (reviewQuestions.length === 0) {
-          reviewQuestions = res2.value.reviewQuestions || [];
-        }
-      } else {
-        if (res2.reason?.name === "AbortError") throw res2.reason;
-        failed++;
       }
 
       setFailedCount(failed);
