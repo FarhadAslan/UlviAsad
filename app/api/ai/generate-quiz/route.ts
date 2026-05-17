@@ -264,8 +264,9 @@ export async function POST(req: NextRequest) {
     const orKey   = process.env.OPENROUTER_API_KEY;
 
     if (!groqKey && !orKey) {
+      const keys = Object.keys(process.env).filter(k => k.includes("GROQ") || k.includes("OPENROUTER") || k.includes("API")).join(",");
       return NextResponse.json(
-        { error: `AI API açarı konfiqurasiya edilməyib. Mühit (Env): GROQ=${!!groqKey}, OR=${!!orKey}, NODE_ENV=${process.env.NODE_ENV}` },
+        { error: `AI API açarı tapılmadı! Mühit (Env): GROQ=${!!groqKey}, OR=${!!orKey}. Mövcud uyğun key-lər: ${keys}` },
         { status: 503 }
       );
     }
