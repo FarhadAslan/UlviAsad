@@ -409,7 +409,7 @@ Cavabı MÜTLƏQ aşağıdakı JSON formatında ver — başqa heç nə yazma:
         // Səhv cavablanmış sualları topla (heç vaxt düzgün cavablanmamış)
         // Bunları birbaşa yeni quizə əlavə edəcəyik
         const wrongTextSet = new Set<string>();
-        for (const [text, correct] of questionStatusMap.entries()) {
+        for (const [text, correct] of Array.from(questionStatusMap.entries())) {
           if (!correct) wrongTextSet.add(text);
         }
 
