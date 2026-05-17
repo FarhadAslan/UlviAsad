@@ -197,23 +197,31 @@ async function fetchChunk(
 async function generateSequential(
   totalCount: number,
   systemPrompt: string,
-  buildPrompt: (count: number, chunkIdx: number) => string,
+  buildPrompt: (count: number, chunkIdx: number, alreadyCollected: string[]) => string,
   groqKey: string | undefined,
   orKey: string | undefined,
 ): Promise<{ questions: any[]; lastError: string }> {
   const allQuestions: any[] = [];
   const seenTexts = new Set<string>();
   let lastError = "";
-  let chunkIdx = 0;
+  let consecutiveEmpty = 0;
 
-  while (allQuestions.length < totalCount) {
+  // Maksimum neçə dəfə cəhd edilə bilər (tələb olunanın 2 qatı qədər chunk, boş dövrələrin qarşısını almaq üçün)
+  const maxChunks = Math.ceil(totalCount / CHUNK_SIZE) * 2;
+
+  for (let chunkIdx = 0; chunkIdx < maxChunks && allQuestions.length < totalCount; chunkIdx++) {
     const remaining = totalCount - allQuestions.length;
-    // CHUNK_SIZE-dan artıq istəmə — token limitinə düşürük
     const chunkCount = Math.min(remaining, CHUNK_SIZE);
 
-    const userPrompt = buildPrompt(chunkCount, chunkIdx);
+    // İndiyədək yığılmış sualları (son 15 ədədi) modelə verək ki, təkrar etməsin
+    const alreadyCollected = allQuestions
+      .slice(-15)
+      .map((q: any) => q.text?.slice(0, 100))
+      .filter(Boolean);
 
-    console.log(`[sequential] Chunk ${chunkIdx + 1}: ${chunkCount} sual istənilir (cəmi ${allQuestions.length}/${totalCount})...`);
+    const userPrompt = buildPrompt(chunkCount, chunkIdx, alreadyCollected);
+
+    console.log(`[sequential] Chunk ${chunkIdx + 1}/${maxChunks}: ${chunkCount} sual istənilir (cəmi ${allQuestions.length}/${totalCount})...`);
 
     const result = await fetchChunk(chunkCount, systemPrompt, userPrompt, groqKey, orKey);
     
@@ -232,17 +240,21 @@ async function generateSequential(
 
     console.log(`[sequential] Chunk ${chunkIdx + 1}: ${addedThisChunk} unikal sual əlavə edildi. Cəmi: ${allQuestions.length}/${totalCount}`);
 
-    chunkIdx++;
-
-    // Dövrənin sonsuz olmaması üçün: əgər heç bir sual əlavə edilmədisə, dayan
     if (addedThisChunk === 0) {
-      console.warn(`[sequential] Chunk ${chunkIdx} sıfır sual verdi. Dayanıram.`);
-      break;
-    }
-
-    // Chunk-lar arasında 1 saniyə fasilə (API-ni aşırı yükləməmək üçün)
-    if (allQuestions.length < totalCount) {
-      await new Promise(r => setTimeout(r, 1000));
+      consecutiveEmpty++;
+      console.warn(`[sequential] Chunk ${chunkIdx + 1} sıfır unikal sual verdi. (Ard-arda: ${consecutiveEmpty})`);
+      if (consecutiveEmpty >= 2) {
+        console.warn(`[sequential] 2 ard-arda boş chunk gəldi. Dayanıram.`);
+        break;
+      }
+      // Boş chunk olanda bir az daha çox gözləyək
+      await new Promise(r => setTimeout(r, 2000));
+    } else {
+      consecutiveEmpty = 0;
+      // Normal chunk-lar arasında 1 saniyə fasilə
+      if (allQuestions.length < totalCount) {
+        await new Promise(r => setTimeout(r, 1000));
+      }
     }
   }
 
@@ -480,9 +492,12 @@ VACIB: Yalnız JSON formatında cavab ver:
       " Analitik suallar yarat.",
     ];
 
-    const buildPrompt = (count: number, chunkIdx: number): string => {
+    const buildPrompt = (count: number, chunkIdx: number, alreadyCollected: string[]): string => {
       const hint = aspectHints[chunkIdx % aspectHints.length] || "";
-      return `${langLabel} "${title}" mövzusu üzrə DƏQIQ ${count} sual yarat. Kateqoriya: ${categoryLabel}.${hint}${contextPart}${avoidPart}
+      const dynamicAvoid = alreadyCollected.length > 0 
+        ? `\n\nBU SUALLAR BU SESSİYADA YARADILIB, BUNLARI QƏTİYYƏN TƏKRARLAMA:\n${alreadyCollected.join("\n")}\n` 
+        : "";
+      return `${langLabel} "${title}" mövzusu üzrə DƏQIQ ${count} sual yarat. Kateqoriya: ${categoryLabel}.${hint}${contextPart}${avoidPart}${dynamicAvoid}
 
 Tələblər:
 - Hər sualın A, B, C, D variantları olsun
