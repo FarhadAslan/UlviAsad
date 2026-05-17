@@ -61,7 +61,7 @@ function extractQuestions(raw: string): any[] | null {
 
   // Regex xilasetmə: əgər JSON kəsilibsə, sadəcə tam hazır olan sualları çıxarır
   try {
-    const fallbackMatches = text.match(/\{\s*"text"\s*:\s*".+?"correctOption"\s*:\s*"[A-D]"\s*\}/gs);
+    const fallbackMatches = text.match(/\{\s*"text"\s*:\s*"[\s\S]+?"correctOption"\s*:\s*"[A-D]"\s*\}/g);
     if (fallbackMatches) {
       const parsed = fallbackMatches.map((m) => {
         try { return JSON.parse(m); } catch { return null; }
