@@ -58,6 +58,18 @@ function extractQuestions(raw: string): any[] | null {
       if (Array.isArray(p) && p.length > 0) return p;
     } catch { /* next */ }
   }
+
+  // Regex xilasetmə: əgər JSON kəsilibsə, sadəcə tam hazır olan sualları çıxarır
+  try {
+    const fallbackMatches = text.match(/\{\s*"text"\s*:\s*".+?"correctOption"\s*:\s*"[A-D]"\s*\}/gs);
+    if (fallbackMatches) {
+      const parsed = fallbackMatches.map((m) => {
+        try { return JSON.parse(m); } catch { return null; }
+      }).filter(Boolean);
+      if (parsed.length > 0) return parsed;
+    }
+  } catch { /* next */ }
+
   return null;
 }
 
@@ -178,14 +190,27 @@ async function generateParallel(
   groqKey: string | undefined,
   orKey: string | undefined,
 ): Promise<any[]> {
-  // 2 worker — hər biri yarısını alır, paralel işləyir
-  // Az worker = az rate limit riski, hər worker daha çox sual istəyir
-  const WORKER_COUNT = 2;
-  const half = Math.ceil(totalCount / 2);
-  const shares = [half, totalCount - half];
+  // Dinamik bölmə (Chunking): Hər sorğuda max 10 sual
+  // Məsələn, 50 sual 5 paralel işçiyə bölünəcək (hər biri 10)
+  const CHUNK_SIZE = 10;
+  const workerCount = Math.ceil(totalCount / CHUNK_SIZE);
+  const shares: number[] = [];
+  
+  let remaining = totalCount;
+  for (let i = 0; i < workerCount; i++) {
+    const share = Math.min(remaining, CHUNK_SIZE);
+    shares.push(share);
+    remaining -= share;
+  }
 
-  const workerTasks = shares.map((share, i) => {
-    if (share === 0) return Promise.resolve([] as any[]);
+  const workerTasks = shares.map(async (share, i) => {
+    if (share === 0) return [];
+    
+    // Rate limitin qarşısını almaq üçün kiçik gecikmə (staggering)
+    if (i > 0) {
+      await new Promise(r => setTimeout(r, i * 400));
+    }
+    
     return worker(
       share,
       systemPrompt,
@@ -231,10 +256,12 @@ async function generateParallel(
     for (const model of allModels) {
       if (allQuestions.length >= totalCount) break;
       const stillNeed = totalCount - allQuestions.length;
+      // Kiçik qalıqlar üçün 1-2 artıq sual kifayətdir, çox yükləmə
+      const extraCount = stillNeed + Math.min(2, Math.ceil(stillNeed * 0.5));
       const extra = await callModel(
         model, groqKey, orKey,
         systemPrompt,
-        buildPrompt(stillNeed + Math.ceil(stillNeed * 0.5), 99, 0) + avoidNote,
+        buildPrompt(extraCount, 99, 0) + avoidNote,
       );
       if (extra) {
         for (const q of extra) {
