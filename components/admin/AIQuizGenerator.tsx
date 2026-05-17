@@ -105,6 +105,7 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
 
   const fetchPart = async (
     count: number,
+    avoidTexts: string[],
     signal: AbortSignal,
   ): Promise<{ questions: any[]; reviewQuestions: any[] }> => {
     const res = await fetch("/api/ai/generate-quiz", {
@@ -116,7 +117,7 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
         category,
         language,
         botId: botId || undefined,
-        avoidTexts: [],
+        avoidTexts,
       }),
       signal,
     });
@@ -129,12 +130,13 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
 
   const handleGenerate = async () => {
     if (!title.trim()) { error("Quiz mövzusu daxil edin"); return; }
-    if (questionCount < 1 || questionCount > 50) { error("Sual sayı 1-50 arasında olmalıdır"); return; }
+    const totalNeeded = questionCount;
+    if (totalNeeded < 1 || totalNeeded > 50) { error("Sual sayı 1-50 arasında olmalıdır"); return; }
 
     setLoading(true);
     setProgress(0);
     setFailedCount(0);
-    setProgressText(`${questionCount} sual yaradılır...`);
+    setProgressText(`0/${totalNeeded} sual yaradıldı...`);
 
     await new Promise((r) => setTimeout(r, 50));
     startFakeProgress();
@@ -142,27 +144,61 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
     const controller = new AbortController();
     abortRef.current = controller;
 
+    const collectedQuestions: any[] = [];
+    const collectedReview: any[] = [];
+    const CHUNK_SIZE = 10;
+
     try {
-      // Tək sorğu — backend daxilində paralel worker-lər işləyir
-      // Əvvəlki 4 paralel frontend sorğusu rate limit problemini yaradırdı
-      const data = await fetchPart(questionCount, controller.signal);
+      while (collectedQuestions.length < totalNeeded) {
+        if (controller.signal.aborted) break;
 
-      const allQuestions = data.questions || [];
-      const reviewQuestions = data.reviewQuestions || [];
+        const remaining = totalNeeded - collectedQuestions.length;
+        const countToAsk = Math.min(remaining, CHUNK_SIZE);
 
-      if (allQuestions.length === 0) {
+        setProgressText(`${collectedQuestions.length}/${totalNeeded} sual yaradıldı. Növbəti hissə hazırlanır...`);
+
+        // Əvvəlki yaradılan sualların mətnlərini avoidTexts olaraq göndəririk ki, dublikat olmasın
+        const avoidTexts = collectedQuestions.map((q: any) => q.text).filter(Boolean);
+
+        const data = await fetchPart(countToAsk, avoidTexts, controller.signal);
+
+        const newQs = data.questions || [];
+        const newReviews = data.reviewQuestions || [];
+
+        if (newQs.length === 0) {
+          throw new Error("AI sual yarada bilmədi.");
+        }
+
+        collectedQuestions.push(...newQs);
+        if (newReviews.length > 0) {
+          collectedReview.push(...newReviews);
+        }
+
+        // Progress bar-ı daxili real data ilə yeniləyirik
+        const realPercent = Math.round((collectedQuestions.length / totalNeeded) * 90);
+        setProgress(realPercent);
+
+        // Hissələr arasında 1 saniyə gözləmə (rate limit-ə görə)
+        if (collectedQuestions.length < totalNeeded) {
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
+
+      if (collectedQuestions.length === 0) {
         error("AI heç bir sual yarada bilmədi. Bir az gözləyib yenidən cəhd edin.");
         return;
       }
 
-      const finalQuestions = allQuestions.slice(0, questionCount);
-      const allFinal = [...finalQuestions, ...reviewQuestions];
+      const finalQuestions = collectedQuestions.slice(0, totalNeeded);
+      // Dublikat review suallarını silək
+      const uniqueReview = Array.from(new Map(collectedReview.map(q => [q.text?.toLowerCase(), q])).values());
+      const allFinal = [...finalQuestions, ...uniqueReview];
 
       stopFakeProgress(100);
       setProgressText(`${allFinal.length} sual hazırdır!`);
       await new Promise((r) => setTimeout(r, 600));
 
-      success(`${allFinal.length} sual yaradıldı${allFinal.length < questionCount ? ` (${questionCount - allFinal.length} sual əldə edilmədi)` : ""}!`);
+      success(`${allFinal.length} sual yaradıldı!`);
       onGenerate(allFinal, category || undefined);
       onClose();
 
