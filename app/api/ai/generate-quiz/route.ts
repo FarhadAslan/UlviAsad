@@ -213,10 +213,10 @@ async function generateSequential(
     const remaining = totalCount - allQuestions.length;
     const chunkCount = Math.min(remaining, CHUNK_SIZE);
 
-    // İndiyədək yığılmış sualları (son 15 ədədi) modelə verək ki, təkrar etməsin
+    // İndiyədək yığılmış sualları (qısa formatda, max 10 ədəd) verək ki model boğulmasın
     const alreadyCollected = allQuestions
-      .slice(-15)
-      .map((q: any) => q.text?.slice(0, 100))
+      .slice(-10)
+      .map((q: any) => q.text?.slice(0, 50) + "...")
       .filter(Boolean);
 
     const userPrompt = buildPrompt(chunkCount, chunkIdx, alreadyCollected);
@@ -473,9 +473,11 @@ VACIB: Yalnız JSON formatında cavab ver:
     // Bot content-i qıs saxla — token limitinə düşməmək üçün
     const contextPart   = botContent ? `\n\nMövzu konteksti:\n${botContent.slice(0, 1500)}\n` : "";
 
+    // 40+ sualı prompta vermək modeli (özəlliklə 8B) çaşdırır və heç nə yaratmamasına səbəb olur.
+    // Buna görə yalnız ən son 5 sualı (və limitli sayda) avoid siyahısına salırıq.
     const allAvoidTexts = [
-      ...avoidTexts.slice(0, 20),
-      ...(previousQuestionsSummary ? previousQuestionsSummary.split("\n").slice(0, 20) : []),
+      ...avoidTexts.slice(0, 5),
+      ...(previousQuestionsSummary ? previousQuestionsSummary.split("\n").slice(0, 5) : []),
     ].filter(Boolean);
 
     const avoidPart = allAvoidTexts.length > 0
