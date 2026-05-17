@@ -131,7 +131,6 @@ export default function UserAIQuizGenerator({
 
   const fetchQuestions = async (
     count: number,
-    avoidTexts: string[],
     signal: AbortSignal,
   ): Promise<{ questions: any[]; reviewQuestions: any[] }> => {
     const res = await fetch("/api/ai/generate-quiz", {
@@ -142,7 +141,7 @@ export default function UserAIQuizGenerator({
         questionCount: count,
         language: "az",
         botId: botId || undefined,
-        avoidTexts,
+        avoidTexts: [],
       }),
       signal,
     });
@@ -154,14 +153,14 @@ export default function UserAIQuizGenerator({
   };
 
   const handleGenerate = async () => {
-    const totalNeeded = parseInt(questionCount) || 0;
+    const count = parseInt(questionCount) || 0;
     if (!title.trim()) { error("Quiz mövzusu daxil edin"); return; }
-    if (totalNeeded < 1 || totalNeeded > 50) { error("Sual sayı 1-50 arasında olmalıdır"); return; }
+    if (count < 1 || count > 50) { error("Sual sayı 1-50 arasında olmalıdır"); return; }
 
     setLoading(true);
     setProgress(0);
     setFailedCount(0);
-    setProgressText(`0/${totalNeeded} sual yaradıldı...`);
+    setProgressText(`${count} sual yaradılır...`);
 
     await new Promise((r) => setTimeout(r, 50));
     startFakeProgress();
@@ -169,83 +168,31 @@ export default function UserAIQuizGenerator({
     const controller = new AbortController();
     abortRef.current = controller;
 
-    const collectedQuestions: any[] = [];
-    const collectedReview: any[] = [];
-    // Vercel 10s timeout-a düşməmək üçün ən optimal ölçü: 5 sual per request
-    const CHUNK_SIZE = 5;
-
     try {
-      while (collectedQuestions.length < totalNeeded) {
-        if (controller.signal.aborted) break;
+      // Tək sorğu — backend daxilində paralel worker-lər işləyir
+      // Əvvəlki 4 paralel frontend sorğusu rate limit problemini yaradırdı (4×3=12 eyni anlıq Groq sorğusu)
+      const data = await fetchQuestions(count, controller.signal);
 
-        const remaining = totalNeeded - collectedQuestions.length;
-        const countToAsk = Math.min(remaining, CHUNK_SIZE);
+      const allQuestions = data.questions || [];
+      const reviewQuestions = data.reviewQuestions || [];
 
-        setProgressText(`${collectedQuestions.length}/${totalNeeded} sual yaradıldı. Növbəti hissə hazırlanır...`);
-
-        // Əvvəlki yaradılan sualların mətnlərini avoidTexts olaraq göndəririk ki, dublikat olmasın
-        const avoidTexts = collectedQuestions.map((q: any) => q.text).filter(Boolean);
-
-        let data: any = null;
-        let fetchAttempt = 0;
-        const maxFetchAttempts = 3;
-
-        while (fetchAttempt < maxFetchAttempts) {
-          try {
-            data = await fetchQuestions(countToAsk, avoidTexts, controller.signal);
-            break; // Uğurlu oldu, çıx
-          } catch (fetchErr: any) {
-            if (controller.signal.aborted) throw fetchErr;
-            fetchAttempt++;
-            console.warn(`Hissə alınmadı, yenidən cəhd ${fetchAttempt}/${maxFetchAttempts}:`, fetchErr.message);
-            if (fetchAttempt >= maxFetchAttempts) throw fetchErr; // 3-cü dəfə də alınmasa tam dayan
-            setProgressText(`${collectedQuestions.length}/${totalNeeded} sual... Yenidən cəhd edilir (${fetchAttempt}/3)`);
-            await new Promise((r) => setTimeout(r, 2000)); // 2 saniyə gözlə və eyni hissəni yenidən istə
-          }
-        }
-
-        const newQs = data?.questions || [];
-        const newReviews = data?.reviewQuestions || [];
-
-        if (newQs.length === 0) {
-          throw new Error("AI bu hissəni yarada bilmədi.");
-        }
-
-        collectedQuestions.push(...newQs);
-        if (newReviews.length > 0) {
-          collectedReview.push(...newReviews);
-        }
-
-        // Progress bar-ı daxili real data ilə yeniləyirik
-        const realPercent = Math.round((collectedQuestions.length / totalNeeded) * 90);
-        setProgress(realPercent);
-
-        // Hissələr arasında 1 saniyə gözləmə (rate limit-ə görə)
-        if (collectedQuestions.length < totalNeeded) {
-          await new Promise((r) => setTimeout(r, 1000));
-        }
-      }
-
-      if (collectedQuestions.length === 0) {
+      if (allQuestions.length === 0) {
         error("AI heç bir sual yarada bilmədi. Bir az gözləyib yenidən cəhd edin.");
         return;
       }
 
-      const finalQuestions = collectedQuestions.slice(0, totalNeeded);
-      // Dublikat review suallarını silək
-      const uniqueReview = Array.from(new Map(collectedReview.map(q => [q.text?.toLowerCase(), q])).values());
-      const allFinal = [...finalQuestions, ...uniqueReview];
+      const finalQuestions = allQuestions.slice(0, count);
 
       stopFakeProgress(100);
-      setProgressText(`${finalQuestions.length + uniqueReview.length} sual hazırdır!`);
+      setProgressText(`${finalQuestions.length + reviewQuestions.length} sual hazırdır!`);
       await new Promise((r) => setTimeout(r, 600));
 
-      const totalMsg = uniqueReview.length > 0
-        ? `${finalQuestions.length} yeni + ${uniqueReview.length} təkrar sual əlavə edildi!`
+      const totalMsg = reviewQuestions.length > 0
+        ? `${finalQuestions.length} yeni + ${reviewQuestions.length} təkrar sual əlavə edildi!`
         : `${finalQuestions.length} sual yaradıldı!`;
       success(totalMsg);
 
-      onGenerate(finalQuestions, uniqueReview, botId || undefined);
+      onGenerate(finalQuestions, reviewQuestions, botId || undefined);
       onClose();
 
     } catch (err: any) {
