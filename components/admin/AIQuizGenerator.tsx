@@ -306,7 +306,7 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
                 onChange={(e) => setQuestionCount(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))}
                 min={1} max={50} className="input-field" disabled={loading} />
               <p className="mt-1 text-xs text-slate-400">
-                {PARTS} paralel sorğu — hər biri ~{Math.ceil(50 / PARTS)} sual
+                Backend daxilində paralel işlənir
               </p>
             </div>
 
