@@ -125,7 +125,7 @@ async function worker(
   buildPrompt: (count: number, attempt: number) => string,
   groqKey: string | undefined,
   orKey: string | undefined,
-  maxAttempts = 4, // az retry, amma hər dəfə daha çox sual istə
+  maxAttempts = 3,
 ): Promise<any[]> {
   const collected: any[] = [];
   const seenTexts = new Set<string>();
@@ -141,10 +141,10 @@ async function worker(
 
   while (collected.length < needed && attempt < maxAttempts) {
     const stillNeed = needed - collected.length;
-    // İlk cəhddə tam sayı + 50% artıq istə — az retry lazım olsun
+    // İlk cəhddə 2x artıq istə — çox vaxt ilk cəhddə tam alınır
     const askFor = attempt === 0
-      ? needed + Math.ceil(needed * 0.5)
-      : stillNeed + Math.max(3, Math.ceil(stillNeed * 0.4));
+      ? needed * 2
+      : stillNeed + Math.ceil(stillNeed * 0.5);
 
     const model = allModels[attempt % allModels.length];
     const userPrompt = buildPrompt(askFor, attempt);
@@ -165,7 +165,7 @@ async function worker(
     attempt++;
 
     if (collected.length < needed && attempt < maxAttempts) {
-      await new Promise((r) => setTimeout(r, 200));
+      await new Promise((r) => setTimeout(r, 150));
     }
   }
 
@@ -173,8 +173,6 @@ async function worker(
 }
 
 // ─── Paralel worker strategiyası ─────────────────────────────────────────────
-// totalCount sualı bir neçə worker-ə böl, hamısı eyni anda işləsin.
-// Hər worker öz payını toplayana qədər retry edir.
 async function generateParallel(
   totalCount: number,
   systemPrompt: string,
@@ -182,18 +180,14 @@ async function generateParallel(
   groqKey: string | undefined,
   orKey: string | undefined,
 ): Promise<any[]> {
-  // Worker sayını müəyyən et
-  // 25 sual → 3 worker (hər biri ~8-9 sual, tez tamamlanır)
-  // 10 sual → 2 worker
-  const WORKER_COUNT = Math.min(3, Math.max(2, Math.ceil(totalCount / 10)));
-  const baseShare = Math.floor(totalCount / WORKER_COUNT);
-  const remainder = totalCount % WORKER_COUNT;
+  // 2 worker — hər biri yarısını alır, paralel işləyir
+  // Az worker = az rate limit riski, hər worker daha çox sual istəyir
+  const WORKER_COUNT = 2;
+  const half = Math.ceil(totalCount / 2);
+  const shares = [half, totalCount - half];
 
-  // Hər worker-ə pay ver
-  const workerTasks = Array.from({ length: WORKER_COUNT }, (_, i) => {
-    const share = baseShare + (i < remainder ? 1 : 0);
+  const workerTasks = shares.map((share, i) => {
     if (share === 0) return Promise.resolve([] as any[]);
-
     return worker(
       share,
       systemPrompt,
@@ -203,7 +197,6 @@ async function generateParallel(
     );
   });
 
-  // Hamısını paralel işlət
   const results = await Promise.all(workerTasks);
 
   // Nəticələri birləşdir, dublikatları sil
@@ -220,30 +213,40 @@ async function generateParallel(
     }
   }
 
-  // Hələ çatmırsa — əlavə tək worker ilə tamamla
+  // Hələ çatmırsa — sürətli fill-up (tək sorğu, artıq sual istə)
   if (allQuestions.length < totalCount) {
     const deficit = totalCount - allQuestions.length;
-    console.log(`[parallel] ${deficit} sual çatmır, fill-up worker işə salınır...`);
+    console.log(`[parallel] ${deficit} sual çatmır, fill-up başlayır...`);
 
-    const avoidList = allQuestions.slice(0, 40).map((q: any) => q.text?.slice(0, 80)).filter(Boolean);
-    const avoidNote = avoidList.length > 0
-      ? `\n\nBU SUALLAR ARTIQ VAR — BUNLARA OXŞAR YARATMA:\n${avoidList.join("\n")}\n`
+    const avoidNote = allQuestions.length > 0
+      ? `\n\nBU SUALLAR ARTIQ VAR — BUNLARA OXŞAR YARATMA:\n${
+          allQuestions.slice(0, 20).map((q: any) => q.text?.slice(0, 60)).filter(Boolean).join("\n")
+        }\n`
       : "";
 
-    const extra = await worker(
-      deficit,
-      systemPrompt,
-      (count, attempt) => buildPrompt(count, 99, attempt) + avoidNote,
-      groqKey,
-      orKey,
-    );
+    // Fill-up üçün birbaşa tək model sorğusu (worker overhead olmadan)
+    const allModels: ModelConfig[] = [
+      ...(groqKey ? GROQ_MODELS : []),
+      ...(orKey   ? OR_MODELS   : []),
+    ];
 
-    for (const q of extra) {
-      const key = q.text?.trim().toLowerCase();
-      if (key && !seenTexts.has(key)) {
-        seenTexts.add(key);
-        allQuestions.push(q);
-        if (allQuestions.length >= totalCount) break;
+    for (const model of allModels) {
+      if (allQuestions.length >= totalCount) break;
+      const stillNeed = totalCount - allQuestions.length;
+      const extra = await callModel(
+        model, groqKey, orKey,
+        systemPrompt,
+        buildPrompt(stillNeed + Math.ceil(stillNeed * 0.5), 99, 0) + avoidNote,
+      );
+      if (extra) {
+        for (const q of extra) {
+          const key = q.text?.trim().toLowerCase();
+          if (key && !seenTexts.has(key)) {
+            seenTexts.add(key);
+            allQuestions.push(q);
+            if (allQuestions.length >= totalCount) break;
+          }
+        }
       }
     }
   }
