@@ -414,7 +414,9 @@ Cavabı MÜTLƏQ aşağıdakı JSON formatında ver — başqa heç nə yazma:
           if (!correct) wrongTextSet.add(text);
         }
 
-        if (wrongTextSet.size > 0) {
+        const ENABLE_REVIEW_QUESTIONS = false; // TODO: Hələlik söndürüldü, testlərdən sonra true ediləcək
+
+        if (ENABLE_REVIEW_QUESTIONS && wrongTextSet.size > 0) {
           // Bütün əvvəlki quizlərdən həmin sualların tam məlumatını tap
           // (options, correctOption saxlamaq üçün)
           // Maksimum 10 səhv sual əlavə et — quiz çox böyüməsin
