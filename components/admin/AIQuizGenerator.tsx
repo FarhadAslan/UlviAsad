@@ -146,7 +146,8 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
 
     const collectedQuestions: any[] = [];
     const collectedReview: any[] = [];
-    const CHUNK_SIZE = 10;
+    // Vercel 10s timeout-a düşməmək üçün ən optimal ölçü: 5 sual per request
+    const CHUNK_SIZE = 5;
 
     try {
       while (collectedQuestions.length < totalNeeded) {
@@ -160,13 +161,29 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
         // Əvvəlki yaradılan sualların mətnlərini avoidTexts olaraq göndəririk ki, dublikat olmasın
         const avoidTexts = collectedQuestions.map((q: any) => q.text).filter(Boolean);
 
-        const data = await fetchPart(countToAsk, avoidTexts, controller.signal);
+        let data: any = null;
+        let fetchAttempt = 0;
+        const maxFetchAttempts = 3;
 
-        const newQs = data.questions || [];
-        const newReviews = data.reviewQuestions || [];
+        while (fetchAttempt < maxFetchAttempts) {
+          try {
+            data = await fetchPart(countToAsk, avoidTexts, controller.signal);
+            break; // Uğurlu oldu, çıx
+          } catch (fetchErr: any) {
+            if (controller.signal.aborted) throw fetchErr;
+            fetchAttempt++;
+            console.warn(`Hissə alınmadı, yenidən cəhd ${fetchAttempt}/${maxFetchAttempts}:`, fetchErr.message);
+            if (fetchAttempt >= maxFetchAttempts) throw fetchErr; // 3-cü dəfə də alınmasa tam dayan
+            setProgressText(`${collectedQuestions.length}/${totalNeeded} sual... Yenidən cəhd edilir (${fetchAttempt}/3)`);
+            await new Promise((r) => setTimeout(r, 2000)); // 2 saniyə gözlə və eyni hissəni yenidən istə
+          }
+        }
+
+        const newQs = data?.questions || [];
+        const newReviews = data?.reviewQuestions || [];
 
         if (newQs.length === 0) {
-          throw new Error("AI sual yarada bilmədi.");
+          throw new Error("AI bu hissəni yarada bilmədi.");
         }
 
         collectedQuestions.push(...newQs);
