@@ -89,7 +89,7 @@ async function callModel(
       { role: "user",   content: userPrompt   },
     ],
     temperature: 0.7,
-    max_tokens: 4000,
+    max_tokens: 6000,
   };
   if (cfg.jsonMode) body.response_format = { type: "json_object" };
 
@@ -141,10 +141,8 @@ async function worker(
 
   while (collected.length < needed && attempt < maxAttempts) {
     const stillNeed = needed - collected.length;
-    // İlk cəhddə 2x artıq istə — çox vaxt ilk cəhddə tam alınır
-    const askFor = attempt === 0
-      ? needed * 2
-      : stillNeed + Math.ceil(stillNeed * 0.5);
+    // Sadəcə lazım olan qədər + 2 ehtiyat — çox istəmə, JSON truncate olur
+    const askFor = stillNeed + 2;
 
     const model = allModels[attempt % allModels.length];
     const userPrompt = buildPrompt(askFor, attempt);

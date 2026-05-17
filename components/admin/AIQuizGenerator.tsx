@@ -183,11 +183,13 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
 
       setFailedCount(failed);
 
+      // Bəzi sorğular uğursuz olsa belə, əldə olan sualları qaytarırıq
       if (allQuestions.length === 0) {
         error("AI heç bir sual yarada bilmədi. Bir az gözləyib yenidən cəhd edin.");
         return;
       }
 
+      // Əldə olan sualları qaytarırıq (az gəlsə belə)
       const finalQuestions = allQuestions.slice(0, questionCount);
       const allFinal = [...finalQuestions, ...reviewQuestions];
 
@@ -195,7 +197,7 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
       setProgressText(`${allFinal.length} sual hazırdır!`);
       await new Promise((r) => setTimeout(r, 600));
 
-      success(`${allFinal.length} sual yaradıldı!`);
+      success(`${allFinal.length} sual yaradıldı${allFinal.length < questionCount ? ` (${questionCount - allFinal.length} sual əldə edilmədi)` : ""}!`);
       onGenerate(allFinal, category || undefined);
       onClose();
 
