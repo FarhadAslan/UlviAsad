@@ -15,10 +15,12 @@ interface ModelConfig {
 }
 
 const GROQ_MODELS: ModelConfig[] = [
-  { id: "llama-3.3-70b-versatile",                   provider: "groq", jsonMode: true  },
+  // 131K TPM limit — ən sürətli və problemsiz model
   { id: "llama-3.1-8b-instant",                      provider: "groq", jsonMode: true  },
-  { id: "meta-llama/llama-4-scout-17b-16e-instruct", provider: "groq", jsonMode: false },
-  // openai/gpt-oss-120b çıxarıldı — Groq-da qeyri-sabitdir, retry-ı israf edir
+  // 18K TPM limit
+  { id: "mixtral-8x7b-32768",                        provider: "groq", jsonMode: true  },
+  // 6K TPM limit (max_tokens 4000 olanda işləyə bilər, amma 1-ci seçim olmamalıdır)
+  { id: "llama-3.3-70b-versatile",                   provider: "groq", jsonMode: true  },
 ];
 
 const OR_MODELS: ModelConfig[] = [
@@ -101,7 +103,10 @@ async function callModel(
       { role: "user",   content: userPrompt   },
     ],
     temperature: 0.7,
-    max_tokens: 12000, // Azərbaycan dilindəki 10 sual üçün 12000 token lazımdır
+    // Groq TPM limitini `max_tokens` dəyərinə görə hesablayır!
+    // Əgər 12000 yazsaq və TPM 6000-dirsə, birbaşa bloklanır.
+    // 10 sual üçün 2000-3000 token bəs edir. 4000 təhlükəsizdir.
+    max_tokens: 4000,
   };
   if (cfg.jsonMode) body.response_format = { type: "json_object" };
 
@@ -130,7 +135,7 @@ async function callModel(
     return extractQuestions(content);
   } catch (err: any) {
     console.warn(`[${cfg.id}] error: ${err?.message}`);
-    return null;
+    return { error: err?.message };
   }
 }
 
@@ -142,9 +147,10 @@ async function worker(
   groqKey: string | undefined,
   orKey: string | undefined,
   maxAttempts = 5, // 3-dən 5-ə qaldırıldı
-): Promise<any[]> {
+): Promise<{ questions: any[]; lastError?: string }> {
   const collected: any[] = [];
   const seenTexts = new Set<string>();
+  let lastErrorMsg = "";
 
   const allModels: ModelConfig[] = [
     ...(groqKey ? GROQ_MODELS : []),
@@ -164,9 +170,15 @@ async function worker(
     const model = allModels[attempt % allModels.length];
     const userPrompt = buildPrompt(askFor, attempt);
 
-    const questions = await callModel(model, groqKey, orKey, systemPrompt, userPrompt);
+    const res = await callModel(model, groqKey, orKey, systemPrompt, userPrompt);
+    
+    if (res && !Array.isArray(res) && res.error) {
+      lastErrorMsg = res.error;
+    }
 
-    if (Array.isArray(questions) && questions.length > 0) {
+    const questions = Array.isArray(res) ? res : [];
+
+    if (questions.length > 0) {
       for (const q of questions) {
         const key = q.text?.trim().toLowerCase();
         if (key && !seenTexts.has(key)) {
@@ -186,7 +198,7 @@ async function worker(
     }
   }
 
-  return collected.slice(0, needed);
+  return { questions: collected.slice(0, needed), lastError: lastErrorMsg };
 }
 
 // ─── Ardıcıl (Sequential) worker strategiyası ────────────────────────────────
@@ -200,12 +212,13 @@ async function generateSequential(
   buildPrompt: (count: number, workerIdx: number, attempt: number) => string,
   groqKey: string | undefined,
   orKey: string | undefined,
-): Promise<any[]> {
+): Promise<{ questions: any[]; lastError?: string }> {
   const CHUNK_SIZE = 10;
   const numChunks = Math.ceil(totalCount / CHUNK_SIZE);
   
   const allQuestions: any[] = [];
   const seenTexts = new Set<string>();
+  let finalError = "";
 
   for (let i = 0; i < numChunks; i++) {
     if (allQuestions.length >= totalCount) break;
@@ -222,7 +235,7 @@ async function generateSequential(
 
     console.log(`[sequential] Chunk ${i + 1}/${numChunks} - ${chunkCount} sual istənilir...`);
 
-    const chunkResults = await worker(
+    const chunkData = await worker(
       chunkCount,
       systemPrompt,
       (count, attempt) => buildPrompt(count, i, attempt) + avoidNote,
@@ -231,7 +244,9 @@ async function generateSequential(
       4 // 4 cəhd hər chunk üçün
     );
 
-    for (const q of chunkResults) {
+    if (chunkData.lastError) finalError = chunkData.lastError;
+
+    for (const q of chunkData.questions) {
       const key = q.text?.trim().toLowerCase();
       if (key && !seenTexts.has(key)) {
         seenTexts.add(key);
@@ -263,7 +278,7 @@ async function generateSequential(
       const needNow = totalCount - allQuestions.length;
       const fillChunk = Math.min(needNow, 10);
       
-      const extra = await worker(
+      const extraData = await worker(
         fillChunk,
         systemPrompt,
         (count, attempt) => buildPrompt(count, 99, attempt) + avoidNote,
@@ -272,7 +287,9 @@ async function generateSequential(
         3
       );
       
-      for (const q of extra) {
+      if (extraData.lastError) finalError = extraData.lastError;
+
+      for (const q of extraData.questions) {
         const key = q.text?.trim().toLowerCase();
         if (key && !seenTexts.has(key)) {
           seenTexts.add(key);
@@ -288,7 +305,7 @@ async function generateSequential(
     }
   }
 
-  return allQuestions.slice(0, totalCount);
+  return { questions: allQuestions.slice(0, totalCount), lastError: finalError };
 }
 
 // ─── Normalize ────────────────────────────────────────────────────────────────
@@ -556,17 +573,19 @@ Cavabı YALNIZ JSON formatında ver, ${count} sual ilə:
     };
 
     // ─── Ardıcıl generasiya ──
-    const rawQuestions = await generateSequential(
+    const resultData = await generateSequential(
       questionCount,
       systemPrompt,
       buildPrompt,
       groqKey,
       orKey,
     );
+    
+    const rawQuestions = resultData.questions;
 
     if (rawQuestions.length === 0) {
       return NextResponse.json(
-        { error: "AI sual yarada bilmədi. Groq/OpenRouter limiti dolmuş ola bilər — bir neçə saniyə gözləyib yenidən cəhd edin." },
+        { error: `AI sual yarada bilmədi. Səbəb: ${resultData.lastError || "Naməlum xəta"}` },
         { status: 502 }
       );
     }
