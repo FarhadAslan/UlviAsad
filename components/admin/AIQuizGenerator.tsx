@@ -54,8 +54,8 @@ const LOADER_CSS = `
 }
 `;
 
-// Sorğuları N hissəyə böl — hər hissə ~12-13 sual, 60s-ə asanlıqla sığır
-const PARTS = 4;
+// Bütün sualları tək sorğuda göndər — backend özü parçalayır
+// Əvvəlki 4 paralel sorğu rate limit problemini yaradırdı (4×3=12 eyni anlıq Groq sorğusu)
 
 export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQuizGeneratorProps) {
   const { success, error } = useToast();
@@ -136,60 +136,25 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
     setFailedCount(0);
     setProgressText(`${questionCount} sual yaradılır...`);
 
-    await new Promise((r) => setTimeout(r, 50)); // React render üçün tick
+    await new Promise((r) => setTimeout(r, 50));
     startFakeProgress();
 
     const controller = new AbortController();
     abortRef.current = controller;
 
     try {
-      // 4 paralel sorğu — 50 sual → [13, 13, 12, 12]
-      // Hər hissə server-daxili 2 worker ilə işləyir
-      // ~12-13 sual 60s-ə asanlıqla sığır
-      const base  = Math.floor(questionCount / PARTS);
-      const rem   = questionCount % PARTS;
-      const parts = Array.from({ length: PARTS }, (_, i) => base + (i < rem ? 1 : 0))
-                        .filter(n => n > 0);
+      // Tək sorğu — backend daxilində paralel worker-lər işləyir
+      // Əvvəlki 4 paralel frontend sorğusu rate limit problemini yaradırdı
+      const data = await fetchPart(questionCount, controller.signal);
 
-      const settled = await Promise.allSettled(
-        parts.map((count) => fetchPart(count, controller.signal))
-      );
+      const allQuestions = data.questions || [];
+      const reviewQuestions = data.reviewQuestions || [];
 
-      let allQuestions: any[] = [];
-      let reviewQuestions: any[] = [];
-      let failed = 0;
-
-      for (const result of settled) {
-        if (result.status === "fulfilled") {
-          const existingTexts = new Set(
-            allQuestions.map((q: any) => q.text?.trim().toLowerCase())
-          );
-          for (const q of (result.value.questions || [])) {
-            const key = q.text?.trim().toLowerCase();
-            if (!key || !existingTexts.has(key)) {
-              if (key) existingTexts.add(key);
-              allQuestions.push(q);
-            }
-          }
-          if (reviewQuestions.length === 0) {
-            reviewQuestions = result.value.reviewQuestions || [];
-          }
-        } else {
-          if (result.reason?.name === "AbortError") throw result.reason;
-          console.error("Part uğursuz:", result.reason?.message);
-          failed++;
-        }
-      }
-
-      setFailedCount(failed);
-
-      // Bəzi sorğular uğursuz olsa belə, əldə olan sualları qaytarırıq
       if (allQuestions.length === 0) {
         error("AI heç bir sual yarada bilmədi. Bir az gözləyib yenidən cəhd edin.");
         return;
       }
 
-      // Əldə olan sualları qaytarırıq (az gəlsə belə)
       const finalQuestions = allQuestions.slice(0, questionCount);
       const allFinal = [...finalQuestions, ...reviewQuestions];
 
@@ -361,9 +326,9 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
             <div className="rounded-xl p-3 text-xs text-purple-700 border border-purple-200 bg-purple-50">
               <p className="font-medium mb-1">⚡ Necə işləyir:</p>
               <ul className="space-y-0.5 text-purple-600">
-                <li>• {PARTS} sorğu eyni anda göndərilir</li>
-                <li>• Hər sorğu Groq + OpenRouter modelləri ilə işləyir</li>
-                <li>• 50 sual üçün ~20-35 saniyə kifayətdir</li>
+                <li>• Tək sorğu — backend daxilində paralel işlənir</li>
+                <li>• Groq + OpenRouter modelləri ilə işləyir</li>
+                <li>• 50 sual üçün ~20-40 saniyə kifayətdir</li>
               </ul>
             </div>
           </div>

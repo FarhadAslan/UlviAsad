@@ -162,53 +162,19 @@ export default function UserAIQuizGenerator({
     setFailedCount(0);
     setProgressText(`${count} sual yaradılır...`);
 
-    // React-ın render etməsi üçün bir tick gözlə
     await new Promise((r) => setTimeout(r, 50));
-
     startFakeProgress();
 
     const controller = new AbortController();
     abortRef.current = controller;
 
     try {
-      // 4 paralel sorğu — hər biri ~12-13 sual, 60s-ə asanlıqla sığır
-      const PARTS = 4;
-      const base  = Math.floor(count / PARTS);
-      const rem   = count % PARTS;
-      const parts = Array.from({ length: PARTS }, (_, i) => base + (i < rem ? 1 : 0))
-                        .filter(n => n > 0);
+      // Tək sorğu — backend daxilində paralel worker-lər işləyir
+      // Əvvəlki 4 paralel frontend sorğusu rate limit problemini yaradırdı (4×3=12 eyni anlıq Groq sorğusu)
+      const data = await fetchQuestions(count, controller.signal);
 
-      const settled = await Promise.allSettled(
-        parts.map((partCount) => fetchQuestions(partCount, controller.signal))
-      );
-
-      let allQuestions: any[] = [];
-      let reviewQuestions: any[] = [];
-      let failed = 0;
-
-      for (const result of settled) {
-        if (result.status === "fulfilled") {
-          const existingTexts = new Set(
-            allQuestions.map((q: any) => q.text?.trim().toLowerCase())
-          );
-          for (const q of (result.value.questions || [])) {
-            const key = q.text?.trim().toLowerCase();
-            if (!key || !existingTexts.has(key)) {
-              if (key) existingTexts.add(key);
-              allQuestions.push(q);
-            }
-          }
-          if (reviewQuestions.length === 0) {
-            reviewQuestions = result.value.reviewQuestions || [];
-          }
-        } else {
-          if (result.reason?.name === "AbortError") throw result.reason;
-          console.error("Part uğursuz:", result.reason?.message);
-          failed++;
-        }
-      }
-
-      setFailedCount(failed);
+      const allQuestions = data.questions || [];
+      const reviewQuestions = data.reviewQuestions || [];
 
       if (allQuestions.length === 0) {
         error("AI heç bir sual yarada bilmədi. Bir az gözləyib yenidən cəhd edin.");
