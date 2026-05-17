@@ -5,17 +5,17 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 60; // Tək batch üçün 60s kifayətdir
 
-// Groq modellər — JSON mode dəstəkləyir, sürətli
+// Groq modellər — JSON mode dəstəkləyir
 const GROQ_MODELS = [
-  "llama-3.3-70b-versatile",              // 300K TPM — ən yüksək keyfiyyət
-  "llama-3.1-8b-instant",                 // 250K TPM — sürətli
-  "meta-llama/llama-4-scout-17b-16e-instruct", // 300K TPM — yeni model
-  "openai/gpt-oss-120b",                  // 250K TPM — alternativ
+  "llama-3.3-70b-versatile",
+  "llama-3.1-8b-instant",
+  "meta-llama/llama-4-scout-17b-16e-instruct",
+  "openai/gpt-oss-120b",
 ];
 
-// OpenRouter — pulsuz modellər
+// OpenRouter — fallback
 const OPENROUTER_MODELS = [
   "meta-llama/llama-3.3-70b-instruct:free",
   "meta-llama/llama-3.1-8b-instruct:free",
@@ -23,36 +23,27 @@ const OPENROUTER_MODELS = [
   "openrouter/auto",
 ];
 
-const CHUNK_SIZE   = 4_000;
-const DIRECT_LIMIT = 4_000;
-const BATCH_SIZE   = 25;
-
-// JSON mətnindən sualları çıxar — bütün formatları handle edir
+// JSON mətnindən sualları çıxar
 function extractQuestions(raw: string): any[] | null {
   if (!raw) return null;
 
-  // Markdown code block-larını sil
   let text = raw
     .replace(/^```json\s*/im, "")
     .replace(/^```\s*/im, "")
     .replace(/\s*```\s*$/im, "")
     .trim();
 
-  // JSON parse cəhdləri
   const attempts = [
-    // 1. Birbaşa parse
     () => JSON.parse(text),
-    // 2. İlk { ... } blokundan çıxar
     () => {
       const start = text.indexOf("{");
-      const end   = text.lastIndexOf("}");
+      const end = text.lastIndexOf("}");
       if (start === -1 || end === -1) throw new Error("no object");
       return JSON.parse(text.slice(start, end + 1));
     },
-    // 3. İlk [ ... ] blokundan çıxar (array formatı)
     () => {
       const start = text.indexOf("[");
-      const end   = text.lastIndexOf("]");
+      const end = text.lastIndexOf("]");
       if (start === -1 || end === -1) throw new Error("no array");
       return { questions: JSON.parse(text.slice(start, end + 1)) };
     },
@@ -61,20 +52,14 @@ function extractQuestions(raw: string): any[] | null {
   for (const attempt of attempts) {
     try {
       const parsed = attempt();
-      if (Array.isArray(parsed?.questions) && parsed.questions.length > 0) {
-        return parsed.questions;
-      }
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
-      }
-    } catch {
-      // növbəti cəhd
-    }
+      if (Array.isArray(parsed?.questions) && parsed.questions.length > 0) return parsed.questions;
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    } catch { /* növbəti */ }
   }
   return null;
 }
 
-// AI sorğusu — Groq üçün JSON mode, OpenRouter üçün JSON mode olmadan
+// Tək AI sorğusu
 async function callAI(opts: {
   endpoint: string;
   apiKey: string;
@@ -83,113 +68,70 @@ async function callAI(opts: {
   userPrompt: string;
   extraHeaders?: Record<string, string>;
   useJsonMode?: boolean;
-  retries?: number;
 }): Promise<any[] | null> {
   const { endpoint, apiKey, model, systemPrompt, userPrompt,
-          extraHeaders = {}, useJsonMode = true, retries = 3 } = opts;
+    extraHeaders = {}, useJsonMode = true } = opts;
 
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    const body: any = {
-      model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user",   content: userPrompt },
-      ],
-      temperature: 0.7,
-      max_tokens: 8000,
-    };
+  const body: any = {
+    model,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+    temperature: 0.7,
+    max_tokens: 4000,
+  };
 
-    // JSON mode yalnız dəstəkləyən modellər üçün
-    if (useJsonMode) {
-      body.response_format = { type: "json_object" };
-    }
+  if (useJsonMode) {
+    body.response_format = { type: "json_object" };
+  }
 
-    let res: Response;
-    try {
-      res = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`,
-          ...extraHeaders,
-        },
-        body: JSON.stringify(body),
-      });
-    } catch (fetchErr: any) {
-      console.error(`[${model}] fetch error:`, fetchErr);
-      if (attempt < retries) { await new Promise(r => setTimeout(r, 2000)); continue; }
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+        ...extraHeaders,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (res.status === 429) {
+      console.warn(`[${model}] rate limit 429`);
       return null;
     }
-
-    if (res.status === 429 && attempt < retries) {
-      const waitMs = 2000 * (attempt + 1);
-      console.log(`[${model}] rate limit (429), ${waitMs}ms gözlənilir...`);
-      await new Promise(r => setTimeout(r, waitMs));
-      continue;
-    }
-
-    // 401 — API açarı yanlışdır, retry etmə
-    if (res.status === 401) {
-      console.error(`[${model}] 401 - API açarı yanlışdır`);
-      return null;
-    }
-
-    // 413 — mətn çox böyükdür, retry etmə
-    if (res.status === 413) {
-      console.error(`[${model}] 413 - mətn çox böyükdür`);
-      return null;
-    }
-
     if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      console.error(`[${model}] HTTP ${res.status}:`, errText.slice(0, 200));
-      // 5xx xətalarında retry
-      if (res.status >= 500 && attempt < retries) {
-        await new Promise(r => setTimeout(r, 3000));
-        continue;
-      }
+      console.error(`[${model}] HTTP ${res.status}`);
       return null;
     }
 
     const data = await res.json().catch(() => null);
-    if (!data) { console.error(`[${model}] JSON parse failed`); return null; }
+    if (!data) return null;
 
     const content = data.choices?.[0]?.message?.content;
-    if (!content) {
-      console.error(`[${model}] empty content. data:`, JSON.stringify(data).slice(0, 300));
-      return null;
-    }
+    if (!content) return null;
 
-    const questions = extractQuestions(content);
-    if (!questions) {
-      console.error(`[${model}] could not extract questions from:`, content.slice(0, 300));
-      return null;
-    }
-
-    return questions;
+    return extractQuestions(content);
+  } catch (err: any) {
+    console.error(`[${model}] fetch error:`, err?.message);
+    return null;
   }
-  return null;
 }
 
-// Groq ilə sorğu (JSON mode aktiv)
+// Groq ilə sorğu
 function callGroq(apiKey: string, model: string, system: string, user: string) {
   return callAI({
     endpoint: "https://api.groq.com/openai/v1/chat/completions",
-    apiKey, model,
-    systemPrompt: system,
-    userPrompt: user,
-    useJsonMode: true,
+    apiKey, model, systemPrompt: system, userPrompt: user, useJsonMode: true,
   });
 }
 
-// OpenRouter ilə sorğu (JSON mode olmadan — pulsuz modellər dəstəkləmir)
+// OpenRouter ilə sorğu
 function callOpenRouter(apiKey: string, model: string, system: string, user: string) {
   return callAI({
     endpoint: "https://openrouter.ai/api/v1/chat/completions",
-    apiKey, model,
-    systemPrompt: system,
-    userPrompt: user,
-    useJsonMode: false,
+    apiKey, model, systemPrompt: system, userPrompt: user, useJsonMode: false,
     extraHeaders: {
       "HTTP-Referer": "https://ulvi-asad-hnez.vercel.app",
       "X-Title": "Muellim Portal",
@@ -197,120 +139,128 @@ function callOpenRouter(apiKey: string, model: string, system: string, user: str
   });
 }
 
-// İstənilən sayda sual toplayana qədər sorğu göndər (fill-up strategiyası)
-async function fetchUntilFull(opts: {
-  needed: number;
-  chunk: string;
-  chunkIndex: number;
-  chunkCount: number;
-  systemPrompt: string;
-  langLabel: string;
-  categoryLabel: string;
-  title: string;
-  botId: string | undefined;
-  groqKey: string | undefined;
-  orKey: string | undefined;
-  buildPrompt: (chunk: string, ci: number, count: number) => string;
-  maxAttempts?: number;
-}): Promise<any[]> {
-  const { needed, maxAttempts = 8 } = opts;
-  const collected: any[] = [];
-  let attempts = 0;
-
-  while (collected.length < needed && attempts < maxAttempts) {
-    const stillNeed = needed - collected.length;
-    const askFor = stillNeed + Math.max(2, Math.ceil(stillNeed * 0.3));
-    const userPrompt = opts.buildPrompt(opts.chunk, opts.chunkIndex, askFor);
-
-    let questions: any[] | null = null;
-
-    if (opts.groqKey) {
-      // Hər cəhddə fərqli Groq modeli sına (rotation)
-      for (let mi = 0; mi < GROQ_MODELS.length; mi++) {
-        const model = GROQ_MODELS[(attempts + mi) % GROQ_MODELS.length];
-        questions = await callGroq(opts.groqKey, model, opts.systemPrompt, userPrompt);
-        if (questions) break;
-      }
-    }
-    if (!questions && opts.orKey) {
-      for (const model of OPENROUTER_MODELS) {
-        questions = await callOpenRouter(opts.orKey, model, opts.systemPrompt, userPrompt);
-        if (questions) break;
-      }
-    }
-
-    if (Array.isArray(questions) && questions.length > 0) {
-      const existingTexts = new Set(collected.map((q: any) => q.text?.trim().toLowerCase()));
-      for (const q of questions) {
-        const key = q.text?.trim().toLowerCase();
-        if (key && !existingTexts.has(key)) {
-          collected.push(q);
-          existingTexts.add(key);
-        }
-        if (collected.length >= needed) break;
-      }
-    }
-
-    attempts++;
-    if (collected.length < needed && attempts < maxAttempts) {
-      await new Promise(r => setTimeout(r, 500));
+// Bir batch üçün sual al — bütün modelləri sırayla sına
+async function fetchBatch(
+  needed: number,
+  systemPrompt: string,
+  userPrompt: string,
+  groqKey: string | undefined,
+  orKey: string | undefined,
+): Promise<any[]> {
+  // Groq modelləri sırayla sına
+  if (groqKey) {
+    for (const model of GROQ_MODELS) {
+      const questions = await callGroq(groqKey, model, systemPrompt, userPrompt);
+      if (questions && questions.length > 0) return questions;
     }
   }
+  // Groq uğursuz oldu — OpenRouter-ə keç
+  if (orKey) {
+    for (const model of OPENROUTER_MODELS) {
+      const questions = await callOpenRouter(orKey, model, systemPrompt, userPrompt);
+      if (questions && questions.length > 0) return questions;
+    }
+  }
+  return [];
+}
 
-  return collected.slice(0, needed);
+const LABELS = ["A", "B", "C", "D"];
+
+function normalizeQuestion(q: any, isReview = false): any {
+  const rawOptions = Array.isArray(q.options)
+    ? q.options.map((o: any) => ({ label: o.label || "A", text: o.text || "" }))
+    : [
+        { label: "A", text: "" }, { label: "B", text: "" },
+        { label: "C", text: "" }, { label: "D", text: "" },
+      ];
+
+  const correctLabel = q.correctOption || "A";
+  const correctText = rawOptions.find((o: any) => o.label === correctLabel)?.text || rawOptions[0]?.text || "";
+
+  // Fisher-Yates shuffle
+  const shuffled = [...rawOptions];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+
+  let newCorrectLabel = "A";
+  const newOptions = shuffled.map((o: any, idx: number) => {
+    const label = LABELS[idx] || String.fromCharCode(65 + idx);
+    if (o.text === correctText) newCorrectLabel = label;
+    return { label, text: o.text };
+  });
+
+  return {
+    text: q.text || "",
+    imageUrl: q.imageUrl || "",
+    questionType: q.questionType || "CHOICE",
+    openAnswerExample: q.openAnswerExample || "",
+    options: newOptions,
+    correctOption: newCorrectLabel,
+    points: q.points ?? 1,
+    ...(isReview ? { isReview: true } : {}),
+  };
 }
 
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    const userRole = (session?.user as any)?.role;
-
     if (!session) {
       return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
     }
 
     const groqKey = process.env.GROQ_API_KEY;
-    const orKey   = process.env.OPENROUTER_API_KEY;
+    const orKey = process.env.OPENROUTER_API_KEY;
 
     if (!groqKey && !orKey) {
-      return NextResponse.json(
-        { error: "AI API açarı konfiqurasiya edilməyib." },
-        { status: 503 }
-      );
+      return NextResponse.json({ error: "AI API açarı konfiqurasiya edilməyib." }, { status: 503 });
     }
 
     const body = await req.json();
-    const { title, questionCount, category, language = "az", botId } = body;
+    const {
+      title,
+      questionCount,
+      category,
+      language = "az",
+      botId,
+      // Batch rejimi: batchIndex və batchSize göndərilirsə — tək batch işlə
+      batchIndex,
+      batchSize,
+      avoidTexts = [],  // əvvəlki batch-lərdə yaradılmış sualların mətnləri
+    } = body;
 
     if (!title?.trim()) {
       return NextResponse.json({ error: "Quiz başlığı tələb olunur" }, { status: 400 });
     }
-    if (!questionCount || questionCount < 1 || questionCount > 50) {
-      return NextResponse.json({ error: "Sual sayı 1-50 arasında olmalıdır" }, { status: 400 });
+
+    // Batch rejimi: frontend hər batch üçün ayrıca sorğu göndərir
+    const isBatchMode = batchIndex !== undefined && batchSize !== undefined;
+    const targetCount = isBatchMode ? batchSize : (questionCount || 10);
+
+    if (targetCount < 1 || targetCount > 20) {
+      return NextResponse.json({ error: "Batch ölçüsü 1-20 arasında olmalıdır" }, { status: 400 });
     }
 
+    // Bot məlumatları
     let botSystemPrompt = `Sən yüksək keyfiyyətli quiz sualları yaradan ixtisaslaşmış AI assistentsən.
 
 ƏSAS QAYDALAR:
 1. Verilən mövzu üzrə dəqiq, aydın test sualları yarat.
 2. Bütün suallar və cavablar Azərbaycan dilində olmalıdır.
-3. Əgər "ARTIQ YARADILIB" bölməsi varsa — oradakı sualları və onlara oxşar sualları MÜTLƏQ yaratma. Tamamilə fərqli aspektləri əhatə et.
+3. "ARTIQ YARADILIB" bölməsindəki sualları və oxşarlarını YARATMA.
 
-CAVAB VARİANTLARI ÜÇÜN QAYDALAR (ÇOX VACİBDİR):
-- Yanlış variantlar (distraktorlar) düzgün cavaba mümkün qədər oxşar olsun — oxucu ilk baxışda fərqi görməsin.
-- Rəqəm, tarix, ad, termin içərən suallar üçün yanlış variantlarda çox yaxın dəyərlər istifadə et (məs: 1918 əvəzinə 1919, 1917, 1920).
-- "Hamısı doğrudur" və ya "Heç biri doğru deyil" tipli variantlardan çəkin.
+CAVAB VARİANTLARI:
+- Yanlış variantlar düzgün cavaba çox oxşar olsun.
+- Rəqəm/tarix/ad suallarında yaxın dəyərlər istifadə et (1918 → 1917, 1919, 1920).
+- "Hamısı doğrudur" tipli variantlardan çəkin.
 - Variantların uzunluğu bir-birinə yaxın olsun.
-- Düzgün cavab variantlar arasında seçilə bilməsin — hamısı eyni dərəcədə inandırıcı görünsün.
 
-Cavabı MÜTLƏQ aşağıdakı JSON formatında ver — başqa heç nə yazma:
-{"questions":[{"text":"Sual 1 mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"},{"text":"Sual 2 mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"B"}]}`;
+Cavabı YALNIZ JSON formatında ver:
+{"questions":[{"text":"...","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"}]}`;
 
-    let botChunks: string[] = [""];
-    let previousQuestionsSummary = ""; // Bu bot ilə əvvəl yaradılmış sualların xülasəsi
-
-    // Səhv cavablanmış suallar — birbaşa yeni quizə əlavə olunacaq
-    // { questionId, text, options (parsed), correctOption, points }
+    let botContent = "";
+    let previousQuestionsSummary = "";
     let wrongAnsweredQuestions: any[] = [];
 
     if (botId) {
@@ -323,180 +273,111 @@ Cavabı MÜTLƏQ aşağıdakı JSON formatında ver — başqa heç nə yazma:
         return NextResponse.json({ error: "Seçilmiş AI bot tapılmadı" }, { status: 404 });
       }
 
-      const userId = (session?.user as any)?.id;
-      if (userId) {
-        // Bu botla yaradılmış quizləri tap — raw SQL (Prisma client schema cache-indən asılı deyil)
-        let previousQuizzes: any[] = [];
-        try {
-          const quizRows = await prisma.$queryRaw<{quiz_id: string}[]>`
-            SELECT id as quiz_id FROM "Quiz"
-            WHERE "createdById" = ${userId} AND "sourceBotId" = ${botId}
-            ORDER BY "createdAt" DESC LIMIT 30
-          `;
-          if (quizRows.length > 0) {
-            const ids = quizRows.map(r => r.quiz_id);
-            previousQuizzes = await prisma.quiz.findMany({
-              where: { id: { in: ids } },
-              select: {
-                id: true,
-                questions: {
-                  select: { id: true, text: true, options: true, correctOption: true, points: true, questionType: true },
-                },
-                results: {
-                  where: { userId },
-                  orderBy: { createdAt: "desc" },
-                  take: 1,
-                  select: { answers: true },
-                },
-              },
-            });
-          }
-        } catch (dbErr: any) {
-          console.warn("[generate-quiz] previousQuizzes sorğusu uğursuz:", dbErr?.message);
-          previousQuizzes = [];
-        }
-
-        // Sualları iki qrupa ayır:
-        // 1. Heç vaxt düzgün cavablanmamış (və ya ən son nəticədə səhv olan) suallar
-        // 2. Bütün əvvəlki sualların mətni (AI-a göndərmək üçün)
-        const allPrevTexts: string[] = [];
-
-        // questionId → ən son nəticədə düzgün cavablanıb-cavablanmadığı
-        // Bir sual birdən çox quizdə ola bilməz (hər quiz öz suallarını yaradır),
-        // amma eyni mətnli suallar fərqli quizlərdə ola bilər.
-        // Məntiqi: sualın MƏTNİ əsasında izləyirik.
-
-        // questionText (normalized) → son nəticədə isCorrect
-        const questionStatusMap = new Map<string, boolean>(); // text → lastCorrect
-
-        for (const pq of previousQuizzes) {
-          // Bu quizin ən son nəticəsini al
-          const lastResult = pq.results[0];
-          let answersArr: any[] = [];
-          if (lastResult?.answers) {
-            try {
-              answersArr = JSON.parse(lastResult.answers);
-            } catch {
-              answersArr = [];
-            }
-          }
-
-          // answersArr: [{questionId, selected, isCorrect, ...}]
-          const answerMap = new Map<string, boolean>(); // questionId → isCorrect
-          for (const ans of answersArr) {
-            if (ans.questionId) {
-              answerMap.set(ans.questionId, !!ans.isCorrect);
-            }
-          }
-
-          for (const q of pq.questions) {
-            const cleanText = q.text.replace(/<[^>]+>/g, "").trim();
-            if (cleanText.length > 5) {
-              allPrevTexts.push(cleanText);
-            }
-
-            // Bu sual bu quizdə cavablanıbmı?
-            const isCorrect = answerMap.get(q.id);
-            const normalizedText = cleanText.toLowerCase();
-
-            // Quizlər ən yenidən köhnəyə gəlir (orderBy: desc).
-            // Bir sualın statusunu yalnız ilk dəfə gördükdə set edirik —
-            // bu onun ən son nəticəsini əks etdirir.
-            // İstisna: əgər hər hansı quizdə düzgün cavablanıbsa, "düzgün" kimi işarələ
-            // (bir dəfə düzgün cavablandısa — artıq təkrarlama lazım deyil)
-            if (isCorrect === true) {
-              // Düzgün cavablandı — həmişə "düzgün" kimi işarələ (override et)
-              questionStatusMap.set(normalizedText, true);
-            } else if (isCorrect === false) {
-              // Səhv cavablandı — yalnız əvvəlcədən "düzgün" işarələnməyibsə set et
-              if (questionStatusMap.get(normalizedText) !== true) {
-                questionStatusMap.set(normalizedText, false);
-              }
-            }
-            // isCorrect === undefined: bu quiz həll edilməyib — statusu dəyişmə
-          }
-        }
-
-        // Səhv cavablanmış sualları topla (heç vaxt düzgün cavablanmamış)
-        // Bunları birbaşa yeni quizə əlavə edəcəyik
-        const wrongTextSet = new Set<string>();
-        Array.from(questionStatusMap.entries()).forEach(([text, correct]) => {
-          if (!correct) wrongTextSet.add(text);
-        });
-
-        if (wrongTextSet.size > 0) {
-          // Bütün əvvəlki quizlərdən həmin sualların tam məlumatını tap
-          // (options, correctOption saxlamaq üçün)
-          // Maksimum 10 səhv sual əlavə et — quiz çox böyüməsin
-          const MAX_REVIEW_QUESTIONS = 10;
-          const seenTexts = new Set<string>();
-          for (const pq of previousQuizzes) {
-            if (wrongAnsweredQuestions.length >= MAX_REVIEW_QUESTIONS) break;
-            for (const q of pq.questions) {
-              if (wrongAnsweredQuestions.length >= MAX_REVIEW_QUESTIONS) break;
-              const cleanText = q.text.replace(/<[^>]+>/g, "").trim();
-              const normalizedText = cleanText.toLowerCase();
-              if (wrongTextSet.has(normalizedText) && !seenTexts.has(normalizedText)) {
-                seenTexts.add(normalizedText);
-                try {
-                  wrongAnsweredQuestions.push({
-                    text: q.text,
-                    options: typeof q.options === "string" ? JSON.parse(q.options) : q.options,
-                    correctOption: q.correctOption,
-                    points: q.points ?? 1,
-                    questionType: q.questionType || "CHOICE",
-                    imageUrl: "",
-                    openAnswerExample: "",
-                  });
-                } catch {
-                  // options parse xətası — bu sualı atla
-                }
-              }
-            }
-          }
-        }
-
-        if (allPrevTexts.length > 0) {
-          // Maks 80 sual xülasəsi göndər (token limitinə görə)
-          const limited = allPrevTexts.slice(0, 80);
-          previousQuestionsSummary = limited
-            .map((t, i) => `${i + 1}. ${t.slice(0, 120)}`)
-            .join("\n");
-        }
-      }
-
       botSystemPrompt = `${bot.prompt}
 
 ƏLAVƏ QAYDALAR:
-3. Əgər "ARTIQ YARADILIB" bölməsi varsa — oradakı sualları və onlara oxşar sualları MÜTLƏQ yaratma. Tamamilə fərqli aspektləri əhatə et.
+- "ARTIQ YARADILIB" bölməsindəki sualları YARATMA.
+- Yanlış variantlar düzgün cavaba çox oxşar olsun.
+- Rəqəm/tarix/ad suallarında yaxın dəyərlər istifadə et.
+- "Hamısı doğrudur" tipli variantlardan çəkin.
 
-CAVAB VARİANTLARI ÜÇÜN QAYDALAR (ÇOX VACİBDİR):
-- Yanlış variantlar (distraktorlar) düzgün cavaba mümkün qədər oxşar olsun — oxucu ilk baxışda fərqi görməsin.
-- Rəqəm, tarix, ad, termin içərən suallar üçün yanlış variantlarda çox yaxın dəyərlər istifadə et (məs: 1918 əvəzinə 1919, 1917, 1920).
-- "Hamısı doğrudur" və ya "Heç biri doğru deyil" tipli variantlardan çəkin.
-- Variantların uzunluğu bir-birinə yaxın olsun.
-- Düzgün cavab variantlar arasında seçilə bilməsin — hamısı eyni dərəcədə inandırıcı görünsün.
+Cavabı YALNIZ JSON formatında ver:
+{"questions":[{"text":"...","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"}]}`;
 
-MÜTLƏQ bu JSON formatında cavab ver — başqa heç nə yazma:
-{"questions":[{"text":"Sual 1 mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"},{"text":"Sual 2 mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"C"}]}`;
+      botContent = bot.content || "";
 
-      if (bot.content) {
-        const content = bot.content;
-        if (content.length <= DIRECT_LIMIT) {
-          botChunks = [content];
-        } else {
-          const chunks: string[] = [];
-          let start = 0;
-          while (start < content.length) {
-            let end = Math.min(start + CHUNK_SIZE, content.length);
-            if (end < content.length) {
-              const lastSpace = content.lastIndexOf(" ", end);
-              if (lastSpace > start) end = lastSpace;
+      // Yalnız ilk batch-də əvvəlki sualları və səhv sualları yüklə
+      if (!isBatchMode || batchIndex === 0) {
+        const userId = (session?.user as any)?.id;
+        if (userId) {
+          try {
+            const quizRows = await prisma.$queryRaw<{ quiz_id: string }[]>`
+              SELECT id as quiz_id FROM "Quiz"
+              WHERE "createdById" = ${userId} AND "sourceBotId" = ${botId}
+              ORDER BY "createdAt" DESC LIMIT 20
+            `;
+            if (quizRows.length > 0) {
+              const ids = quizRows.map((r) => r.quiz_id);
+              const previousQuizzes = await prisma.quiz.findMany({
+                where: { id: { in: ids } },
+                select: {
+                  id: true,
+                  questions: {
+                    select: { id: true, text: true, options: true, correctOption: true, points: true, questionType: true },
+                  },
+                  results: {
+                    where: { userId },
+                    orderBy: { createdAt: "desc" },
+                    take: 1,
+                    select: { answers: true },
+                  },
+                },
+              });
+
+              const allPrevTexts: string[] = [];
+              const questionStatusMap = new Map<string, boolean>();
+
+              for (const pq of previousQuizzes) {
+                const lastResult = pq.results[0];
+                let answersArr: any[] = [];
+                if (lastResult?.answers) {
+                  try { answersArr = JSON.parse(lastResult.answers); } catch { answersArr = []; }
+                }
+                const answerMap = new Map<string, boolean>();
+                for (const ans of answersArr) {
+                  if (ans.questionId) answerMap.set(ans.questionId, !!ans.isCorrect);
+                }
+
+                for (const q of pq.questions) {
+                  const cleanText = q.text.replace(/<[^>]+>/g, "").trim();
+                  if (cleanText.length > 5) allPrevTexts.push(cleanText);
+                  const isCorrect = answerMap.get(q.id);
+                  const norm = cleanText.toLowerCase();
+                  if (isCorrect === true) {
+                    questionStatusMap.set(norm, true);
+                  } else if (isCorrect === false && questionStatusMap.get(norm) !== true) {
+                    questionStatusMap.set(norm, false);
+                  }
+                }
+              }
+
+              const wrongTextSet = new Set<string>();
+              questionStatusMap.forEach((correct, text) => { if (!correct) wrongTextSet.add(text); });
+
+              if (wrongTextSet.size > 0) {
+                const seenTexts = new Set<string>();
+                for (const pq of previousQuizzes) {
+                  if (wrongAnsweredQuestions.length >= 10) break;
+                  for (const q of pq.questions) {
+                    if (wrongAnsweredQuestions.length >= 10) break;
+                    const cleanText = q.text.replace(/<[^>]+>/g, "").trim();
+                    const norm = cleanText.toLowerCase();
+                    if (wrongTextSet.has(norm) && !seenTexts.has(norm)) {
+                      seenTexts.add(norm);
+                      try {
+                        wrongAnsweredQuestions.push({
+                          text: q.text,
+                          options: typeof q.options === "string" ? JSON.parse(q.options) : q.options,
+                          correctOption: q.correctOption,
+                          points: q.points ?? 1,
+                          questionType: q.questionType || "CHOICE",
+                          imageUrl: "",
+                          openAnswerExample: "",
+                        });
+                      } catch { /* skip */ }
+                    }
+                  }
+                }
+              }
+
+              if (allPrevTexts.length > 0) {
+                const limited = allPrevTexts.slice(0, 60);
+                previousQuestionsSummary = limited.map((t, i) => `${i + 1}. ${t.slice(0, 100)}`).join("\n");
+              }
             }
-            chunks.push(content.slice(start, end).trim());
-            start = end;
+          } catch (dbErr: any) {
+            console.warn("[generate-quiz] DB sorğusu uğursuz:", dbErr?.message);
           }
-          botChunks = chunks;
         }
       }
     }
@@ -506,216 +387,51 @@ MÜTLƏQ bu JSON formatında cavab ver — başqa heç nə yazma:
       language === "ru" ? "Rus dilində" : "İngilis dilində";
     const categoryLabel = category || "ümumi bilik";
 
-    const chunkCount = botChunks.length;
-    const baseCount  = Math.floor(questionCount / chunkCount);
-    const remainder  = questionCount % chunkCount;
+    // Avoid list: əvvəlki batch-lərdən + DB-dən gələn suallar
+    const allAvoidTexts = [
+      ...avoidTexts,
+      ...(previousQuestionsSummary ? previousQuestionsSummary.split("\n") : []),
+    ].filter(Boolean);
 
-    const buildUserPrompt = (chunk: string, ci: number, count: number) => {
-      const contextPart = chunk
-        ? `\n\nBilik bazası (${ci + 1}/${chunkCount} hissə):\n---\n${chunk}\n---\n`
-        : "";
+    const avoidPart = allAvoidTexts.length > 0
+      ? `\n\nAŞAĞIDAKI SUALLAR ARTIQ YARADILIB — BUNLARI VƏ BUNLARA OXŞAR SUALLAR YARATMA:\n---\n${allAvoidTexts.slice(0, 50).join("\n")}\n---\n`
+      : "";
 
-      const avoidPart = previousQuestionsSummary
-        ? `\n\nAŞAĞIDAKI SUALLAR ARTIQ YARADILIB — BUNLARI VƏ BUNLARA OXŞAR SUALLAR YARATMA, TAMAMILƏ YENİ SUALLAR YAZ:\n---\n${previousQuestionsSummary}\n---\n`
-        : "";
+    // Bot content-i varsa prompt-a əlavə et
+    const contextPart = botContent
+      ? `\n\nBilik bazası:\n---\n${botContent.slice(0, 3000)}\n---\n`
+      : "";
 
-      return `${langLabel} "${title}" mövzusu üzrə DƏQIQ ${count} ədəd test sualı yarat. Nə az, nə çox — məhz ${count} sual.
+    const batchLabel = isBatchMode ? ` (batch ${batchIndex + 1})` : "";
+    const userPrompt = `${langLabel} "${title}" mövzusu üzrə DƏQIQ ${targetCount} ədəd test sualı yarat${batchLabel}. Nə az, nə çox — məhz ${targetCount} sual.
 Kateqoriya: ${categoryLabel}${contextPart}${avoidPart}
 Tələblər:
 - Hər sualın 4 variant cavabı olsun (A, B, C, D)
 - Yalnız 1 düzgün cavab olsun
 - Suallar mövzuya uyğun, aydın və dəqiq olsun
-- Yanlış variantlar düzgün cavaba çox oxşar olsun — çaşdırıcı və çətin olsun
-- Rəqəm/tarix/ad içərən suallar üçün yanlış variantlarda çox yaxın dəyərlər istifadə et
-- Variantların uzunluğu bir-birinə yaxın olsun, hamısı inandırıcı görünsün
-- Əvvəlki suallarla eyni və ya çox oxşar suallar YARATMA
+- Yanlış variantlar düzgün cavaba çox oxşar olsun
+- Rəqəm/tarix/ad suallarında yaxın dəyərlər istifadə et
+- Variantların uzunluğu bir-birinə yaxın olsun
 ${botId ? "- Yalnız verilmiş bilik bazasından istifadə et" : ""}
 
-Cavabı YALNIZ JSON formatında ver, ${count} sual ilə:
+Cavabı YALNIZ JSON formatında ver, ${targetCount} sual ilə:
 {"questions":[{"text":"Sual mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"}]}`;
-    };
 
-    // Paralel sorğular — hər chunk üçün ən yaxşı mövcud provider
-    const allQuestions: any[] = [];
+    const rawQuestions = await fetchBatch(targetCount, botSystemPrompt, userPrompt, groqKey, orKey);
 
-    if (chunkCount === 1) {
-      // Tək chunk — çox sual varsa batch-lərə böl, hər batch fill-up ilə doldurulur
-      const chunk = botChunks[0];
-
-      const batches: number[] = [];
-      let remaining = questionCount;
-      while (remaining > 0) {
-        const batchCount = Math.min(remaining, BATCH_SIZE);
-        batches.push(batchCount);
-        remaining -= batchCount;
-      }
-
-      const batchResults = await Promise.all(
-        batches.map((count) =>
-          fetchUntilFull({
-            needed: count,
-            chunk,
-            chunkIndex: 0,
-            chunkCount,
-            systemPrompt: botSystemPrompt,
-            langLabel,
-            categoryLabel,
-            title,
-            botId: botId || undefined,
-            groqKey,
-            orKey,
-            buildPrompt: buildUserPrompt,
-          })
-        )
-      );
-
-      for (const qs of batchResults) {
-        allQuestions.push(...qs);
-      }
-
-    } else {
-      // Çox chunk — hər chunk üçün fetchUntilFull ilə retry mexanizmi
-      // Sualları chunk-lara paylaşdır
-      const chunkTasks = botChunks.map((chunk, ci) => {
-        const count = baseCount + (ci < remainder ? 1 : 0);
-        if (count === 0) return Promise.resolve([] as any[]);
-
-        return fetchUntilFull({
-          needed: count,
-          chunk,
-          chunkIndex: ci,
-          chunkCount,
-          systemPrompt: botSystemPrompt,
-          langLabel,
-          categoryLabel,
-          title,
-          botId: botId || undefined,
-          groqKey,
-          orKey,
-          buildPrompt: buildUserPrompt,
-        });
-      });
-
-      const chunkResults = await Promise.all(chunkTasks);
-      for (const qs of chunkResults) {
-        allQuestions.push(...qs);
-      }
-
-      // Hələ də çatmırsa — ilk chunk-dan əlavə suallar al (fill-up)
-      if (allQuestions.length < questionCount) {
-        const deficit = questionCount - allQuestions.length;
-        console.log(`[multi-chunk] ${deficit} sual çatmır, əlavə fill-up sorğusu göndərilir...`);
-        const extra = await fetchUntilFull({
-          needed: deficit,
-          chunk: botChunks[0],
-          chunkIndex: 0,
-          chunkCount: 1,
-          systemPrompt: botSystemPrompt,
-          langLabel,
-          categoryLabel,
-          title,
-          botId: botId || undefined,
-          groqKey,
-          orKey,
-          buildPrompt: buildUserPrompt,
-        });
-        allQuestions.push(...extra);
-      }
-    }
-
-    if (allQuestions.length === 0 && wrongAnsweredQuestions.length === 0) {
+    if (rawQuestions.length === 0) {
       return NextResponse.json(
-        { error: "AI sual yarada bilmədi. Groq rate limit dolmuş ola bilər — bir neçə dəqiqə gözləyib yenidən cəhd edin, və ya OpenRouter API açarını yoxlayın." },
+        { error: "AI sual yarada bilmədi. Groq rate limit dolmuş ola bilər — bir neçə saniyə gözləyib yenidən cəhd edin." },
         { status: 502 }
       );
     }
 
-    // İstənən saydan çox gəlibsə kəs, az gəlibsə hamısını qaytar
-    const finalQuestions = allQuestions.slice(0, questionCount);
-
-    const LABELS = ["A", "B", "C", "D"];
-
-    const normalized = finalQuestions.map((q: any) => {
-      const rawOptions = Array.isArray(q.options)
-        ? q.options.map((o: any) => ({ label: o.label || "A", text: o.text || "" }))
-        : [
-            { label: "A", text: "" },
-            { label: "B", text: "" },
-            { label: "C", text: "" },
-            { label: "D", text: "" },
-          ];
-      const correctLabel = q.correctOption || "A";
-
-      // Düzgün cavabın mətnini tap
-      const correctText = rawOptions.find((o: any) => o.label === correctLabel)?.text || rawOptions[0]?.text || "";
-
-      // Fisher-Yates shuffle — variantları qarışdır
-      const shuffled = [...rawOptions];
-      for (let i = shuffled.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-      }
-
-      // Yeni label-lar təyin et və düzgün cavabın yeni yerini tap
-      let newCorrectLabel = "A";
-      const newOptions = shuffled.map((o: any, idx: number) => {
-        const label = LABELS[idx] || String.fromCharCode(65 + idx);
-        if (o.text === correctText) newCorrectLabel = label;
-        return { label, text: o.text };
-      });
-
-      return {
-        text: q.text || "",
-        imageUrl: "",
-        questionType: "CHOICE",
-        openAnswerExample: "",
-        options: newOptions,
-        correctOption: newCorrectLabel,
-        points: 1,
-      };
-    });
-
-    // Səhv cavablanmış sualları da shuffle et (variantların yerini qarışdır)
-    const normalizedWrong = wrongAnsweredQuestions.map((q: any) => {
-      const rawOptions = Array.isArray(q.options)
-        ? q.options.map((o: any) => ({ label: o.label || "A", text: o.text || "" }))
-        : [
-            { label: "A", text: "" },
-            { label: "B", text: "" },
-            { label: "C", text: "" },
-            { label: "D", text: "" },
-          ];
-      const correctLabel = q.correctOption || "A";
-      const correctText = rawOptions.find((o: any) => o.label === correctLabel)?.text || rawOptions[0]?.text || "";
-
-      const shuffled = [...rawOptions];
-      for (let i = shuffled.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-      }
-
-      let newCorrectLabel = "A";
-      const newOptions = shuffled.map((o: any, idx: number) => {
-        const label = LABELS[idx] || String.fromCharCode(65 + idx);
-        if (o.text === correctText) newCorrectLabel = label;
-        return { label, text: o.text };
-      });
-
-      return {
-        text: q.text || "",
-        imageUrl: q.imageUrl || "",
-        questionType: q.questionType || "CHOICE",
-        openAnswerExample: q.openAnswerExample || "",
-        options: newOptions,
-        correctOption: newCorrectLabel,
-        points: q.points ?? 1,
-        isReview: true, // Bu sualın "təkrar" sual olduğunu bildirmək üçün
-      };
-    });
+    const normalized = rawQuestions.slice(0, targetCount).map((q) => normalizeQuestion(q, false));
+    const normalizedWrong = wrongAnsweredQuestions.map((q) => normalizeQuestion(q, true));
 
     return NextResponse.json({
       questions: normalized,
-      reviewQuestions: normalizedWrong, // Səhv cavablanmış suallar — frontend bunları əlavə edəcək
+      reviewQuestions: normalizedWrong,
     });
   } catch (err: any) {
     console.error("AI generate-quiz error:", err?.message ?? err);
