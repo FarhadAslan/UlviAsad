@@ -8,33 +8,36 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 // ─── Model konfiqurasiyası ────────────────────────────────────────────────────
+// GROQ PULSUZ PLAN LİMİTLƏRİ (2026):
+// llama-3.1-8b-instant : 30 RPM, 6,000 TPM (← 131K deyil, 6K!)
+// llama-3.3-70b-versatile: 30 RPM, 6,000 TPM
+//
+// OPENROUTER PULSUZ PLAN:
+// meta-llama/llama-3.1-8b-instruct:free: daha liberal limitlər
+// Bunları ÖN CƏRGƏYƏ qoyuruq!
+
 interface ModelConfig {
   id: string;
   provider: "groq" | "openrouter";
   jsonMode: boolean;
-  maxTokens: number; // Hər model üçün ayrıca token limiti
+  maxTokens: number;
+  delayAfterMs: number; // Bu modeldən sonra gözləmə (rate limit üçün)
 }
 
-// Groq model limitləri (https://console.groq.com/settings/limits):
-// llama-3.1-8b-instant : 30 RPM, 131,072 TPM  ← Ən yaxşı seçim
-// llama-3.3-70b-versatile: 30 RPM, 6,000 TPM  ← Çox aşağı, max_tokens kiçik olmalı
-// llama-4-scout       : 30 RPM, 8,000 TPM
-const GROQ_MODELS: ModelConfig[] = [
-  { id: "llama-3.1-8b-instant",  provider: "groq", jsonMode: true,  maxTokens: 3000 },
-  { id: "llama-4-scout-17b-16e-instruct", provider: "groq", jsonMode: false, maxTokens: 3000 },
-  { id: "llama-3.3-70b-versatile", provider: "groq", jsonMode: true, maxTokens: 2000 },
+// OpenRouter ÖNCƏ, Groq sonra — çünki OR-un TPM limiti daha liberal
+const ALL_MODELS: ModelConfig[] = [
+  // OpenRouter — pulsuz, daha liberal limitlər
+  { id: "meta-llama/llama-3.1-8b-instruct:free",  provider: "openrouter", jsonMode: false, maxTokens: 2000, delayAfterMs: 500  },
+  { id: "meta-llama/llama-3.3-70b-instruct:free", provider: "openrouter", jsonMode: false, maxTokens: 2000, delayAfterMs: 500  },
+  { id: "mistralai/mistral-7b-instruct:free",     provider: "openrouter", jsonMode: false, maxTokens: 2000, delayAfterMs: 500  },
+  // Groq — 6K TPM limiti var, ehtiyatlı istifadə
+  { id: "llama-3.1-8b-instant",                   provider: "groq",       jsonMode: true,  maxTokens: 1500, delayAfterMs: 1000 },
+  { id: "llama-3.3-70b-versatile",               provider: "groq",       jsonMode: true,  maxTokens: 1500, delayAfterMs: 1000 },
 ];
 
-const OR_MODELS: ModelConfig[] = [
-  { id: "meta-llama/llama-3.1-8b-instruct:free",  provider: "openrouter", jsonMode: false, maxTokens: 3000 },
-  { id: "meta-llama/llama-3.3-70b-instruct:free", provider: "openrouter", jsonMode: false, maxTokens: 3000 },
-  { id: "mistralai/mistral-7b-instruct:free",     provider: "openrouter", jsonMode: false, maxTokens: 3000 },
-];
-
-// Hər token ≈ 4 Azərbaycan hərfi. 1 sual ≈ 250 token.
-// 10 sual üçün ≈ 2500 token lazımdır.
-// 3000 token = rahat margin, 6000 TPM olan modelə də sığır (1 sorğu = 3000 token < 6000 limit).
-const CHUNK_SIZE = 8; // 8 sual × 250 token ≈ 2000 token. Hər model üçün təhlükəsizdir.
+// CHUNK_SIZE: 5 sual per request
+// 5 sual × ~300 token = 1,500 token (Groq 6K TPM-ə sığır, OR üçün rahatdır)
+const CHUNK_SIZE = 5;
 
 // ─── JSON parser ──────────────────────────────────────────────────────────────
 function extractQuestions(raw: string): any[] | null {
@@ -71,7 +74,7 @@ function extractQuestions(raw: string): any[] | null {
     }
   } catch { /* next */ }
 
-  // 4. Regex xilasetmə: kəsilmiş JSON-dan tam sualları çıxar
+  // 4. Regex xilasetmə
   try {
     const matches = text.match(/\{\s*"text"\s*:\s*"[\s\S]+?"correctOption"\s*:\s*"[A-D]"\s*\}/g);
     if (matches) {
@@ -83,7 +86,7 @@ function extractQuestions(raw: string): any[] | null {
   return null;
 }
 
-// ─── Tək model sorğusu ────────────────────────────────────────────────────────
+// ─── Tək model sorğusu (Timeout + Retry-li) ──────────────────────────────────
 async function callModel(
   cfg: ModelConfig,
   groqKey: string | undefined,
@@ -92,7 +95,7 @@ async function callModel(
   userPrompt: string,
 ): Promise<{ questions: any[] | null; error?: string }> {
   const apiKey = cfg.provider === "groq" ? groqKey : orKey;
-  if (!apiKey) return { questions: null, error: "API açarı yoxdur" };
+  if (!apiKey) return { questions: null, error: `${cfg.provider} API açarı yoxdur` };
 
   const endpoint =
     cfg.provider === "groq"
@@ -110,90 +113,114 @@ async function callModel(
       { role: "system", content: systemPrompt },
       { role: "user",   content: userPrompt   },
     ],
-    temperature: 0.7,
+    temperature: 0.8,
     max_tokens: cfg.maxTokens,
   };
   if (cfg.jsonMode) body.response_format = { type: "json_object" };
 
-  try {
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-        ...extraHeaders,
-      },
-      body: JSON.stringify(body),
-    });
+  let attempt = 0;
+  const maxAttempts = 3;
 
-    if (res.status === 429) {
-      const errData = await res.json().catch(() => ({}));
-      const msg = errData?.error?.message || "Rate limit";
-      console.warn(`[${cfg.id}] 429 rate limit: ${msg}`);
-      return { questions: null, error: `[${cfg.id}] Rate limit: ${msg}` };
+  while (attempt < maxAttempts) {
+    const controller = new AbortController();
+    // Groq üçün 4s, OpenRouter üçün 6s timeout (asılı qalmaması üçün)
+    const timeoutMs = cfg.provider === "groq" ? 4000 : 6000;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+          ...extraHeaders,
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      // 429 Rate Limit idarə edilməsi (Self-Healing)
+      if (res.status === 429) {
+        const retryAfter = res.headers.get("retry-after");
+        const waitMs = retryAfter ? parseFloat(retryAfter) * 1000 : (attempt + 1) * 2000;
+        console.warn(`[${cfg.id}] 429 Rate Limit. Attempt ${attempt + 1}/${maxAttempts}. Gözlənilir: ${waitMs}ms...`);
+        await new Promise(r => setTimeout(r, Math.min(waitMs, 8000)));
+        attempt++;
+        continue;
+      }
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        const msg = errData?.error?.message || `HTTP ${res.status}`;
+        console.warn(`[${cfg.id}] Xəta: ${msg}`);
+        return { questions: null, error: msg };
+      }
+
+      const data = await res.json().catch(() => null);
+      const content = data?.choices?.[0]?.message?.content;
+      if (!content) return { questions: null, error: "boş cavab" };
+
+      const questions = extractQuestions(content);
+      if (!questions || questions.length === 0) {
+        console.warn(`[${cfg.id}] Parse uğursuz. Cavab:`, content.slice(0, 150));
+        return { questions: null, error: "json_parse_failed" };
+      }
+
+      console.log(`[${cfg.id}] ✓ ${questions.length} sual`);
+      return { questions };
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      const isTimeout = err?.name === "AbortError";
+      console.warn(`[${cfg.id}] Cəhd ${attempt + 1}/${maxAttempts} uğursuz: ${isTimeout ? "Timeout" : err?.message}`);
+      
+      if (isTimeout || err?.message?.includes("fetch")) {
+        await new Promise(r => setTimeout(r, 1500));
+        attempt++;
+        continue;
+      }
+      return { questions: null, error: err?.message };
     }
-
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      const msg = errData?.error?.message || `HTTP ${res.status}`;
-      console.warn(`[${cfg.id}] Xəta: ${msg}`);
-      return { questions: null, error: `[${cfg.id}] ${msg}` };
-    }
-
-    const data = await res.json().catch(() => null);
-    const content = data?.choices?.[0]?.message?.content;
-    if (!content) return { questions: null, error: `[${cfg.id}] Boş cavab` };
-
-    const questions = extractQuestions(content);
-    if (!questions || questions.length === 0) {
-      console.warn(`[${cfg.id}] JSON parse uğursuz. İlk 200 char:`, content.slice(0, 200));
-      return { questions: null, error: `[${cfg.id}] JSON parse uğursuz` };
-    }
-
-    console.log(`[${cfg.id}] ✓ ${questions.length} sual əldə edildi`);
-    return { questions };
-  } catch (err: any) {
-    console.warn(`[${cfg.id}] Şəbəkə xətası: ${err?.message}`);
-    return { questions: null, error: `[${cfg.id}] ${err?.message}` };
   }
+
+  return { questions: null, error: `[${cfg.id}] 3 cəhdin hamısı uğursuz oldu` };
 }
 
-// ─── Bir chunk üçün sorğu (bütün modelləri sıra ilə denəyir) ─────────────────
+// ─── Bir chunk üçün sorğu ─────────────────────────────────────────────────────
+// Bütün modelləri sıra ilə denəyir, birinci uğurlu olanı qaytarır
 async function fetchChunk(
-  count: number,
   systemPrompt: string,
   userPrompt: string,
   groqKey: string | undefined,
   orKey: string | undefined,
 ): Promise<{ questions: any[]; error?: string }> {
-  const allModels: ModelConfig[] = [
-    ...(groqKey ? GROQ_MODELS : []),
-    ...(orKey   ? OR_MODELS   : []),
-  ];
+  const availableModels = ALL_MODELS.filter(m =>
+    m.provider === "groq" ? !!groqKey : !!orKey
+  );
 
-  if (allModels.length === 0) return { questions: [], error: "Heç bir API açarı yoxdur" };
+  if (availableModels.length === 0) return { questions: [], error: "Heç bir API açarı yoxdur" };
 
   let lastError = "";
 
-  for (const model of allModels) {
+  for (const model of availableModels) {
     const result = await callModel(model, groqKey, orKey, systemPrompt, userPrompt);
-    
+
     if (result.questions && result.questions.length > 0) {
+      // Model uğurlu oldu — məcburi gözləmə (bu modeli qorumaq üçün)
+      if (model.delayAfterMs > 0) {
+        await new Promise(r => setTimeout(r, model.delayAfterMs));
+      }
       return { questions: result.questions };
     }
-    
+
     if (result.error) lastError = result.error;
-    
-    // Növbəti modelə keçməzdən əvvəl qısa gözləmə (rate limit-ə görə)
-    await new Promise(r => setTimeout(r, 500));
   }
 
   return { questions: [], error: lastError };
 }
 
-// ─── Ardıcıl (Sequential) sual generasiyası ──────────────────────────────────
-// Bütün chunk-lar bir-birinin ardınca (paralel deyil) göndərilir.
-// Bu, API rate limit problemini tamamilə aradan qaldırır.
+// ─── Ardıcıl sual generasiyası ────────────────────────────────────────────────
 async function generateSequential(
   totalCount: number,
   systemPrompt: string,
@@ -206,54 +233,53 @@ async function generateSequential(
   let lastError = "";
   let consecutiveEmpty = 0;
 
-  // Maksimum neçə dəfə cəhd edilə bilər (tələb olunanın 2 qatı qədər chunk, boş dövrələrin qarşısını almaq üçün)
-  const maxChunks = Math.ceil(totalCount / CHUNK_SIZE) * 2;
+  // Maksimum chunk sayı: lazım olanın 3 qatı (dedup-dan itkiyə görə ehtiyat)
+  const maxChunks = Math.ceil(totalCount / CHUNK_SIZE) * 3;
 
   for (let chunkIdx = 0; chunkIdx < maxChunks && allQuestions.length < totalCount; chunkIdx++) {
     const remaining = totalCount - allQuestions.length;
     const chunkCount = Math.min(remaining, CHUNK_SIZE);
 
-    // İndiyədək yığılmış sualları (qısa formatda, max 10 ədəd) verək ki model boğulmasın
+    // Son 8 sualı ötür ki model təkrarlamasın (çox uzun list modeli çaşdırır)
     const alreadyCollected = allQuestions
-      .slice(-10)
-      .map((q: any) => q.text?.slice(0, 50) + "...")
+      .slice(-8)
+      .map((q: any) => `- ${q.text?.slice(0, 60)}`)
       .filter(Boolean);
 
     const userPrompt = buildPrompt(chunkCount, chunkIdx, alreadyCollected);
 
-    console.log(`[sequential] Chunk ${chunkIdx + 1}/${maxChunks}: ${chunkCount} sual istənilir (cəmi ${allQuestions.length}/${totalCount})...`);
+    console.log(`[chunk ${chunkIdx + 1}/${maxChunks}] ${chunkCount} sual istəyirəm (var: ${allQuestions.length}/${totalCount})`);
 
-    const result = await fetchChunk(chunkCount, systemPrompt, userPrompt, groqKey, orKey);
-    
+    const result = await fetchChunk(systemPrompt, userPrompt, groqKey, orKey);
     if (result.error) lastError = result.error;
 
-    let addedThisChunk = 0;
+    let added = 0;
     for (const q of result.questions) {
       if (allQuestions.length >= totalCount) break;
       const key = q.text?.trim().toLowerCase();
-      if (key && !seenTexts.has(key) && key.length > 5) {
+      if (key && key.length > 5 && !seenTexts.has(key)) {
         seenTexts.add(key);
         allQuestions.push(q);
-        addedThisChunk++;
+        added++;
       }
     }
 
-    console.log(`[sequential] Chunk ${chunkIdx + 1}: ${addedThisChunk} unikal sual əlavə edildi. Cəmi: ${allQuestions.length}/${totalCount}`);
+    console.log(`[chunk ${chunkIdx + 1}] +${added} sual əlavə edildi. Cəmi: ${allQuestions.length}/${totalCount}`);
 
-    if (addedThisChunk === 0) {
+    if (added === 0) {
       consecutiveEmpty++;
-      console.warn(`[sequential] Chunk ${chunkIdx + 1} sıfır unikal sual verdi. (Ard-arda: ${consecutiveEmpty})`);
-      if (consecutiveEmpty >= 2) {
-        console.warn(`[sequential] 2 ard-arda boş chunk gəldi. Dayanıram.`);
+      console.warn(`[chunk ${chunkIdx + 1}] Boş nəticə (ard-arda: ${consecutiveEmpty})`);
+      if (consecutiveEmpty >= 4) {
+        console.warn("4 ard-arda boş chunk. Dayanıram.");
         break;
       }
-      // Boş chunk olanda bir az daha çox gözləyək
-      await new Promise(r => setTimeout(r, 2000));
+      // Boş chunk-dan sonra 3 saniyə gözlə (rate limit-ə görə)
+      await new Promise(r => setTimeout(r, 3000));
     } else {
       consecutiveEmpty = 0;
-      // Normal chunk-lar arasında 1 saniyə fasilə
+      // Uğurlu chunk-dan sonra 1.5 saniyə gözlə
       if (allQuestions.length < totalCount) {
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, 1500));
       }
     }
   }
@@ -309,7 +335,7 @@ async function loadBotHistory(userId: string, botId: string) {
     const quizRows = await prisma.$queryRaw<{ quiz_id: string }[]>`
       SELECT id as quiz_id FROM "Quiz"
       WHERE "createdById" = ${userId} AND "sourceBotId" = ${botId}
-      ORDER BY "createdAt" DESC LIMIT 20
+      ORDER BY "createdAt" DESC LIMIT 10
     `;
 
     if (quizRows.length === 0) return { previousQuestionsSummary, wrongAnsweredQuestions };
@@ -387,10 +413,11 @@ async function loadBotHistory(userId: string, botId: string) {
       }
     }
 
+    // Yalnız ən son 5 sualı avoid üçün saxlayırıq (çox uzun list modeli çaşdırır)
     if (allPrevTexts.length > 0) {
       previousQuestionsSummary = allPrevTexts
-        .slice(0, 60)
-        .map((t, i) => `${i + 1}. ${t.slice(0, 100)}`)
+        .slice(-5)
+        .map((t) => `- ${t.slice(0, 80)}`)
         .join("\n");
     }
   } catch (err: any) {
@@ -422,7 +449,6 @@ export async function POST(req: NextRequest) {
       category,
       language = "az",
       botId,
-      avoidTexts = [],
     } = body;
 
     if (!title?.trim()) {
@@ -432,11 +458,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Sual sayı 1-50 arasında olmalıdır" }, { status: 400 });
     }
 
-    // ── Bot məlumatları ──
-    let systemPrompt = `Sən quiz sualları yaradan AI assistentsən. YALNIZ JSON formatında cavab ver. Başqa heç nə yazma.
-
-FORMAT (dəqiq belə):
-{"questions":[{"text":"Sual?","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"}]}`;
+    // ── Sistem promptu ──
+    const systemPrompt = `Sen quiz sualları yaradan AI-sən. YALNIZ JSON formatında cavab ver, başqa heç nə yazma.
+JSON formatı:
+{"questions":[{"text":"Sual?","options":[{"label":"A","text":"cavab"},{"label":"B","text":"cavab"},{"label":"C","text":"cavab"},{"label":"D","text":"cavab"}],"correctOption":"A"}]}`;
 
     let botContent = "";
     let previousQuestionsSummary = "";
@@ -452,11 +477,6 @@ FORMAT (dəqiq belə):
         return NextResponse.json({ error: "Seçilmiş AI bot tapılmadı" }, { status: 404 });
       }
 
-      systemPrompt = `${bot.prompt}
-
-VACIB: Yalnız JSON formatında cavab ver:
-{"questions":[{"text":"Sual?","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"}]}`;
-
       botContent = bot.content || "";
 
       const userId = (session?.user as any)?.id;
@@ -470,50 +490,29 @@ VACIB: Yalnız JSON formatında cavab ver:
     // ── Prompt builder ──
     const langLabel     = language === "az" ? "Azərbaycan dilində" : language === "ru" ? "Rus dilində" : "İngilis dilində";
     const categoryLabel = category || "ümumi bilik";
-    // Bot content-i qıs saxla — token limitinə düşməmək üçün
-    const contextPart   = botContent ? `\n\nMövzu konteksti:\n${botContent.slice(0, 1500)}\n` : "";
-
-    // 40+ sualı prompta vermək modeli (özəlliklə 8B) çaşdırır və heç nə yaratmamasına səbəb olur.
-    // Buna görə yalnız ən son 5 sualı (və limitli sayda) avoid siyahısına salırıq.
-    const allAvoidTexts = [
-      ...avoidTexts.slice(0, 5),
-      ...(previousQuestionsSummary ? previousQuestionsSummary.split("\n").slice(0, 5) : []),
-    ].filter(Boolean);
-
-    const avoidPart = allAvoidTexts.length > 0
-      ? `\n\nBU SUALLAR ARTIQ VAR — YARATMA:\n${allAvoidTexts.join("\n")}\n`
-      : "";
+    const contextPart   = botContent ? `\nKontekst: ${botContent.slice(0, 800)}\n` : "";
+    const historyAvoid  = previousQuestionsSummary ? `\nBunları yaratma (köhnə suallar):\n${previousQuestionsSummary}\n` : "";
 
     const aspectHints = [
-      "",
-      " Fərqli aspektlərə fokuslan.",
-      " Praktiki suallar yarat.",
-      " Tarixi/nəzəri suallar yarat.",
-      " Müqayisəli suallar yarat.",
-      " Tətbiqi suallar yarat.",
-      " Analitik suallar yarat.",
+      "", " (müxtəlif aspektlərə fokuslan)",
+      " (praktiki suallar)", " (tarixi/nəzəri suallar)",
+      " (müqayisəli suallar)", " (tətbiqi suallar)",
+      " (analitik suallar)", " (başqa açıdan yanaş)",
+      " (daha dərin suallar)", " (gündəlik həyatla bağlı)",
     ];
 
     const buildPrompt = (count: number, chunkIdx: number, alreadyCollected: string[]): string => {
       const hint = aspectHints[chunkIdx % aspectHints.length] || "";
-      const dynamicAvoid = alreadyCollected.length > 0 
-        ? `\n\nBU SUALLAR BU SESSİYADA YARADILIB, BUNLARI QƏTİYYƏN TƏKRARLAMA:\n${alreadyCollected.join("\n")}\n` 
+      const avoidSection = alreadyCollected.length > 0
+        ? `\nBu sualları TƏKRARLAMA:\n${alreadyCollected.join("\n")}\n`
         : "";
-      return `${langLabel} "${title}" mövzusu üzrə DƏQIQ ${count} sual yarat. Kateqoriya: ${categoryLabel}.${hint}${contextPart}${avoidPart}${dynamicAvoid}
-
-Tələblər:
-- Hər sualın A, B, C, D variantları olsun
-- Yalnız 1 düzgün cavab
-- Yanlış variantlar düzgün cavaba oxşar olsun
-${botId ? "- Yalnız verilmiş kontekstdən istifadə et" : ""}
-
-JSON (${count} sual):
-{"questions":[{"text":"...","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"}]}`;
+      return `${langLabel} "${title}" mövzusu${hint}. Kateqoriya: ${categoryLabel}.${contextPart}${historyAvoid}${avoidSection}
+DƏQIQ ${count} sual yarat (A,B,C,D variantları, 1 düzgün cavab).
+JSON:`;
     };
 
-    // ─── Ardıcıl generasiya ──
-    console.log(`[generate-quiz] ${questionCount} sual üçün ardıcıl generasiya başlayır...`);
-    
+    console.log(`[generate-quiz] Başlayır: ${questionCount} sual, botId=${botId || "yox"}`);
+
     const resultData = await generateSequential(
       questionCount,
       systemPrompt,
@@ -534,7 +533,7 @@ JSON (${count} sual):
     const normalized      = rawQuestions.map((q) => normalizeQuestion(q, false));
     const normalizedWrong = wrongAnsweredQuestions.map((q) => normalizeQuestion(q, true));
 
-    console.log(`[generate-quiz] ✓ ${normalized.length}/${questionCount} sual yaradıldı.`);
+    console.log(`[generate-quiz] ✓ Tamamlandı: ${normalized.length}/${questionCount} sual.`);
 
     return NextResponse.json({
       questions:       normalized,
