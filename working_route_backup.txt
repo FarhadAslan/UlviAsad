@@ -202,7 +202,7 @@ async function fetchUntilFull(opts: {
   botId: string | undefined;
   groqKey: string | undefined;
   orKey: string | undefined;
-  buildPrompt: (chunk: string, ci: number, count: number, extraAvoid?: string) => string;
+  buildPrompt: (chunk: string, ci: number, count: number) => string;
   maxAttempts?: number;
 }): Promise<any[]> {
   const { needed, maxAttempts = 8 } = opts;
@@ -213,14 +213,7 @@ async function fetchUntilFull(opts: {
     const stillNeed = needed - collected.length;
     // Modelin az qaytarma ehtimalına qarşı 30% artıq istə (min 2 əlavə), üst limit yoxdur
     const askFor = stillNeed + Math.max(2, Math.ceil(stillNeed * 0.3));
-    
-    let extraAvoid = "";
-    if (collected.length > 0) {
-      extraAvoid = `DİQQƏT: AŞAĞIDAKİ SUALLARI ARTIQ YARATMISAN, ONLARI TƏKRARLAMA:\n` + 
-        collected.map((q, i) => `${i+1}. ${q.text}`).join("\n");
-    }
-    
-    const userPrompt = opts.buildPrompt(opts.chunk, opts.chunkIndex, askFor, extraAvoid);
+    const userPrompt = opts.buildPrompt(opts.chunk, opts.chunkIndex, askFor);
 
     let questions: any[] | null = null;
 
@@ -271,9 +264,8 @@ export async function POST(req: NextRequest) {
     const orKey   = process.env.OPENROUTER_API_KEY;
 
     if (!groqKey && !orKey) {
-      const keys = Object.keys(process.env).filter(k => k.includes("GROQ") || k.includes("OPENROUTER") || k.includes("API")).join(",");
       return NextResponse.json(
-        { error: `AI API açarı tapılmadı! Mühit (Env): GROQ=${!!groqKey}, OR=${!!orKey}. Mövcud uyğun key-lər: ${keys}` },
+        { error: "AI API açarı konfiqurasiya edilməyib." },
         { status: 503 }
       );
     }
@@ -417,13 +409,11 @@ Cavabı MÜTLƏQ aşağıdakı JSON formatında ver — başqa heç nə yazma:
         // Səhv cavablanmış sualları topla (heç vaxt düzgün cavablanmamış)
         // Bunları birbaşa yeni quizə əlavə edəcəyik
         const wrongTextSet = new Set<string>();
-        for (const [text, correct] of Array.from(questionStatusMap.entries())) {
+        for (const [text, correct] of questionStatusMap.entries()) {
           if (!correct) wrongTextSet.add(text);
         }
 
-        const ENABLE_REVIEW_QUESTIONS = true; // Səhv cavablanmış sualların təkrarı aktivləşdirildi
-
-        if (ENABLE_REVIEW_QUESTIONS && wrongTextSet.size > 0) {
+        if (wrongTextSet.size > 0) {
           // Bütün əvvəlki quizlərdən həmin sualların tam məlumatını tap
           // (options, correctOption saxlamaq üçün)
           // Maksimum 10 səhv sual əlavə et — quiz çox böyüməsin
@@ -456,10 +446,10 @@ Cavabı MÜTLƏQ aşağıdakı JSON formatında ver — başqa heç nə yazma:
         }
 
         if (allPrevTexts.length > 0) {
-          // Maks 15 sual xülasəsi göndər (çox uzun list modeli çaşdırır — "AI paralysis")
-          const limited = allPrevTexts.slice(0, 15);
+          // Maks 80 sual xülasəsi göndər (token limitinə görə)
+          const limited = allPrevTexts.slice(0, 80);
           previousQuestionsSummary = limited
-            .map((t, i) => `${i + 1}. ${t.slice(0, 80)}`)
+            .map((t, i) => `${i + 1}. ${t.slice(0, 120)}`)
             .join("\n");
         }
       }
@@ -509,17 +499,13 @@ MÜTLƏQ bu JSON formatında cavab ver — başqa heç nə yazma:
     const baseCount  = Math.floor(questionCount / chunkCount);
     const remainder  = questionCount % chunkCount;
 
-    const buildUserPrompt = (chunk: string, ci: number, count: number, extraAvoid: string = "") => {
+    const buildUserPrompt = (chunk: string, ci: number, count: number) => {
       const contextPart = chunk
         ? `\n\nBilik bazası (${ci + 1}/${chunkCount} hissə):\n---\n${chunk}\n---\n`
         : "";
 
-      let avoidText = "";
-      if (previousQuestionsSummary) avoidText += previousQuestionsSummary + "\n";
-      if (extraAvoid) avoidText += extraAvoid + "\n";
-
-      const avoidPart = avoidText.trim()
-        ? `\n\nAŞAĞIDAKI SUALLAR ARTIQ YARADILIB VƏ YA BU SESSİYADA YAZILIB — BUNLARA OXŞAR SUALLAR YARATMA, TAMAMILƏ YENİ SUALLAR YAZ:\n---\n${avoidText.trim()}\n---\n`
+      const avoidPart = previousQuestionsSummary
+        ? `\n\nAŞAĞIDAKI SUALLAR ARTIQ YARADILIB — BUNLARI VƏ BUNLARA OXŞAR SUALLAR YARATMA, TAMAMILƏ YENİ SUALLAR YAZ:\n---\n${previousQuestionsSummary}\n---\n`
         : "";
 
       return `${langLabel} "${title}" mövzusu üzrə DƏQIQ ${count} ədəd test sualı yarat. Nə az, nə çox — məhz ${count} sual.
@@ -554,7 +540,7 @@ Cavabı YALNIZ JSON formatında ver, ${count} sual ilə:
       }
 
       const batchResults = await Promise.all(
-        batches.map((count, index) =>
+        batches.map((count) =>
           fetchUntilFull({
             needed: count,
             chunk,
@@ -567,10 +553,7 @@ Cavabı YALNIZ JSON formatında ver, ${count} sual ilə:
             botId: botId || undefined,
             groqKey,
             orKey,
-            buildPrompt: (c, ci, countAsk, extra) => {
-              const batchHint = index > 0 ? `\nDiqqət: Bu ${index + 1}-ci hissədir. Mövzunun fərqli və unikal tərəflərinə fokuslanın.` : "";
-              return buildUserPrompt(c, ci, countAsk, (extra || "") + batchHint);
-            },
+            buildPrompt: buildUserPrompt,
           })
         )
       );
@@ -636,19 +619,8 @@ Cavabı YALNIZ JSON formatında ver, ${count} sual ilə:
       );
     }
 
-    // Duplikatları təmizlə
-    const deduplicatedQuestions: any[] = [];
-    const seenTexts = new Set<string>();
-    for (const q of allQuestions) {
-      const txt = q.text?.trim().toLowerCase();
-      if (txt && !seenTexts.has(txt)) {
-        deduplicatedQuestions.push(q);
-        seenTexts.add(txt);
-      }
-    }
-
     // İstənən saydan çox gəlibsə kəs, az gəlibsə hamısını qaytar
-    const finalQuestions = deduplicatedQuestions.slice(0, questionCount);
+    const finalQuestions = allQuestions.slice(0, questionCount);
 
     const LABELS = ["A", "B", "C", "D"];
 
