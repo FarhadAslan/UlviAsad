@@ -12,16 +12,20 @@ interface Worker {
   id: string;
   provider: "groq" | "openrouter";
   jsonMode: boolean;
+  maxTokens: number; // TPM limitinə görə
 }
 
 const ALL_WORKERS: Worker[] = [
-  { id: "llama-3.3-70b-versatile",                provider: "groq",       jsonMode: true  },
-  { id: "llama-3.1-8b-instant",                   provider: "groq",       jsonMode: false },
-  { id: "meta-llama/llama-3.3-70b-instruct:free", provider: "openrouter", jsonMode: false },
-  { id: "openai/gpt-oss-120b:free",               provider: "openrouter", jsonMode: false },
-  { id: "openai/gpt-oss-20b:free",                provider: "openrouter", jsonMode: false },
-  { id: "qwen/qwen3-coder:free",                  provider: "openrouter", jsonMode: false },
-  { id: "z-ai/glm-4.5-air:free",                  provider: "openrouter", jsonMode: false },
+  // llama-3.3-70b: TPM=12000 → prompt ~1500t, cavab max 8000t
+  { id: "llama-3.3-70b-versatile",                provider: "groq",       jsonMode: true,  maxTokens: 8000 },
+  // llama-3.1-8b: TPM=6000 → prompt ~1500t, cavab max 4000t
+  { id: "llama-3.1-8b-instant",                   provider: "groq",       jsonMode: false, maxTokens: 4000 },
+  // OpenRouter — pulsuz modellər, limit yoxdur
+  { id: "meta-llama/llama-3.3-70b-instruct:free", provider: "openrouter", jsonMode: false, maxTokens: 8000 },
+  { id: "openai/gpt-oss-120b:free",               provider: "openrouter", jsonMode: false, maxTokens: 8000 },
+  { id: "openai/gpt-oss-20b:free",                provider: "openrouter", jsonMode: false, maxTokens: 8000 },
+  { id: "qwen/qwen3-coder:free",                  provider: "openrouter", jsonMode: false, maxTokens: 8000 },
+  { id: "z-ai/glm-4.5-air:free",                  provider: "openrouter", jsonMode: false, maxTokens: 8000 },
 ];
 
 // ─── JSON parser ──────────────────────────────────────────────────────────────
@@ -88,7 +92,7 @@ async function callWorker(
       { role: "user",   content: user   },
     ],
     temperature: 0.7,
-    max_tokens: 12000,
+    max_tokens: w.maxTokens,
   };
   if (w.jsonMode) body.response_format = { type: "json_object" };
 
@@ -144,35 +148,39 @@ async function generateQuestions(
   };
 
   if (totalNeeded > 25) {
-    // 2 ardıcıl sorğu — hər biri yarısını alır
+    // 2 ardıcıl sorğu — hər ikisi llama-3.3-70b ilə (TPM=12000)
+    // llama-3.1-8b istifadə etmirik — onun TPM=6000, 25 sual üçün az gəlir
+    const groqBig = allModels.find(w => w.id === "llama-3.3-70b-versatile") || allModels[0];
     const half1 = Math.ceil(totalNeeded / 2);
     const half2 = totalNeeded - half1;
 
-    console.log(`[gen] sorğu 1: ${half1} sual, model=${allModels[0].id}`);
-    const qs1 = await callWorker(allModels[0], groqKey, orKey, system, buildPrompt(half1 + 2, 0, 0));
+    console.log(`[gen] sorğu 1: ${half1} sual, model=${groqBig.id}`);
+    const qs1 = await callWorker(groqBig, groqKey, orKey, system, buildPrompt(half1, 0, 0));
     if (qs1) addAll(qs1);
     console.log(`[gen] sorğu 1 nəticə: ${collected.length}`);
 
-    await new Promise(r => setTimeout(r, 600));
+    // 1 saniyə gözlə — TPM sayğacı sıfırlanır
+    await new Promise(r => setTimeout(r, 1000));
 
-    const model2 = allModels[1] || allModels[0];
-    console.log(`[gen] sorğu 2: ${half2} sual, model=${model2.id}`);
-    const qs2 = await callWorker(model2, groqKey, orKey, system, buildPrompt(half2 + 2, 1, 0));
+    console.log(`[gen] sorğu 2: ${half2} sual, model=${groqBig.id}`);
+    const qs2 = await callWorker(groqBig, groqKey, orKey, system, buildPrompt(half2, 1, 0));
     if (qs2) addAll(qs2);
     console.log(`[gen] sorğu 2 nəticə: ${collected.length}/${totalNeeded}`);
 
-    // Hələ çatmırsa — əlavə sorğu
+    // Hələ çatmırsa — OpenRouter ilə tamamla
     if (collected.length < totalNeeded) {
       const deficit = totalNeeded - collected.length;
-      await new Promise(r => setTimeout(r, 600));
-      console.log(`[gen] əlavə sorğu: ${deficit} sual`);
-      const qs3 = await callWorker(allModels[0], groqKey, orKey, system, buildPrompt(deficit + 2, 0, 1));
-      if (qs3) addAll(qs3);
-      console.log(`[gen] final: ${collected.length}/${totalNeeded}`);
+      const orModel = allModels.find(w => w.provider === "openrouter");
+      if (orModel) {
+        console.log(`[gen] OR fallback: ${deficit} sual, model=${orModel.id}`);
+        const qs3 = await callWorker(orModel, groqKey, orKey, system, buildPrompt(deficit + 2, 0, 1));
+        if (qs3) addAll(qs3);
+      }
     }
+    console.log(`[gen] final: ${collected.length}/${totalNeeded}`);
 
   } else {
-    // Tək sorğu — modellər sırayla sınanır
+    // Tək sorğu — llama-3.3-70b əsas, uğursuz olsa digərləri sırayla
     for (let i = 0; i < allModels.length && collected.length < totalNeeded; i++) {
       const model = allModels[i];
       const askFor = totalNeeded - collected.length + 2;

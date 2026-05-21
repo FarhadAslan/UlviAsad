@@ -5,7 +5,7 @@ import { authOptions } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 export const maxDuration = 55;
 
-async function callGroq(apiKey: string, model: string, jsonMode: boolean, count: number) {
+async function callGroq(apiKey: string, model: string, jsonMode: boolean, count: number, maxTokens: number) {
   const body: any = {
     model,
     messages: [
@@ -13,7 +13,7 @@ async function callGroq(apiKey: string, model: string, jsonMode: boolean, count:
       { role: "user", content: `Azərbaycan dilində "Coğrafiya" mövzusu üzrə DƏQIQ ${count} ədəd test sualı yarat.\n\nCavabı YALNIZ JSON formatında ver, ${count} sual ilə:\n{"questions":[{"text":"Sual mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"}]}` },
     ],
     temperature: 0.7,
-    max_tokens: 12000,
+    max_tokens: maxTokens,
   };
   if (jsonMode) body.response_format = { type: "json_object" };
 
@@ -60,19 +60,18 @@ export async function GET() {
     const groqKey = process.env.GROQ_API_KEY;
     if (!groqKey) return NextResponse.json({ error: "GROQ_API_KEY yoxdur" });
 
-    // Test 1: 10 sual
-    const t10 = await callGroq(groqKey, "llama-3.3-70b-versatile", true, 10);
+    // Test 1: 10 sual — llama-3.3-70b, max_tokens=8000
+    const t10 = await callGroq(groqKey, "llama-3.3-70b-versatile", true, 10, 8000);
     
-    // 1 saniyə gözlə
     await new Promise(r => setTimeout(r, 1000));
     
-    // Test 2: 27 sual (50-nin yarısı)
-    const t27 = await callGroq(groqKey, "llama-3.3-70b-versatile", true, 27);
+    // Test 2: 27 sual — llama-3.3-70b, max_tokens=8000
+    const t27 = await callGroq(groqKey, "llama-3.3-70b-versatile", true, 27, 8000);
 
     await new Promise(r => setTimeout(r, 1000));
 
-    // Test 3: llama-3.1-8b ilə 25 sual
-    const t25b = await callGroq(groqKey, "llama-3.1-8b-instant", false, 25);
+    // Test 3: llama-3.1-8b ilə 10 sual, max_tokens=4000
+    const t25b = await callGroq(groqKey, "llama-3.1-8b-instant", false, 10, 4000);
 
     return NextResponse.json({
       test_10q: t10,
