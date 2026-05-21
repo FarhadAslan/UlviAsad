@@ -123,8 +123,12 @@ async function callWorker(
 }
 
 // ─── Sual generasiyası ────────────────────────────────────────────────────────
-// ≤25 sual: tək sorğu, modellər sırayla sınanır
-// >25 sual: 2 ardıcıl sorğu (rate limit üçün fasilə ilə)
+// Groq TPM limitləri (on_demand plan):
+//   llama-3.3-70b: 12,000 TPM — 10 sual ~3400 token → max 3 sorğu/dəq
+//   llama-3.1-8b:  6,000 TPM  — 10 sual ~2800 token → max 2 sorğu/dəq
+//
+// Strategiya: 10 sual × N sorğu, hər sorğu arasında 5s fasilə
+// 50 sual = 5 sorğu × 10 sual, ~25 saniyə
 async function generateQuestions(
   totalNeeded: number,
   system: string,
@@ -138,6 +142,11 @@ async function generateQuestions(
   );
   if (allModels.length === 0) return [];
 
+  // Əsas model: llama-3.3-70b (ən yaxşı keyfiyyət)
+  const primary = allModels.find(w => w.id === "llama-3.3-70b-versatile") || allModels[0];
+  // Fallback: OpenRouter (limit yoxdur)
+  const orFallback = allModels.find(w => w.provider === "openrouter");
+
   const collected: any[] = [];
   const seen = new Set<string>();
   const addAll = (qs: any[]) => {
@@ -147,52 +156,43 @@ async function generateQuestions(
     }
   };
 
-  if (totalNeeded > 25) {
-    // 2 ardıcıl sorğu — hər ikisi llama-3.3-70b ilə (TPM=12000)
-    // llama-3.1-8b istifadə etmirik — onun TPM=6000, 25 sual üçün az gəlir
-    const groqBig = allModels.find(w => w.id === "llama-3.3-70b-versatile") || allModels[0];
-    const half1 = Math.ceil(totalNeeded / 2);
-    const half2 = totalNeeded - half1;
+  // Hər sorğuda max 10 sual — TPM limitinə sığır (~3400 token)
+  const BATCH = 10;
+  let attempt = 0;
 
-    console.log(`[gen] sorğu 1: ${half1} sual, model=${groqBig.id}`);
-    const qs1 = await callWorker(groqBig, groqKey, orKey, system, buildPrompt(half1, 0, 0));
-    if (qs1) addAll(qs1);
-    console.log(`[gen] sorğu 1 nəticə: ${collected.length}`);
+  while (collected.length < totalNeeded) {
+    const stillNeed = totalNeeded - collected.length;
+    const askFor = Math.min(stillNeed + 1, BATCH);
 
-    // 1 saniyə gözlə — TPM sayğacı sıfırlanır
-    await new Promise(r => setTimeout(r, 1000));
+    console.log(`[gen] attempt=${attempt + 1}, asking=${askFor}, collected=${collected.length}/${totalNeeded}`);
 
-    console.log(`[gen] sorğu 2: ${half2} sual, model=${groqBig.id}`);
-    const qs2 = await callWorker(groqBig, groqKey, orKey, system, buildPrompt(half2, 1, 0));
-    if (qs2) addAll(qs2);
-    console.log(`[gen] sorğu 2 nəticə: ${collected.length}/${totalNeeded}`);
+    const qs = await callWorker(primary, groqKey, orKey, system, buildPrompt(askFor, attempt, attempt > 0 ? 1 : 0));
 
-    // Hələ çatmırsa — OpenRouter ilə tamamla
+    if (qs && qs.length > 0) {
+      addAll(qs);
+      console.log(`[gen] got ${qs.length}, total=${collected.length}/${totalNeeded}`);
+    } else {
+      console.warn(`[gen] primary failed, trying OR fallback`);
+      // Primary uğursuz oldu — OpenRouter ilə cəhd et
+      if (orFallback) {
+        const qs2 = await callWorker(orFallback, groqKey, orKey, system, buildPrompt(askFor, attempt, 1));
+        if (qs2 && qs2.length > 0) {
+          addAll(qs2);
+          console.log(`[gen] OR got ${qs2.length}, total=${collected.length}/${totalNeeded}`);
+        }
+      }
+    }
+
+    attempt++;
+
+    // Daha sual lazımdırsa — 5 saniyə gözlə (TPM sayğacı azalır)
     if (collected.length < totalNeeded) {
-      const deficit = totalNeeded - collected.length;
-      const orModel = allModels.find(w => w.provider === "openrouter");
-      if (orModel) {
-        console.log(`[gen] OR fallback: ${deficit} sual, model=${orModel.id}`);
-        const qs3 = await callWorker(orModel, groqKey, orKey, system, buildPrompt(deficit + 2, 0, 1));
-        if (qs3) addAll(qs3);
-      }
+      console.log(`[gen] waiting 5s for TPM reset...`);
+      await new Promise(r => setTimeout(r, 5000));
     }
-    console.log(`[gen] final: ${collected.length}/${totalNeeded}`);
 
-  } else {
-    // Tək sorğu — llama-3.3-70b əsas, uğursuz olsa digərləri sırayla
-    for (let i = 0; i < allModels.length && collected.length < totalNeeded; i++) {
-      const model = allModels[i];
-      const askFor = totalNeeded - collected.length + 2;
-      console.log(`[gen] model=${model.id}, asking=${askFor}`);
-      const qs = await callWorker(model, groqKey, orKey, system, buildPrompt(askFor, i, i > 0 ? 1 : 0));
-      if (qs && qs.length > 0) {
-        addAll(qs);
-        console.log(`[gen] got ${qs.length}, total=${collected.length}/${totalNeeded}`);
-      }
-      if (collected.length >= totalNeeded) break;
-      if (i < allModels.length - 1) await new Promise(r => setTimeout(r, 300));
-    }
+    // Sonsuz loop-dan qorun — max 8 cəhd
+    if (attempt >= 8) break;
   }
 
   return collected.slice(0, totalNeeded);
