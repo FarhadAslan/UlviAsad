@@ -170,33 +170,35 @@ async function generateParallel(
 
   if (allModels.length === 0) return [];
 
-  // 25-dən çox sual üçün 2 paralel sorğu göndər
-  // Hər sorğu ayrı model istifadə edir — rate limit problemi olmur
+  // 25-dən çox sual üçün ardıcıl 2 sorğu göndər
+  // Paralel deyil — rate limit problemi olmur
   if (totalNeeded > 25) {
     const half1 = Math.ceil(totalNeeded / 2);
     const half2 = totalNeeded - half1;
-    const model1 = allModels[0];
-    const model2 = allModels[1] || allModels[0];
+    const model1 = allModels[0]; // llama-3.3-70b
+    const model2 = allModels[1] || allModels[0]; // llama-3.1-8b
 
-    console.log(`[parallel-2] ${half1}+${half2} sual, model1=${model1.id}, model2=${model2.id}`);
+    console.log(`[seq-2] sorğu 1: ${half1} sual, model=${model1.id}`);
+    const qs1 = await callWorker(model1, groqKey, orKey, system, buildPrompt(half1 + 2, chunk, 0, 0));
+    if (qs1) addAll(qs1);
+    console.log(`[seq-2] sorğu 1 nəticə: ${collected.length}`);
 
-    const [r1, r2] = await Promise.allSettled([
-      callWorker(model1, groqKey, orKey, system, buildPrompt(half1 + 2, chunk, 0, 0)),
-      callWorker(model2, groqKey, orKey, system, buildPrompt(half2 + 2, chunk, 1, 0)),
-    ]);
+    // Qısa fasilə — rate limit üçün
+    await new Promise(r => setTimeout(r, 500));
 
-    if (r1.status === "fulfilled" && r1.value) addAll(r1.value);
-    if (r2.status === "fulfilled" && r2.value) addAll(r2.value);
+    console.log(`[seq-2] sorğu 2: ${half2} sual, model=${model2.id}`);
+    const qs2 = await callWorker(model2, groqKey, orKey, system, buildPrompt(half2 + 2, chunk, 1, 0));
+    if (qs2) addAll(qs2);
+    console.log(`[seq-2] sorğu 2 nəticə: ${collected.length}/${totalNeeded}`);
 
-    console.log(`[parallel-2] collected=${collected.length}/${totalNeeded}`);
-
-    // Hələ çatmırsa — Groq ilə əlavə sorğu
+    // Hələ çatmırsa — əlavə sorğu
     if (collected.length < totalNeeded) {
       const deficit = totalNeeded - collected.length;
-      console.log(`[parallel-2] deficit=${deficit}, retry with Groq`);
+      console.log(`[seq-2] deficit=${deficit}, əlavə sorğu`);
+      await new Promise(r => setTimeout(r, 500));
       const best = allModels.find(w => w.provider === "groq") || allModels[0];
-      const qs = await callWorker(best, groqKey, orKey, system, buildPrompt(deficit + 2, chunk, 0, 1));
-      if (qs) addAll(qs);
+      const qs3 = await callWorker(best, groqKey, orKey, system, buildPrompt(deficit + 2, chunk, 0, 1));
+      if (qs3) addAll(qs3);
     }
 
     return collected.slice(0, totalNeeded);
