@@ -141,6 +141,9 @@ function splitContent(content: string, parts: number): string[] {
 }
 
 // ─── Paralel generasiya ───────────────────────────────────────────────────────
+// Strategiya: Groq əsas worker, OpenRouter fallback.
+// Groq uğurlu olsa — tam sualları qaytarır.
+// Groq uğursuz olsa — OpenRouter modelləri sırayla sınanır.
 async function generateParallel(
   totalNeeded: number,
   system: string,
@@ -150,13 +153,7 @@ async function generateParallel(
   contentChunks: string[],
 ): Promise<any[]> {
 
-  // Mövcud worker-ləri filtrə et
-  const workers = ALL_WORKERS.filter(w =>
-    w.provider === "groq" ? !!groqKey : !!orKey
-  );
-
-  if (workers.length === 0) return [];
-
+  const chunk = contentChunks[0] || "";
   const collected: any[] = [];
   const seen = new Set<string>();
 
@@ -167,87 +164,41 @@ async function generateParallel(
     }
   };
 
-  // Sualları worker-lər arasında paylaşdır
-  // Hər worker öz maxPerCall limitinə görə pay alır
-  const makeAssignments = (needed: number, wList: Worker[]) => {
-    const total = wList.reduce((s, w) => s + w.maxPerCall, 0);
-    let remaining = needed;
-    return wList.map((w, i) => {
-      if (remaining <= 0) return { worker: w, count: 0, chunk: "" };
-      const share = i === wList.length - 1
-        ? remaining
-        : Math.min(Math.round((w.maxPerCall / total) * needed), w.maxPerCall, remaining);
-      remaining = Math.max(0, remaining - share);
-      const chunk = contentChunks[i % contentChunks.length] || "";
-      return { worker: w, count: share, chunk };
-    }).filter(a => a.count > 0);
-  };
-
-  // ── Dalğa 1: Bütün worker-lər paralel ──────────────────────────────────────
-  const assignments1 = makeAssignments(totalNeeded, workers);
-  console.log(`[wave1] ${assignments1.length} workers, total=${totalNeeded}`);
-
-  const results1 = await Promise.allSettled(
-    assignments1.map(({ worker, count, chunk }, idx) =>
-      callWorker(worker, groqKey, orKey, system, buildPrompt(count, chunk, idx, 0))
-    )
+  // Bütün mövcud modellər — Groq əvvəl, sonra OpenRouter
+  const allModels = ALL_WORKERS.filter(w =>
+    w.provider === "groq" ? !!groqKey : !!orKey
   );
 
-  const successWorkers: Worker[] = [];
-  for (let i = 0; i < results1.length; i++) {
-    const r = results1[i];
-    if (r.status === "fulfilled" && r.value && r.value.length > 0) {
-      addAll(r.value);
-      successWorkers.push(assignments1[i].worker);
-    }
-  }
+  if (allModels.length === 0) return [];
 
-  console.log(`[wave1] collected=${collected.length}/${totalNeeded}, success=${successWorkers.length}`);
+  // Hər model sırayla sınanır — biri uğurlu olsa davam edir
+  // Bütün sualları bir sorğuda istəyirik (bölmürük)
+  for (let attempt = 0; attempt < allModels.length && collected.length < totalNeeded; attempt++) {
+    const model = allModels[attempt];
+    const stillNeed = totalNeeded - collected.length;
+    const askFor = stillNeed + 2; // 2 ehtiyat
 
-  // ── Dalğa 2: Çatmırsa retry ─────────────────────────────────────────────────
-  if (collected.length < totalNeeded && successWorkers.length > 0) {
-    const deficit = totalNeeded - collected.length;
-    const avoidNote = collected.length > 0
-      ? `\n\nBU SUALLAR ARTIQ YARADILIB — BUNLARA OXŞAR YARATMA:\n${
-          collected.slice(0, 20).map(q => q.text?.slice(0, 60)).filter(Boolean).join("\n")
-        }\n`
-      : "";
+    console.log(`[attempt ${attempt + 1}] model=${model.id}, asking=${askFor}`);
 
-    const assignments2 = makeAssignments(deficit, successWorkers);
-    console.log(`[wave2] deficit=${deficit}, workers=${assignments2.length}`);
-
-    const results2 = await Promise.allSettled(
-      assignments2.map(({ worker, count, chunk }, idx) =>
-        callWorker(worker, groqKey, orKey, system,
-          buildPrompt(count, chunk, idx, 1) + avoidNote)
-      )
-    );
-
-    for (const r of results2) {
-      if (r.status === "fulfilled" && r.value) addAll(r.value);
-    }
-
-    console.log(`[wave2] collected=${collected.length}/${totalNeeded}`);
-  }
-
-  // ── Dalğa 3: Hələ çatmırsa — ən etibarlı worker ilə son cəhd ───────────────
-  if (collected.length < totalNeeded) {
-    const deficit = totalNeeded - collected.length;
-    // Groq-u üstün tut, yoxdursa ilk mövcud worker
-    const best = workers.find(w => w.provider === "groq") || workers[0];
-    const avoidNote = collected.length > 0
-      ? `\n\nBU SUALLAR ARTIQ YARADILIB — BUNLARA OXŞAR YARATMA:\n${
-          collected.slice(0, 30).map(q => q.text?.slice(0, 60)).filter(Boolean).join("\n")
-        }\n`
-      : "";
-
-    console.log(`[wave3] deficit=${deficit}, worker=${best.id}`);
     const qs = await callWorker(
-      best, groqKey, orKey, system,
-      buildPrompt(deficit + 2, contentChunks[0] || "", 0, 2) + avoidNote
+      model, groqKey, orKey, system,
+      buildPrompt(askFor, chunk, attempt, attempt > 0 ? 1 : 0)
     );
-    if (qs) addAll(qs);
-    console.log(`[wave3] final=${collected.length}/${totalNeeded}`);
+
+    if (qs && qs.length > 0) {
+      addAll(qs);
+      console.log(`[attempt ${attempt + 1}] got ${qs.length}, total=${collected.length}/${totalNeeded}`);
+    } else {
+      console.warn(`[attempt ${attempt + 1}] model=${model.id} returned nothing`);
+    }
+
+    // Kifayət qədər sual toplandısa — dayan
+    if (collected.length >= totalNeeded) break;
+
+    // Növbəti cəhd üçün qısa fasilə
+    if (attempt < allModels.length - 1) {
+      await new Promise(r => setTimeout(r, 200));
+    }
   }
 
   return collected.slice(0, totalNeeded);
