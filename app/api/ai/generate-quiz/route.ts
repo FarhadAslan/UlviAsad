@@ -4,738 +4,371 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-export const maxDuration = 120;
+export const runtime  = "nodejs";
+export const maxDuration = 55; // Vercel hobby: 60s, biz 55s saxlayırıq
 
-// Groq modellər — JSON mode dəstəkləyir, sürətli
+// ─── Modellər ────────────────────────────────────────────────────────────────
 const GROQ_MODELS = [
-  "llama-3.3-70b-versatile",   // 6000 TPM — ən yüksək keyfiyyət
-  "llama-3.1-8b-instant",      // 20000 TPM — sürətli (kiçik mətn üçün)
+  { id: "llama-3.3-70b-versatile",                   jsonMode: true  },
+  { id: "llama-3.1-8b-instant",                      jsonMode: true  },
+  { id: "meta-llama/llama-4-scout-17b-16e-instruct", jsonMode: false },
+  { id: "openai/gpt-oss-120b",                       jsonMode: true  },
 ];
 
-// OpenRouter — "openrouter/auto" avtomatik ən yaxşı pulsuz modeli seçir
-// Alternativ olaraq konkret modellər
-const OPENROUTER_MODELS = [
-  "openrouter/auto",                          // avtomatik seçim
-  "meta-llama/llama-3.2-3b-instruct:free",
-  "nousresearch/hermes-3-llama-3.1-405b:free",
+const OR_MODELS = [
+  { id: "meta-llama/llama-3.3-70b-instruct:free", jsonMode: false },
+  { id: "meta-llama/llama-3.1-8b-instruct:free",  jsonMode: false },
+  { id: "mistralai/mistral-7b-instruct:free",     jsonMode: false },
 ];
 
-const CHUNK_SIZE   = 4_000;  // 413 xətasından qaçmaq üçün kiçiltdik (~1000 token)
-const DIRECT_LIMIT = 4_000;  // eyni limit
-const BATCH_SIZE   = 25;     // hər AI sorğusunda maksimum sual sayı
-
-// JSON mətnindən sualları çıxar — bütün formatları handle edir
+// ─── JSON parser ──────────────────────────────────────────────────────────────
 function extractQuestions(raw: string): any[] | null {
   if (!raw) return null;
-
-  // Markdown code block-larını sil
   let text = raw
-    .replace(/^```json\s*/im, "")
-    .replace(/^```\s*/im, "")
-    .replace(/\s*```\s*$/im, "")
-    .trim();
+    .replace(/^```json\s*/im, "").replace(/^```\s*/im, "").replace(/\s*```\s*$/im, "").trim();
 
-  // JSON parse cəhdləri
-  const attempts = [
-    // 1. Birbaşa parse
+  const tries = [
     () => JSON.parse(text),
-    // 2. İlk { ... } blokundan çıxar
-    () => {
-      const start = text.indexOf("{");
-      const end   = text.lastIndexOf("}");
-      if (start === -1 || end === -1) throw new Error("no object");
-      return JSON.parse(text.slice(start, end + 1));
-    },
-    // 3. İlk [ ... ] blokundan çıxar (array formatı)
-    () => {
-      const start = text.indexOf("[");
-      const end   = text.lastIndexOf("]");
-      if (start === -1 || end === -1) throw new Error("no array");
-      return { questions: JSON.parse(text.slice(start, end + 1)) };
-    },
+    () => { const s = text.indexOf("{"), e = text.lastIndexOf("}"); if (s < 0 || e < 0) throw 0; return JSON.parse(text.slice(s, e + 1)); },
+    () => { const s = text.indexOf("["), e = text.lastIndexOf("]"); if (s < 0 || e < 0) throw 0; return { questions: JSON.parse(text.slice(s, e + 1)) }; },
   ];
-
-  for (const attempt of attempts) {
+  for (const fn of tries) {
     try {
-      const parsed = attempt();
-      if (Array.isArray(parsed?.questions) && parsed.questions.length > 0) {
-        return parsed.questions;
-      }
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
-      }
-    } catch {
-      // növbəti cəhd
-    }
+      const p = fn();
+      if (Array.isArray(p?.questions) && p.questions.length > 0) return p.questions;
+      if (Array.isArray(p) && p.length > 0) return p;
+    } catch { /* next */ }
   }
   return null;
 }
 
-// AI sorğusu — Groq üçün JSON mode, OpenRouter üçün JSON mode olmadan
-async function callAI(opts: {
-  endpoint: string;
-  apiKey: string;
-  model: string;
-  systemPrompt: string;
-  userPrompt: string;
-  extraHeaders?: Record<string, string>;
-  useJsonMode?: boolean;
-  retries?: number;
-}): Promise<any[] | null> {
-  const { endpoint, apiKey, model, systemPrompt, userPrompt,
-          extraHeaders = {}, useJsonMode = true, retries = 3 } = opts;
+// ─── Tək model çağırışı ───────────────────────────────────────────────────────
+async function callModel(
+  id: string, jsonMode: boolean, isGroq: boolean,
+  groqKey: string | undefined, orKey: string | undefined,
+  system: string, user: string,
+): Promise<any[] | null> {
+  const key = isGroq ? groqKey : orKey;
+  if (!key) return null;
 
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    const body: any = {
-      model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user",   content: userPrompt },
-      ],
-      temperature: 0.7,
-      max_tokens: 16000,
-    };
+  const endpoint = isGroq
+    ? "https://api.groq.com/openai/v1/chat/completions"
+    : "https://openrouter.ai/api/v1/chat/completions";
 
-    // JSON mode yalnız dəstəkləyən modellər üçün
-    if (useJsonMode) {
-      body.response_format = { type: "json_object" };
-    }
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${key}`,
+  };
+  if (!isGroq) {
+    headers["HTTP-Referer"] = "https://ulvi-asad-hnez.vercel.app";
+    headers["X-Title"]      = "Muellim Portal";
+  }
 
-    let res: Response;
-    try {
-      res = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`,
-          ...extraHeaders,
-        },
-        body: JSON.stringify(body),
-      });
-    } catch (fetchErr) {
-      console.error(`[${model}] fetch error:`, fetchErr);
-      if (attempt < retries) { await new Promise(r => setTimeout(r, 2000)); continue; }
-      return null;
-    }
+  const body: any = {
+    model: id,
+    messages: [{ role: "system", content: system }, { role: "user", content: user }],
+    temperature: 0.7,
+    max_tokens: 8000,
+  };
+  if (jsonMode) body.response_format = { type: "json_object" };
 
-    if (res.status === 429 && attempt < retries) {
-      const waitMs = 5000 * (attempt + 1);
-      console.log(`[${model}] rate limit, ${waitMs}ms gözlənilir...`);
-      await new Promise(r => setTimeout(r, waitMs));
-      continue;
-    }
-
-    // 413 — mətn çox böyükdür, retry etmə
-    if (res.status === 413) {
-      console.error(`[${model}] 413 - mətn çox böyükdür`);
-      return null;
-    }
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      console.error(`[${model}] HTTP ${res.status}:`, errText.slice(0, 200));
-      // 5xx xətalarında retry
-      if (res.status >= 500 && attempt < retries) {
-        await new Promise(r => setTimeout(r, 3000));
-        continue;
-      }
-      return null;
-    }
-
+  try {
+    const res = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(body) });
+    if (res.status === 429) { console.warn(`[${id}] 429 rate limit`); return null; }
+    if (!res.ok)            { console.warn(`[${id}] HTTP ${res.status}`); return null; }
     const data = await res.json().catch(() => null);
-    if (!data) { console.error(`[${model}] JSON parse failed`); return null; }
-
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) {
-      console.error(`[${model}] empty content. data:`, JSON.stringify(data).slice(0, 300));
-      return null;
-    }
-
-    const questions = extractQuestions(content);
-    if (!questions) {
-      console.error(`[${model}] could not extract questions from:`, content.slice(0, 300));
-      return null;
-    }
-
-    return questions;
+    const content = data?.choices?.[0]?.message?.content;
+    if (!content) return null;
+    return extractQuestions(content);
+  } catch (e: any) {
+    console.warn(`[${id}] error: ${e?.message}`);
+    return null;
   }
-  return null;
 }
 
-// Groq ilə sorğu (JSON mode aktiv)
-function callGroq(apiKey: string, model: string, system: string, user: string) {
-  return callAI({
-    endpoint: "https://api.groq.com/openai/v1/chat/completions",
-    apiKey, model,
-    systemPrompt: system,
-    userPrompt: user,
-    useJsonMode: true,
-  });
-}
-
-// OpenRouter ilə sorğu (JSON mode olmadan — pulsuz modellər dəstəkləmir)
-function callOpenRouter(apiKey: string, model: string, system: string, user: string) {
-  return callAI({
-    endpoint: "https://openrouter.ai/api/v1/chat/completions",
-    apiKey, model,
-    systemPrompt: system,
-    userPrompt: user,
-    useJsonMode: false,
-    extraHeaders: {
-      "HTTP-Referer": "https://ulvi-asad-hnez.vercel.app",
-      "X-Title": "Muellim Portal",
-    },
-  });
-}
-
-// İstənilən sayda sual toplayana qədər sorğu göndər (fill-up strategiyası)
-async function fetchUntilFull(opts: {
-  needed: number;
-  chunk: string;
-  chunkIndex: number;
-  chunkCount: number;
-  systemPrompt: string;
-  langLabel: string;
-  categoryLabel: string;
-  title: string;
-  botId: string | undefined;
-  groqKey: string | undefined;
-  orKey: string | undefined;
-  buildPrompt: (chunk: string, ci: number, count: number, extraAvoid?: string) => string;
-  maxAttempts?: number;
-}): Promise<any[]> {
-  const { needed, maxAttempts = 8 } = opts;
+// ─── fetchUntilFull: lazım olan sayı toplayana qədər retry ───────────────────
+// Hər cəhddə fərqli model sınanır. Dublikat suallar atlanır, retry davam edir.
+async function fetchUntilFull(
+  needed: number,
+  system: string,
+  buildPrompt: (count: number, attempt: number) => string,
+  groqKey: string | undefined,
+  orKey: string | undefined,
+  maxAttempts = 5,
+): Promise<any[]> {
   const collected: any[] = [];
-  let attempts = 0;
+  const seen = new Set<string>();
 
-  while (collected.length < needed && attempts < maxAttempts) {
+  // Bütün mövcud modellər siyahısı
+  const allModels = [
+    ...GROQ_MODELS.map(m => ({ ...m, isGroq: true  })),
+    ...OR_MODELS  .map(m => ({ ...m, isGroq: false })),
+  ].filter(m => m.isGroq ? !!groqKey : !!orKey);
+
+  if (allModels.length === 0) return [];
+
+  for (let attempt = 0; attempt < maxAttempts && collected.length < needed; attempt++) {
     const stillNeed = needed - collected.length;
-    // Modelin az qaytarma ehtimalına qarşı 30% artıq istə (min 2 əlavə), üst limit yoxdur
-    const askFor = stillNeed + Math.max(2, Math.ceil(stillNeed * 0.3));
-    
-    let extraAvoid = "";
-    if (collected.length > 0) {
-      extraAvoid = `DİQQƏT: AŞAĞIDAKİ SUALLARI ARTIQ YARATMISAN, ONLARI TƏKRARLAMA:\n` + 
-        collected.map((q, i) => `${i+1}. ${q.text}`).join("\n");
-    }
-    
-    const userPrompt = opts.buildPrompt(opts.chunk, opts.chunkIndex, askFor, extraAvoid);
+    // Sadəcə lazım olan qədər + 2 ehtiyat istə
+    const askFor = stillNeed + 2;
 
-    let questions: any[] | null = null;
-
-    if (opts.groqKey) {
-      const model = GROQ_MODELS[attempts % GROQ_MODELS.length];
-      questions = await callGroq(opts.groqKey, model, opts.systemPrompt, userPrompt);
-    }
-    if (!questions && opts.orKey) {
-      for (const model of OPENROUTER_MODELS) {
-        questions = await callOpenRouter(opts.orKey, model, opts.systemPrompt, userPrompt);
-        if (questions) break;
-      }
-    }
+    const model = allModels[attempt % allModels.length];
+    const questions = await callModel(
+      model.id, model.jsonMode, model.isGroq,
+      groqKey, orKey, system, buildPrompt(askFor, attempt),
+    );
 
     if (Array.isArray(questions) && questions.length > 0) {
-      // Artıq gəlmiş sualları duplikat yoxlaması ilə əlavə et
-      const existingTexts = new Set(collected.map((q: any) => q.text?.trim().toLowerCase()));
       for (const q of questions) {
         const key = q.text?.trim().toLowerCase();
-        if (key && !existingTexts.has(key)) {
+        if (!key) continue;
+        if (!seen.has(key)) {
+          seen.add(key);
           collected.push(q);
-          existingTexts.add(key);
         }
-        if (collected.length >= needed) break;
+        // Dublikat olsa da davam et — break yoxdur!
       }
     }
 
-    attempts++;
-    // Hələ çatmırsa qısa gözlə
-    if (collected.length < needed && attempts < maxAttempts) {
-      await new Promise(r => setTimeout(r, 500));
+    if (collected.length < needed && attempt < maxAttempts - 1) {
+      await new Promise(r => setTimeout(r, 200));
     }
   }
 
   return collected.slice(0, needed);
 }
 
+// ─── Normalize ────────────────────────────────────────────────────────────────
+const LABELS = ["A", "B", "C", "D"];
+
+function normalizeQ(q: any, isReview = false): any {
+  const raw = Array.isArray(q.options)
+    ? q.options.map((o: any) => ({ label: o.label || "A", text: o.text || "" }))
+    : [{ label: "A", text: "" }, { label: "B", text: "" }, { label: "C", text: "" }, { label: "D", text: "" }];
+
+  const correctLabel = q.correctOption || "A";
+  const correctText  = raw.find((o: any) => o.label === correctLabel)?.text || raw[0]?.text || "";
+
+  const shuffled = [...raw];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+
+  let newCorrect = "A";
+  const newOptions = shuffled.map((o: any, idx: number) => {
+    const label = LABELS[idx] || String.fromCharCode(65 + idx);
+    if (o.text === correctText) newCorrect = label;
+    return { label, text: o.text };
+  });
+
+  return {
+    text: q.text || "",
+    imageUrl: q.imageUrl || "",
+    questionType: q.questionType || "CHOICE",
+    openAnswerExample: q.openAnswerExample || "",
+    options: newOptions,
+    correctOption: newCorrect,
+    points: q.points ?? 1,
+    ...(isReview ? { isReview: true } : {}),
+  };
+}
+
+// ─── DB: bot tarixi ───────────────────────────────────────────────────────────
+async function loadBotHistory(userId: string, botId: string) {
+  let prevSummary = "";
+  let wrongQs: any[] = [];
+
+  try {
+    const quizRows = await prisma.$queryRaw<{ quiz_id: string }[]>`
+      SELECT id as quiz_id FROM "Quiz"
+      WHERE "createdById" = ${userId} AND "sourceBotId" = ${botId}
+      ORDER BY "createdAt" DESC LIMIT 20
+    `;
+    if (!quizRows.length) return { prevSummary, wrongQs };
+
+    const ids = quizRows.map(r => r.quiz_id);
+    const quizzes = await prisma.quiz.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        questions: { select: { id: true, text: true, options: true, correctOption: true, points: true, questionType: true } },
+        results: { where: { userId }, orderBy: { createdAt: "desc" }, take: 1, select: { answers: true } },
+      },
+    });
+
+    const prevTexts: string[] = [];
+    const statusMap = new Map<string, boolean>();
+
+    for (const quiz of quizzes) {
+      let answers: any[] = [];
+      try { answers = JSON.parse(quiz.results[0]?.answers || "[]"); } catch { answers = []; }
+      const ansMap = new Map(answers.map((a: any) => [a.questionId, !!a.isCorrect]));
+
+      for (const q of quiz.questions) {
+        const clean = q.text.replace(/<[^>]+>/g, "").trim();
+        if (clean.length > 5) prevTexts.push(clean);
+        const norm = clean.toLowerCase();
+        const correct = ansMap.get(q.id);
+        if (correct === true)  statusMap.set(norm, true);
+        else if (correct === false && statusMap.get(norm) !== true) statusMap.set(norm, false);
+      }
+    }
+
+    const wrongSet = new Set<string>();
+    statusMap.forEach((ok, t) => { if (!ok) wrongSet.add(t); });
+
+    if (wrongSet.size > 0) {
+      const seen = new Set<string>();
+      outer: for (const quiz of quizzes) {
+        for (const q of quiz.questions) {
+          if (wrongQs.length >= 10) break outer;
+          const norm = q.text.replace(/<[^>]+>/g, "").trim().toLowerCase();
+          if (wrongSet.has(norm) && !seen.has(norm)) {
+            seen.add(norm);
+            try {
+              wrongQs.push({
+                text: q.text,
+                options: typeof q.options === "string" ? JSON.parse(q.options) : q.options,
+                correctOption: q.correctOption,
+                points: q.points ?? 1,
+                questionType: q.questionType || "CHOICE",
+                imageUrl: "", openAnswerExample: "",
+              });
+            } catch { /* skip */ }
+          }
+        }
+      }
+    }
+
+    if (prevTexts.length > 0) {
+      prevSummary = prevTexts.slice(0, 40).map((t, i) => `${i + 1}. ${t.slice(0, 80)}`).join("\n");
+    }
+  } catch (e: any) {
+    console.warn("[loadBotHistory]", e?.message);
+  }
+
+  return { prevSummary, wrongQs };
+}
+
+// ─── POST ─────────────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    const userRole = (session?.user as any)?.role;
-
-    if (!session) {
-      return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
-    }
+    if (!session) return NextResponse.json({ error: "İcazə yoxdur" }, { status: 403 });
 
     const groqKey = process.env.GROQ_API_KEY;
     const orKey   = process.env.OPENROUTER_API_KEY;
-
     if (!groqKey && !orKey) {
-      const keys = Object.keys(process.env).filter(k => k.includes("GROQ") || k.includes("OPENROUTER") || k.includes("API")).join(",");
-      return NextResponse.json(
-        { error: `AI API açarı tapılmadı! Mühit (Env): GROQ=${!!groqKey}, OR=${!!orKey}. Mövcud uyğun key-lər: ${keys}` },
-        { status: 503 }
-      );
+      return NextResponse.json({ error: "AI API açarı konfiqurasiya edilməyib." }, { status: 503 });
     }
 
     const body = await req.json();
-    const { title, questionCount, category, language = "az", botId } = body;
+    const { title, questionCount = 10, category, language = "az", botId, avoidTexts = [] } = body;
 
-    if (!title?.trim()) {
-      return NextResponse.json({ error: "Quiz başlığı tələb olunur" }, { status: 400 });
-    }
-    if (!questionCount || questionCount < 1 || questionCount > 50) {
-      return NextResponse.json({ error: "Sual sayı 1-50 arasında olmalıdır" }, { status: 400 });
-    }
+    if (!title?.trim()) return NextResponse.json({ error: "Quiz başlığı tələb olunur" }, { status: 400 });
+    if (questionCount < 1 || questionCount > 50) return NextResponse.json({ error: "Sual sayı 1-50 arasında olmalıdır" }, { status: 400 });
 
-    let botSystemPrompt = `Sən yüksək keyfiyyətli quiz sualları yaradan ixtisaslaşmış AI assistentsən.
+    // ── Bot məlumatları ──
+    let systemPrompt = `Sən yüksək keyfiyyətli quiz sualları yaradan ixtisaslaşmış AI assistentsən.
 
 ƏSAS QAYDALAR:
 1. Verilən mövzu üzrə dəqiq, aydın test sualları yarat.
 2. Bütün suallar və cavablar Azərbaycan dilində olmalıdır.
-3. Əgər "ARTIQ YARADILIB" bölməsi varsa — oradakı sualları və onlara oxşar sualları MÜTLƏQ yaratma. Tamamilə fərqli aspektləri əhatə et.
+3. "ARTIQ YARADILIB" bölməsindəki sualları YARATMA.
 
-CAVAB VARİANTLARI ÜÇÜN QAYDALAR (ÇOX VACİBDİR):
-- Yanlış variantlar (distraktorlar) düzgün cavaba mümkün qədər oxşar olsun — oxucu ilk baxışda fərqi görməsin.
-- Rəqəm, tarix, ad, termin içərən suallar üçün yanlış variantlarda çox yaxın dəyərlər istifadə et (məs: 1918 əvəzinə 1919, 1917, 1920).
-- "Hamısı doğrudur" və ya "Heç biri doğru deyil" tipli variantlardan çəkin.
+CAVAB VARİANTLARI:
+- Yanlış variantlar düzgün cavaba çox oxşar olsun.
+- Rəqəm/tarix/ad suallarında yaxın dəyərlər istifadə et (1918 → 1917, 1919, 1920).
+- "Hamısı doğrudur" tipli variantlardan çəkin.
 - Variantların uzunluğu bir-birinə yaxın olsun.
-- Düzgün cavab variantlar arasında seçilə bilməsin — hamısı eyni dərəcədə inandırıcı görünsün.
 
-Cavabı MÜTLƏQ aşağıdakı JSON formatında ver — başqa heç nə yazma:
-{"questions":[{"text":"Sual 1 mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"},{"text":"Sual 2 mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"B"}]}`;
+Cavabı YALNIZ JSON formatında ver:
+{"questions":[{"text":"...","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"}]}`;
 
-    let botChunks: string[] = [""];
-    let previousQuestionsSummary = ""; // Bu bot ilə əvvəl yaradılmış sualların xülasəsi
-
-    // Səhv cavablanmış suallar — birbaşa yeni quizə əlavə olunacaq
-    // { questionId, text, options (parsed), correctOption, points }
-    let wrongAnsweredQuestions: any[] = [];
+    let botContent = "";
+    let prevSummary = "";
+    let wrongQs: any[] = [];
 
     if (botId) {
       const bot = await prisma.aiBot.findUnique({
         where: { id: botId, active: true },
-        select: { name: true, prompt: true, content: true },
+        select: { prompt: true, content: true },
       });
+      if (!bot) return NextResponse.json({ error: "Seçilmiş AI bot tapılmadı" }, { status: 404 });
 
-      if (!bot) {
-        return NextResponse.json({ error: "Seçilmiş AI bot tapılmadı" }, { status: 404 });
-      }
+      systemPrompt = `${bot.prompt}
+
+ƏLAVƏ QAYDALAR:
+- "ARTIQ YARADILIB" bölməsindəki sualları YARATMA.
+- Yanlış variantlar düzgün cavaba çox oxşar olsun.
+- Rəqəm/tarix/ad suallarında yaxın dəyərlər istifadə et.
+- "Hamısı doğrudur" tipli variantlardan çəkin.
+
+Cavabı YALNIZ JSON formatında ver:
+{"questions":[{"text":"...","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"}]}`;
+
+      botContent = bot.content || "";
 
       const userId = (session?.user as any)?.id;
       if (userId) {
-        // Bu botla yaradılmış quizləri tap (sourceBotId ilə)
-        const previousQuizzes = await (prisma.quiz as any).findMany({
-          where: {
-            createdById: userId,
-            sourceBotId: botId,
-          },
-          select: {
-            id: true,
-            questions: {
-              select: {
-                id: true,
-                text: true,
-                options: true,
-                correctOption: true,
-                points: true,
-                questionType: true,
-              },
-            },
-            results: {
-              where: { userId },
-              orderBy: { createdAt: "desc" },
-              take: 1, // hər quizin ən son nəticəsi
-              select: { answers: true },
-            },
-          },
-          orderBy: { createdAt: "desc" },
-          take: 30,
-        });
-
-        // Sualları iki qrupa ayır:
-        // 1. Heç vaxt düzgün cavablanmamış (və ya ən son nəticədə səhv olan) suallar
-        // 2. Bütün əvvəlki sualların mətni (AI-a göndərmək üçün)
-        const allPrevTexts: string[] = [];
-
-        // questionId → ən son nəticədə düzgün cavablanıb-cavablanmadığı
-        // Bir sual birdən çox quizdə ola bilməz (hər quiz öz suallarını yaradır),
-        // amma eyni mətnli suallar fərqli quizlərdə ola bilər.
-        // Məntiqi: sualın MƏTNİ əsasında izləyirik.
-
-        // questionText (normalized) → son nəticədə isCorrect
-        const questionStatusMap = new Map<string, boolean>(); // text → lastCorrect
-
-        for (const pq of previousQuizzes) {
-          // Bu quizin ən son nəticəsini al
-          const lastResult = pq.results[0];
-          let answersArr: any[] = [];
-          if (lastResult?.answers) {
-            try {
-              answersArr = JSON.parse(lastResult.answers);
-            } catch {
-              answersArr = [];
-            }
-          }
-
-          // answersArr: [{questionId, selected, isCorrect, ...}]
-          const answerMap = new Map<string, boolean>(); // questionId → isCorrect
-          for (const ans of answersArr) {
-            if (ans.questionId) {
-              answerMap.set(ans.questionId, !!ans.isCorrect);
-            }
-          }
-
-          for (const q of pq.questions) {
-            const cleanText = q.text.replace(/<[^>]+>/g, "").trim();
-            if (cleanText.length > 5) {
-              allPrevTexts.push(cleanText);
-            }
-
-            // Bu sual bu quizdə cavablanıbmı?
-            const isCorrect = answerMap.get(q.id);
-            const normalizedText = cleanText.toLowerCase();
-
-            // Quizlər ən yenidən köhnəyə gəlir (orderBy: desc).
-            // Bir sualın statusunu yalnız ilk dəfə gördükdə set edirik —
-            // bu onun ən son nəticəsini əks etdirir.
-            // İstisna: əgər hər hansı quizdə düzgün cavablanıbsa, "düzgün" kimi işarələ
-            // (bir dəfə düzgün cavablandısa — artıq təkrarlama lazım deyil)
-            if (isCorrect === true) {
-              // Düzgün cavablandı — həmişə "düzgün" kimi işarələ (override et)
-              questionStatusMap.set(normalizedText, true);
-            } else if (isCorrect === false) {
-              // Səhv cavablandı — yalnız əvvəlcədən "düzgün" işarələnməyibsə set et
-              if (questionStatusMap.get(normalizedText) !== true) {
-                questionStatusMap.set(normalizedText, false);
-              }
-            }
-            // isCorrect === undefined: bu quiz həll edilməyib — statusu dəyişmə
-          }
-        }
-
-        // Səhv cavablanmış sualları topla (heç vaxt düzgün cavablanmamış)
-        // Bunları birbaşa yeni quizə əlavə edəcəyik
-        const wrongTextSet = new Set<string>();
-        for (const [text, correct] of Array.from(questionStatusMap.entries())) {
-          if (!correct) wrongTextSet.add(text);
-        }
-
-        const ENABLE_REVIEW_QUESTIONS = true; // Səhv cavablanmış sualların təkrarı aktivləşdirildi
-
-        if (ENABLE_REVIEW_QUESTIONS && wrongTextSet.size > 0) {
-          // Bütün əvvəlki quizlərdən həmin sualların tam məlumatını tap
-          // (options, correctOption saxlamaq üçün)
-          // Maksimum 10 səhv sual əlavə et — quiz çox böyüməsin
-          const MAX_REVIEW_QUESTIONS = 10;
-          const seenTexts = new Set<string>();
-          for (const pq of previousQuizzes) {
-            if (wrongAnsweredQuestions.length >= MAX_REVIEW_QUESTIONS) break;
-            for (const q of pq.questions) {
-              if (wrongAnsweredQuestions.length >= MAX_REVIEW_QUESTIONS) break;
-              const cleanText = q.text.replace(/<[^>]+>/g, "").trim();
-              const normalizedText = cleanText.toLowerCase();
-              if (wrongTextSet.has(normalizedText) && !seenTexts.has(normalizedText)) {
-                seenTexts.add(normalizedText);
-                try {
-                  wrongAnsweredQuestions.push({
-                    text: q.text,
-                    options: typeof q.options === "string" ? JSON.parse(q.options) : q.options,
-                    correctOption: q.correctOption,
-                    points: q.points ?? 1,
-                    questionType: q.questionType || "CHOICE",
-                    imageUrl: "",
-                    openAnswerExample: "",
-                  });
-                } catch {
-                  // options parse xətası — bu sualı atla
-                }
-              }
-            }
-          }
-        }
-
-        if (allPrevTexts.length > 0) {
-          // Maks 15 sual xülasəsi göndər (çox uzun list modeli çaşdırır — "AI paralysis")
-          const limited = allPrevTexts.slice(0, 15);
-          previousQuestionsSummary = limited
-            .map((t, i) => `${i + 1}. ${t.slice(0, 80)}`)
-            .join("\n");
-        }
-      }
-
-      botSystemPrompt = `${bot.prompt}
-
-ƏLAVƏ QAYDALAR:
-3. Əgər "ARTIQ YARADILIB" bölməsi varsa — oradakı sualları və onlara oxşar sualları MÜTLƏQ yaratma. Tamamilə fərqli aspektləri əhatə et.
-
-CAVAB VARİANTLARI ÜÇÜN QAYDALAR (ÇOX VACİBDİR):
-- Yanlış variantlar (distraktorlar) düzgün cavaba mümkün qədər oxşar olsun — oxucu ilk baxışda fərqi görməsin.
-- Rəqəm, tarix, ad, termin içərən suallar üçün yanlış variantlarda çox yaxın dəyərlər istifadə et (məs: 1918 əvəzinə 1919, 1917, 1920).
-- "Hamısı doğrudur" və ya "Heç biri doğru deyil" tipli variantlardan çəkin.
-- Variantların uzunluğu bir-birinə yaxın olsun.
-- Düzgün cavab variantlar arasında seçilə bilməsin — hamısı eyni dərəcədə inandırıcı görünsün.
-
-MÜTLƏQ bu JSON formatında cavab ver — başqa heç nə yazma:
-{"questions":[{"text":"Sual 1 mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"},{"text":"Sual 2 mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"C"}]}`;
-
-      if (bot.content) {
-        const content = bot.content;
-        if (content.length <= DIRECT_LIMIT) {
-          botChunks = [content];
-        } else {
-          const chunks: string[] = [];
-          let start = 0;
-          while (start < content.length) {
-            let end = Math.min(start + CHUNK_SIZE, content.length);
-            if (end < content.length) {
-              const lastSpace = content.lastIndexOf(" ", end);
-              if (lastSpace > start) end = lastSpace;
-            }
-            chunks.push(content.slice(start, end).trim());
-            start = end;
-          }
-          botChunks = chunks;
-        }
+        const hist = await loadBotHistory(userId, botId);
+        prevSummary = hist.prevSummary;
+        wrongQs     = hist.wrongQs;
       }
     }
 
-    const langLabel =
-      language === "az" ? "Azərbaycan dilində" :
-      language === "ru" ? "Rus dilində" : "İngilis dilində";
-    const categoryLabel = category || "ümumi bilik";
+    // ── Prompt builder ──
+    const lang     = language === "az" ? "Azərbaycan dilində" : language === "ru" ? "Rus dilində" : "İngilis dilində";
+    const catLabel = category || "ümumi bilik";
+    const ctx      = botContent ? `\n\nBilik bazası:\n---\n${botContent.slice(0, 3000)}\n---\n` : "";
 
-    const chunkCount = botChunks.length;
-    const baseCount  = Math.floor(questionCount / chunkCount);
-    const remainder  = questionCount % chunkCount;
+    const allAvoid = [
+      ...avoidTexts.slice(0, 20),
+      ...(prevSummary ? prevSummary.split("\n").slice(0, 20) : []),
+    ].filter(Boolean);
 
-    const buildUserPrompt = (chunk: string, ci: number, count: number, extraAvoid: string = "") => {
-      const contextPart = chunk
-        ? `\n\nBilik bazası (${ci + 1}/${chunkCount} hissə):\n---\n${chunk}\n---\n`
-        : "";
+    const avoidPart = allAvoid.length > 0
+      ? `\n\nAŞAĞIDAKI SUALLAR ARTIQ YARADILIB — BUNLARI VƏ BUNLARA OXŞAR SUALLAR YARATMA:\n---\n${allAvoid.join("\n")}\n---\n`
+      : "";
 
-      let avoidText = "";
-      if (previousQuestionsSummary) avoidText += previousQuestionsSummary + "\n";
-      if (extraAvoid) avoidText += extraAvoid + "\n";
+    const aspects = ["", " Fərqli aspektlərə fokuslan.", " Praktiki suallar yarat.", " Nəzəri suallar yarat.", " Müqayisəli suallar yarat."];
 
-      const avoidPart = avoidText.trim()
-        ? `\n\nAŞAĞIDAKI SUALLAR ARTIQ YARADILIB VƏ YA BU SESSİYADA YAZILIB — BUNLARA OXŞAR SUALLAR YARATMA, TAMAMILƏ YENİ SUALLAR YAZ:\n---\n${avoidText.trim()}\n---\n`
-        : "";
-
-      return `${langLabel} "${title}" mövzusu üzrə DƏQIQ ${count} ədəd test sualı yarat. Nə az, nə çox — məhz ${count} sual.
-Kateqoriya: ${categoryLabel}${contextPart}${avoidPart}
+    const buildPrompt = (count: number, attempt: number): string => {
+      const hint  = aspects[attempt % aspects.length] || "";
+      const retry = attempt > 0 ? ` (cəhd ${attempt + 1} — tamamilə fərqli suallar yarat)` : "";
+      return `${lang} "${title}" mövzusu üzrə DƏQIQ ${count} ədəd test sualı yarat.${hint}${retry}
+Kateqoriya: ${catLabel}${ctx}${avoidPart}
 Tələblər:
 - Hər sualın 4 variant cavabı olsun (A, B, C, D)
 - Yalnız 1 düzgün cavab olsun
 - Suallar mövzuya uyğun, aydın və dəqiq olsun
-- Yanlış variantlar düzgün cavaba çox oxşar olsun — çaşdırıcı və çətin olsun
-- Rəqəm/tarix/ad içərən suallar üçün yanlış variantlarda çox yaxın dəyərlər istifadə et
-- Variantların uzunluğu bir-birinə yaxın olsun, hamısı inandırıcı görünsün
-- Əvvəlki suallarla eyni və ya çox oxşar suallar YARATMA
+- Yanlış variantlar düzgün cavaba çox oxşar olsun
+- Rəqəm/tarix/ad suallarında yaxın dəyərlər istifadə et
 ${botId ? "- Yalnız verilmiş bilik bazasından istifadə et" : ""}
 
 Cavabı YALNIZ JSON formatında ver, ${count} sual ilə:
 {"questions":[{"text":"Sual mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"}]}`;
     };
 
-    // Paralel sorğular — hər chunk üçün ən yaxşı mövcud provider
-    const allQuestions: any[] = [];
+    // ── Sualları topla ──
+    const rawQs = await fetchUntilFull(questionCount, systemPrompt, buildPrompt, groqKey, orKey);
 
-    if (chunkCount === 1) {
-      // Tək chunk — çox sual varsa batch-lərə böl, hər batch fill-up ilə doldurulur
-      const chunk = botChunks[0];
-
-      const batches: number[] = [];
-      let remaining = questionCount;
-      while (remaining > 0) {
-        const batchCount = Math.min(remaining, BATCH_SIZE);
-        batches.push(batchCount);
-        remaining -= batchCount;
-      }
-
-      const batchResults = await Promise.all(
-        batches.map((count, index) =>
-          fetchUntilFull({
-            needed: count,
-            chunk,
-            chunkIndex: 0,
-            chunkCount,
-            systemPrompt: botSystemPrompt,
-            langLabel,
-            categoryLabel,
-            title,
-            botId: botId || undefined,
-            groqKey,
-            orKey,
-            buildPrompt: (c, ci, countAsk, extra) => {
-              const batchHint = index > 0 ? `\nDiqqət: Bu ${index + 1}-ci hissədir. Mövzunun fərqli və unikal tərəflərinə fokuslanın.` : "";
-              return buildUserPrompt(c, ci, countAsk, (extra || "") + batchHint);
-            },
-          })
-        )
-      );
-
-      for (const qs of batchResults) {
-        allQuestions.push(...qs);
-      }
-
-    } else {
-      // Çox chunk — hər chunk üçün fetchUntilFull ilə retry mexanizmi
-      // Sualları chunk-lara paylaşdır
-      const chunkTasks = botChunks.map((chunk, ci) => {
-        const count = baseCount + (ci < remainder ? 1 : 0);
-        if (count === 0) return Promise.resolve([] as any[]);
-
-        return fetchUntilFull({
-          needed: count,
-          chunk,
-          chunkIndex: ci,
-          chunkCount,
-          systemPrompt: botSystemPrompt,
-          langLabel,
-          categoryLabel,
-          title,
-          botId: botId || undefined,
-          groqKey,
-          orKey,
-          buildPrompt: buildUserPrompt,
-        });
-      });
-
-      const chunkResults = await Promise.all(chunkTasks);
-      for (const qs of chunkResults) {
-        allQuestions.push(...qs);
-      }
-
-      // Hələ də çatmırsa — ilk chunk-dan əlavə suallar al (fill-up)
-      if (allQuestions.length < questionCount) {
-        const deficit = questionCount - allQuestions.length;
-        console.log(`[multi-chunk] ${deficit} sual çatmır, əlavə fill-up sorğusu göndərilir...`);
-        const extra = await fetchUntilFull({
-          needed: deficit,
-          chunk: botChunks[0],
-          chunkIndex: 0,
-          chunkCount: 1,
-          systemPrompt: botSystemPrompt,
-          langLabel,
-          categoryLabel,
-          title,
-          botId: botId || undefined,
-          groqKey,
-          orKey,
-          buildPrompt: buildUserPrompt,
-        });
-        allQuestions.push(...extra);
-      }
-    }
-
-    if (allQuestions.length === 0 && wrongAnsweredQuestions.length === 0) {
+    if (rawQs.length === 0) {
       return NextResponse.json(
-        { error: "AI sual yarada bilmədi. Groq və OpenRouter hər ikisi uğursuz oldu. Bir az gözləyib yenidən cəhd edin." },
-        { status: 502 }
+        { error: "AI sual yarada bilmədi. Groq/OpenRouter limiti dolmuş ola bilər — bir neçə saniyə gözləyib yenidən cəhd edin." },
+        { status: 502 },
       );
     }
-
-    // Duplikatları təmizlə
-    const deduplicatedQuestions: any[] = [];
-    const seenTexts = new Set<string>();
-    for (const q of allQuestions) {
-      const txt = q.text?.trim().toLowerCase();
-      if (txt && !seenTexts.has(txt)) {
-        deduplicatedQuestions.push(q);
-        seenTexts.add(txt);
-      }
-    }
-
-    // İstənən saydan çox gəlibsə kəs, az gəlibsə hamısını qaytar
-    const finalQuestions = deduplicatedQuestions.slice(0, questionCount);
-
-    const LABELS = ["A", "B", "C", "D"];
-
-    const normalized = finalQuestions.map((q: any) => {
-      const rawOptions = Array.isArray(q.options)
-        ? q.options.map((o: any) => ({ label: o.label || "A", text: o.text || "" }))
-        : [
-            { label: "A", text: "" },
-            { label: "B", text: "" },
-            { label: "C", text: "" },
-            { label: "D", text: "" },
-          ];
-      const correctLabel = q.correctOption || "A";
-
-      // Düzgün cavabın mətnini tap
-      const correctText = rawOptions.find((o: any) => o.label === correctLabel)?.text || rawOptions[0]?.text || "";
-
-      // Fisher-Yates shuffle — variantları qarışdır
-      const shuffled = [...rawOptions];
-      for (let i = shuffled.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-      }
-
-      // Yeni label-lar təyin et və düzgün cavabın yeni yerini tap
-      let newCorrectLabel = "A";
-      const newOptions = shuffled.map((o: any, idx: number) => {
-        const label = LABELS[idx] || String.fromCharCode(65 + idx);
-        if (o.text === correctText) newCorrectLabel = label;
-        return { label, text: o.text };
-      });
-
-      return {
-        text: q.text || "",
-        imageUrl: "",
-        questionType: "CHOICE",
-        openAnswerExample: "",
-        options: newOptions,
-        correctOption: newCorrectLabel,
-        points: 1,
-      };
-    });
-
-    // Səhv cavablanmış sualları da shuffle et (variantların yerini qarışdır)
-    const normalizedWrong = wrongAnsweredQuestions.map((q: any) => {
-      const rawOptions = Array.isArray(q.options)
-        ? q.options.map((o: any) => ({ label: o.label || "A", text: o.text || "" }))
-        : [
-            { label: "A", text: "" },
-            { label: "B", text: "" },
-            { label: "C", text: "" },
-            { label: "D", text: "" },
-          ];
-      const correctLabel = q.correctOption || "A";
-      const correctText = rawOptions.find((o: any) => o.label === correctLabel)?.text || rawOptions[0]?.text || "";
-
-      const shuffled = [...rawOptions];
-      for (let i = shuffled.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-      }
-
-      let newCorrectLabel = "A";
-      const newOptions = shuffled.map((o: any, idx: number) => {
-        const label = LABELS[idx] || String.fromCharCode(65 + idx);
-        if (o.text === correctText) newCorrectLabel = label;
-        return { label, text: o.text };
-      });
-
-      return {
-        text: q.text || "",
-        imageUrl: q.imageUrl || "",
-        questionType: q.questionType || "CHOICE",
-        openAnswerExample: q.openAnswerExample || "",
-        options: newOptions,
-        correctOption: newCorrectLabel,
-        points: q.points ?? 1,
-        isReview: true, // Bu sualın "təkrar" sual olduğunu bildirmək üçün
-      };
-    });
 
     return NextResponse.json({
-      questions: normalized,
-      reviewQuestions: normalizedWrong, // Səhv cavablanmış suallar — frontend bunları əlavə edəcək
+      questions:       rawQs.map(q => normalizeQ(q, false)),
+      reviewQuestions: wrongQs.map(q => normalizeQ(q, true)),
+      meta: { requested: questionCount, generated: rawQs.length },
     });
+
   } catch (err: any) {
-    console.error("AI generate-quiz error:", err?.message ?? err);
+    console.error("generate-quiz error:", err?.message ?? err);
     return NextResponse.json({ error: "Server xətası" }, { status: 500 });
   }
 }
