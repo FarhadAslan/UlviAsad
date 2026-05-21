@@ -35,7 +35,7 @@ const LOADER_CSS = `
   40%{opacity:.7;transform:translateY(0)}
 }`;
 
-const PARTS = 4;
+const PARTS = 1;
 
 export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBotId }: UserAIQuizGeneratorProps) {
   const { success, error } = useToast();
@@ -251,7 +251,7 @@ export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBo
                 onChange={e => setQuestionCount(e.target.value)}
                 onBlur={() => { const n = parseInt(questionCount) || 1; setQuestionCount(String(Math.min(50, Math.max(1, n)))); }}
                 min={1} max={50} className="input-field" disabled={loading} />
-              <p className="mt-1 text-xs text-slate-400">{PARTS} paralel sorğu eyni anda göndərilir</p>
+              <p className="mt-1 text-xs text-slate-400">Groq + OpenRouter modelləri ardıcıl işləyir</p>
             </div>
 
             <div className="rounded-xl p-3 text-xs text-purple-700 border border-purple-200 bg-purple-50">
@@ -259,7 +259,7 @@ export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBo
               <ul className="space-y-0.5 text-purple-600">
                 <li>• "Botlarım" bölməsindən öz PDF botunuzu seçin</li>
                 <li>• Dəqiq mövzu adı daxil edin</li>
-                <li>• 50 sual üçün ~20-35 saniyə kifayətdir</li>
+                <li>• 50 sual üçün ~20-40 saniyə kifayətdir</li>
               </ul>
             </div>
           </div>

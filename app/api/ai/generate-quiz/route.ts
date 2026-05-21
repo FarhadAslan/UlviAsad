@@ -87,6 +87,7 @@ async function callModel(
 }
 
 // ─── fetchUntilFull: lazım olan sayı toplayana qədər retry ───────────────────
+// Ardıcıl işləyir — rate limit problemi olmur.
 // Hər cəhddə fərqli model sınanır. Dublikat suallar atlanır, retry davam edir.
 async function fetchUntilFull(
   needed: number,
@@ -94,12 +95,11 @@ async function fetchUntilFull(
   buildPrompt: (count: number, attempt: number) => string,
   groqKey: string | undefined,
   orKey: string | undefined,
-  maxAttempts = 5,
+  maxAttempts = 8,
 ): Promise<any[]> {
   const collected: any[] = [];
   const seen = new Set<string>();
 
-  // Bütün mövcud modellər siyahısı
   const allModels = [
     ...GROQ_MODELS.map(m => ({ ...m, isGroq: true  })),
     ...OR_MODELS  .map(m => ({ ...m, isGroq: false })),
@@ -109,8 +109,7 @@ async function fetchUntilFull(
 
   for (let attempt = 0; attempt < maxAttempts && collected.length < needed; attempt++) {
     const stillNeed = needed - collected.length;
-    // Sadəcə lazım olan qədər + 2 ehtiyat istə
-    const askFor = stillNeed + 2;
+    const askFor    = stillNeed + 3; // 3 ehtiyat — az overhead, az token
 
     const model = allModels[attempt % allModels.length];
     const questions = await callModel(
@@ -130,8 +129,9 @@ async function fetchUntilFull(
       }
     }
 
+    // Rate limit-dən qaçmaq üçün cəhdlər arasında qısa fasilə
     if (collected.length < needed && attempt < maxAttempts - 1) {
-      await new Promise(r => setTimeout(r, 200));
+      await new Promise(r => setTimeout(r, 300));
     }
   }
 

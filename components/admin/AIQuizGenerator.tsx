@@ -35,8 +35,9 @@ const LOADER_CSS = `
   40%{opacity:.7;transform:translateY(0)}
 }`;
 
-// 4 paralel sorğu — hər biri ~12-13 sual, 55s-ə asanlıqla sığır
-const PARTS = 4;
+// Tək sorğu — server içəridə ardıcıl retry ilə işləyir
+// Rate limit problemi olmur
+const PARTS = 1;
 
 export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQuizGeneratorProps) {
   const { success, error } = useToast();
@@ -253,7 +254,7 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
               <input type="number" value={questionCount}
                 onChange={e => setQuestionCount(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))}
                 min={1} max={50} className="input-field" disabled={loading} />
-              <p className="mt-1 text-xs text-slate-400">{PARTS} paralel sorğu eyni anda göndərilir</p>
+            <p className="mt-1 text-xs text-slate-400">Groq + OpenRouter modelləri ardıcıl işləyir</p>
             </div>
 
             {/* Kateqoriya */}
@@ -272,9 +273,9 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
             <div className="rounded-xl p-3 text-xs text-purple-700 border border-purple-200 bg-purple-50">
               <p className="font-medium mb-1">⚡ Necə işləyir:</p>
               <ul className="space-y-0.5 text-purple-600">
-                <li>• {PARTS} sorğu eyni anda göndərilir, hər biri ~{Math.ceil(50 / PARTS)} sual</li>
-                <li>• Groq + OpenRouter modelləri paralel işləyir</li>
-                <li>• 50 sual üçün ~20-35 saniyə kifayətdir</li>
+                <li>• Groq + OpenRouter modelləri ardıcıl işləyir, rate limit olmur</li>
+                <li>• Hər model uğursuz olsa növbəti sınanır</li>
+                <li>• 50 sual üçün ~20-40 saniyə kifayətdir</li>
               </ul>
             </div>
           </div>
