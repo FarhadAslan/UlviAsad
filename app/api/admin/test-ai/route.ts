@@ -4,21 +4,21 @@ import { authOptions } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-// Groq-u birbaşa test et
+// Groq-u birbaşa test et — json_object olmadan
 async function testGroq(apiKey: string) {
   try {
     const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: "llama-3.1-8b-instant",
-        messages: [{ role: "user", content: 'Return exactly: {"questions":[{"text":"Test?","options":[{"label":"A","text":"Yes"},{"label":"B","text":"No"},{"label":"C","text":"Maybe"},{"label":"D","text":"Never"}],"correctOption":"A"}]}' }],
-        max_tokens: 200,
+        model: "llama-3.3-70b-versatile",
+        messages: [{ role: "user", content: 'Return exactly this JSON and nothing else: {"questions":[{"text":"Test?","options":[{"label":"A","text":"Yes"},{"label":"B","text":"No"},{"label":"C","text":"Maybe"},{"label":"D","text":"Never"}],"correctOption":"A"}]}' }],
+        max_tokens: 300,
         response_format: { type: "json_object" },
       }),
     });
     const data = await res.json().catch(() => null);
-    return { status: res.status, ok: res.ok, content: data?.choices?.[0]?.message?.content?.slice(0, 100) };
+    return { status: res.status, ok: res.ok, content: data?.choices?.[0]?.message?.content?.slice(0, 150), error: data?.error?.message };
   } catch (e: any) {
     return { error: e?.message };
   }
@@ -26,26 +26,35 @@ async function testGroq(apiKey: string) {
 
 // OpenRouter-i birbaşa test et
 async function testOpenRouter(apiKey: string) {
-  try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-        "HTTP-Referer": "https://ulvi-asad-hnez.vercel.app",
-        "X-Title": "Muellim Portal",
-      },
-      body: JSON.stringify({
-        model: "meta-llama/llama-3.1-8b-instruct:free",
-        messages: [{ role: "user", content: 'Say "hello" in JSON: {"msg":"hello"}' }],
-        max_tokens: 50,
-      }),
-    });
-    const data = await res.json().catch(() => null);
-    return { status: res.status, ok: res.ok, content: data?.choices?.[0]?.message?.content?.slice(0, 100), error: data?.error };
-  } catch (e: any) {
-    return { error: e?.message };
+  const models = [
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "deepseek/deepseek-chat-v3-0324:free",
+    "mistralai/mistral-small-3.1-24b-instruct:free",
+  ];
+  const results: any = {};
+  for (const model of models) {
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+          "HTTP-Referer": "https://ulvi-asad-hnez.vercel.app",
+          "X-Title": "Muellim Portal",
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "user", content: 'Say "ok" in JSON: {"msg":"ok"}' }],
+          max_tokens: 30,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      results[model] = { status: res.status, ok: res.ok, content: data?.choices?.[0]?.message?.content?.slice(0, 80), error: data?.error?.message };
+    } catch (e: any) {
+      results[model] = { error: e?.message };
+    }
   }
+  return results;
 }
 
 export async function GET() {

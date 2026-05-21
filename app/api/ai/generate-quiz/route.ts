@@ -17,13 +17,14 @@ interface Worker {
 }
 
 const ALL_WORKERS: Worker[] = [
-  // Groq — JSON mode, sürətli, etibarlı
-  { id: "llama-3.3-70b-versatile",                provider: "groq",       jsonMode: true,  maxPerCall: 15 },
-  { id: "llama-3.1-8b-instant",                   provider: "groq",       jsonMode: true,  maxPerCall: 15 },
-  // OpenRouter — hər model öz ayrı rate limit-inə malikdir
+  // Groq — yalnız llama-3.3-70b json_object dəstəkləyir
+  { id: "llama-3.3-70b-versatile",                provider: "groq",       jsonMode: true,  maxPerCall: 20 },
+  // llama-3.1-8b json_object dəstəkləmir — jsonMode: false
+  { id: "llama-3.1-8b-instant",                   provider: "groq",       jsonMode: false, maxPerCall: 15 },
+  // OpenRouter — mövcud pulsuz modellər (2026)
   { id: "meta-llama/llama-3.3-70b-instruct:free", provider: "openrouter", jsonMode: false, maxPerCall: 12 },
-  { id: "meta-llama/llama-3.1-8b-instruct:free",  provider: "openrouter", jsonMode: false, maxPerCall: 12 },
-  { id: "mistralai/mistral-7b-instruct:free",     provider: "openrouter", jsonMode: false, maxPerCall: 10 },
+  { id: "deepseek/deepseek-chat-v3-0324:free",    provider: "openrouter", jsonMode: false, maxPerCall: 12 },
+  { id: "mistralai/mistral-small-3.1-24b-instruct:free", provider: "openrouter", jsonMode: false, maxPerCall: 10 },
 ];
 
 // ─── JSON parser ──────────────────────────────────────────────────────────────
