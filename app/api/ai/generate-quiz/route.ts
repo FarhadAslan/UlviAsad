@@ -8,33 +8,32 @@ export const runtime    = "nodejs";
 export const maxDuration = 55;
 
 // ─── Worker konfiqurasiyası ───────────────────────────────────────────────────
-// Hər worker: model + provider + öz rate limit-i
-// Fərqli modellər = fərqli rate limit → paralel göndərmək təhlükəsizdir
+// Hər worker fərqli model + fərqli rate limit → paralel göndərmək təhlükəsizdir
 interface Worker {
   id: string;
   provider: "groq" | "openrouter";
   jsonMode: boolean;
-  // Bir sorğuda neçə sual istəmək optimal (token limitinə görə)
-  maxPerCall: number;
+  maxPerCall: number; // bir sorğuda optimal sual sayı
 }
 
-const WORKERS: Worker[] = [
-  // Groq — JSON mode, sürətli
-  { id: "llama-3.3-70b-versatile",                   provider: "groq",       jsonMode: true,  maxPerCall: 15 },
-  { id: "llama-3.1-8b-instant",                      provider: "groq",       jsonMode: true,  maxPerCall: 15 },
+const ALL_WORKERS: Worker[] = [
+  // Groq — JSON mode, sürətli, etibarlı
+  { id: "llama-3.3-70b-versatile",                provider: "groq",       jsonMode: true,  maxPerCall: 15 },
+  { id: "llama-3.1-8b-instant",                   provider: "groq",       jsonMode: true,  maxPerCall: 15 },
   // OpenRouter — hər model öz ayrı rate limit-inə malikdir
-  { id: "meta-llama/llama-3.3-70b-instruct:free",    provider: "openrouter", jsonMode: false, maxPerCall: 12 },
-  { id: "meta-llama/llama-3.1-8b-instruct:free",     provider: "openrouter", jsonMode: false, maxPerCall: 12 },
-  { id: "mistralai/mistral-7b-instruct:free",        provider: "openrouter", jsonMode: false, maxPerCall: 10 },
-  { id: "google/gemma-3-12b-it:free",                provider: "openrouter", jsonMode: false, maxPerCall: 10 },
-  { id: "qwen/qwen3-8b:free",                        provider: "openrouter", jsonMode: false, maxPerCall: 10 },
+  { id: "meta-llama/llama-3.3-70b-instruct:free", provider: "openrouter", jsonMode: false, maxPerCall: 12 },
+  { id: "meta-llama/llama-3.1-8b-instruct:free",  provider: "openrouter", jsonMode: false, maxPerCall: 12 },
+  { id: "mistralai/mistral-7b-instruct:free",     provider: "openrouter", jsonMode: false, maxPerCall: 10 },
 ];
 
 // ─── JSON parser ──────────────────────────────────────────────────────────────
 function extractQuestions(raw: string): any[] | null {
   if (!raw) return null;
   const text = raw
-    .replace(/^```json\s*/im, "").replace(/^```\s*/im, "").replace(/\s*```\s*$/im, "").trim();
+    .replace(/^```json\s*/im, "")
+    .replace(/^```\s*/im, "")
+    .replace(/\s*```\s*$/im, "")
+    .trim();
 
   const tries: Array<() => any> = [
     () => JSON.parse(text),
@@ -97,163 +96,157 @@ async function callWorker(
 
   try {
     const res = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(body) });
-    if (res.status === 429) { console.warn(`[${w.id}] 429`); return null; }
-    if (!res.ok)            { console.warn(`[${w.id}] HTTP ${res.status}`); return null; }
+
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => "");
+      console.warn(`[${w.id}] HTTP ${res.status}: ${errBody.slice(0, 150)}`);
+      return null;
+    }
+
     const data = await res.json().catch(() => null);
     const content = data?.choices?.[0]?.message?.content;
-    if (!content) return null;
-    return extractQuestions(content);
+    if (!content) {
+      console.warn(`[${w.id}] empty content`);
+      return null;
+    }
+
+    const qs = extractQuestions(content);
+    console.log(`[${w.id}] returned ${qs?.length ?? 0} questions`);
+    return qs;
   } catch (e: any) {
-    console.warn(`[${w.id}] ${e?.message}`);
+    console.warn(`[${w.id}] fetch error: ${e?.message}`);
     return null;
   }
 }
 
-// ─── Əsas funksiya: paralel worker + content chunking ────────────────────────
-// Strategiya:
-//   1. Mövcud worker-ləri müəyyən et (groqKey/orKey-ə görə)
-//   2. Bot content varsa → hissələrə böl, hər worker öz hissəsini alır
-//   3. Sualları worker-lər arasında paylaşdır
-//   4. Hamısını eyni anda göndər (Promise.allSettled)
-//   5. Nəticələri birləşdir, dublikatları sil
-//   6. Hələ çatmırsa → uğurlu worker-lərlə retry
-async function generateQuestions(
+// ─── Content-i hissələrə böl ──────────────────────────────────────────────────
+function splitContent(content: string, parts: number): string[] {
+  if (!content || parts <= 1) return [content || ""];
+  const size = Math.ceil(content.length / parts);
+  const chunks: string[] = [];
+  let start = 0;
+  while (start < content.length) {
+    let end = Math.min(start + size, content.length);
+    if (end < content.length) {
+      const sp = content.lastIndexOf(" ", end);
+      if (sp > start) end = sp;
+    }
+    chunks.push(content.slice(start, end).trim());
+    start = end;
+  }
+  return chunks.filter(Boolean);
+}
+
+// ─── Paralel generasiya ───────────────────────────────────────────────────────
+async function generateParallel(
   totalNeeded: number,
   system: string,
-  buildPrompt: (count: number, contentChunk: string, workerIdx: number, attempt: number) => string,
+  buildPrompt: (count: number, chunk: string, workerIdx: number, attempt: number) => string,
   groqKey: string | undefined,
   orKey: string | undefined,
-  contentChunks: string[],  // bot content hissələri (bot yoxdursa [""])
+  contentChunks: string[],
 ): Promise<any[]> {
 
   // Mövcud worker-ləri filtrə et
-  const available = WORKERS.filter(w =>
+  const workers = ALL_WORKERS.filter(w =>
     w.provider === "groq" ? !!groqKey : !!orKey
   );
-  if (available.length === 0) return [];
+
+  if (workers.length === 0) return [];
 
   const collected: any[] = [];
   const seen = new Set<string>();
 
-  const addQuestions = (qs: any[]) => {
+  const addAll = (qs: any[]) => {
     for (const q of qs) {
       const k = q.text?.trim().toLowerCase();
       if (k && !seen.has(k)) { seen.add(k); collected.push(q); }
     }
   };
 
-  // ── Mərhələ 1: İlk paralel dalğa ──────────────────────────────────────────
   // Sualları worker-lər arasında paylaşdır
-  // Content chunk-ları da worker-lər arasında paylaşdır
-  const assignments = buildAssignments(available, totalNeeded, contentChunks);
+  // Hər worker öz maxPerCall limitinə görə pay alır
+  const makeAssignments = (needed: number, wList: Worker[]) => {
+    const total = wList.reduce((s, w) => s + w.maxPerCall, 0);
+    let remaining = needed;
+    return wList.map((w, i) => {
+      const share = i === wList.length - 1
+        ? remaining
+        : Math.min(Math.round((w.maxPerCall / total) * needed), w.maxPerCall, remaining);
+      remaining -= share;
+      const chunk = contentChunks[i % contentChunks.length] || "";
+      return { worker: w, count: share, chunk };
+    }).filter(a => a.count > 0);
+  };
 
-  const wave1 = await Promise.allSettled(
-    assignments.map(({ worker, count, chunk }, idx) =>
+  // ── Dalğa 1: Bütün worker-lər paralel ──────────────────────────────────────
+  const assignments1 = makeAssignments(totalNeeded, workers);
+  console.log(`[wave1] ${assignments1.length} workers, total=${totalNeeded}`);
+
+  const results1 = await Promise.allSettled(
+    assignments1.map(({ worker, count, chunk }, idx) =>
       callWorker(worker, groqKey, orKey, system, buildPrompt(count, chunk, idx, 0))
     )
   );
 
-  const successfulWorkers: Worker[] = [];
-  for (let i = 0; i < wave1.length; i++) {
-    const r = wave1[i];
-    if (r.status === "fulfilled" && r.value) {
-      addQuestions(r.value);
-      successfulWorkers.push(assignments[i].worker);
-    } else {
-      console.warn(`[wave1] worker ${assignments[i].worker.id} uğursuz`);
+  const successWorkers: Worker[] = [];
+  for (let i = 0; i < results1.length; i++) {
+    const r = results1[i];
+    if (r.status === "fulfilled" && r.value && r.value.length > 0) {
+      addAll(r.value);
+      successWorkers.push(assignments1[i].worker);
     }
   }
 
-  // ── Mərhələ 2: Çatmayan suallar üçün retry ────────────────────────────────
-  if (collected.length < totalNeeded && successfulWorkers.length > 0) {
-    const deficit = totalNeeded - collected.length;
-    console.log(`[wave2] ${deficit} sual çatmır, retry...`);
+  console.log(`[wave1] collected=${collected.length}/${totalNeeded}, success=${successWorkers.length}`);
 
-    // Artıq yaradılmış sualları avoid list-ə əlavə et
-    const alreadyCreated = collected.slice(0, 20).map(q => q.text?.slice(0, 60)).filter(Boolean);
-    const avoidNote = alreadyCreated.length > 0
-      ? `\n\nBU SUALLAR ARTIQ YARADILIB — BUNLARA OXŞAR YARATMA:\n${alreadyCreated.join("\n")}\n`
+  // ── Dalğa 2: Çatmırsa retry ─────────────────────────────────────────────────
+  if (collected.length < totalNeeded && successWorkers.length > 0) {
+    const deficit = totalNeeded - collected.length;
+    const avoidNote = collected.length > 0
+      ? `\n\nBU SUALLAR ARTIQ YARADILIB — BUNLARA OXŞAR YARATMA:\n${
+          collected.slice(0, 20).map(q => q.text?.slice(0, 60)).filter(Boolean).join("\n")
+        }\n`
       : "";
 
-    // Uğurlu worker-ləri yenidən işlət
-    const retryAssignments = buildAssignments(successfulWorkers, deficit, contentChunks);
+    const assignments2 = makeAssignments(deficit, successWorkers);
+    console.log(`[wave2] deficit=${deficit}, workers=${assignments2.length}`);
 
-    const wave2 = await Promise.allSettled(
-      retryAssignments.map(({ worker, count, chunk }, idx) =>
+    const results2 = await Promise.allSettled(
+      assignments2.map(({ worker, count, chunk }, idx) =>
         callWorker(worker, groqKey, orKey, system,
           buildPrompt(count, chunk, idx, 1) + avoidNote)
       )
     );
 
-    for (const r of wave2) {
-      if (r.status === "fulfilled" && r.value) addQuestions(r.value);
+    for (const r of results2) {
+      if (r.status === "fulfilled" && r.value) addAll(r.value);
     }
+
+    console.log(`[wave2] collected=${collected.length}/${totalNeeded}`);
   }
 
-  // ── Mərhələ 3: Hələ çatmırsa — ən sürətli worker ilə son cəhd ─────────────
+  // ── Dalğa 3: Hələ çatmırsa — ən etibarlı worker ilə son cəhd ───────────────
   if (collected.length < totalNeeded) {
     const deficit = totalNeeded - collected.length;
-    const fastWorker = available.find(w => w.provider === "groq") || available[0];
-    console.log(`[wave3] ${deficit} sual çatmır, son cəhd: ${fastWorker.id}`);
-
-    const alreadyCreated = collected.slice(0, 30).map(q => q.text?.slice(0, 60)).filter(Boolean);
-    const avoidNote = alreadyCreated.length > 0
-      ? `\n\nBU SUALLAR ARTIQ YARADILIB — BUNLARA OXŞAR YARATMA:\n${alreadyCreated.join("\n")}\n`
+    // Groq-u üstün tut, yoxdursa ilk mövcud worker
+    const best = workers.find(w => w.provider === "groq") || workers[0];
+    const avoidNote = collected.length > 0
+      ? `\n\nBU SUALLAR ARTIQ YARADILIB — BUNLARA OXŞAR YARATMA:\n${
+          collected.slice(0, 30).map(q => q.text?.slice(0, 60)).filter(Boolean).join("\n")
+        }\n`
       : "";
 
+    console.log(`[wave3] deficit=${deficit}, worker=${best.id}`);
     const qs = await callWorker(
-      fastWorker, groqKey, orKey, system,
-      buildPrompt(deficit + 3, contentChunks[0] || "", 0, 2) + avoidNote
+      best, groqKey, orKey, system,
+      buildPrompt(deficit + 2, contentChunks[0] || "", 0, 2) + avoidNote
     );
-    if (qs) addQuestions(qs);
+    if (qs) addAll(qs);
+    console.log(`[wave3] final=${collected.length}/${totalNeeded}`);
   }
 
   return collected.slice(0, totalNeeded);
-}
-
-// ─── Worker assignment: sualları və content-i worker-lər arasında paylaşdır ──
-function buildAssignments(
-  workers: Worker[],
-  totalCount: number,
-  contentChunks: string[],
-): Array<{ worker: Worker; count: number; chunk: string }> {
-  if (workers.length === 0) return [];
-
-  // Hər worker-ə neçə sual düşür
-  const base = Math.floor(totalCount / workers.length);
-  const rem  = totalCount % workers.length;
-
-  return workers.map((worker, i) => {
-    const count = Math.min(
-      base + (i < rem ? 1 : 0),
-      worker.maxPerCall,
-    );
-    // Content chunk-ları worker-lər arasında dövri paylaşdır
-    const chunk = contentChunks[i % contentChunks.length] || "";
-    return { worker, count, chunk };
-  }).filter(a => a.count > 0);
-}
-
-// ─── Content-i hissələrə böl ──────────────────────────────────────────────────
-function splitContent(content: string, workerCount: number): string[] {
-  if (!content || workerCount <= 1) return [content || ""];
-
-  const chunkSize = Math.ceil(content.length / workerCount);
-  const chunks: string[] = [];
-  let start = 0;
-
-  while (start < content.length) {
-    let end = Math.min(start + chunkSize, content.length);
-    // Söz ortasında kəsmə
-    if (end < content.length) {
-      const lastSpace = content.lastIndexOf(" ", end);
-      if (lastSpace > start) end = lastSpace;
-    }
-    chunks.push(content.slice(start, end).trim());
-    start = end;
-  }
-
-  return chunks.filter(Boolean);
 }
 
 // ─── Normalize ────────────────────────────────────────────────────────────────
@@ -377,6 +370,7 @@ export async function POST(req: NextRequest) {
 
     const groqKey = process.env.GROQ_API_KEY;
     const orKey   = process.env.OPENROUTER_API_KEY;
+
     if (!groqKey && !orKey) {
       return NextResponse.json({ error: "AI API açarı konfiqurasiya edilməyib." }, { status: 503 });
     }
@@ -386,11 +380,6 @@ export async function POST(req: NextRequest) {
 
     if (!title?.trim()) return NextResponse.json({ error: "Quiz başlığı tələb olunur" }, { status: 400 });
     if (questionCount < 1 || questionCount > 50) return NextResponse.json({ error: "Sual sayı 1-50 arasında olmalıdır" }, { status: 400 });
-
-    // ── Mövcud worker sayını hesabla ──
-    const availableCount = WORKERS.filter(w =>
-      w.provider === "groq" ? !!groqKey : !!orKey
-    ).length;
 
     // ── Bot məlumatları ──
     let systemPrompt = `Sən yüksək keyfiyyətli quiz sualları yaradan ixtisaslaşmış AI assistentsən.
@@ -442,10 +431,12 @@ Cavabı YALNIZ JSON formatında ver:
     }
 
     // ── Content-i worker sayına görə hissələrə böl ──
-    // Bot content varsa → hər worker öz hissəsini alır
-    // Bot content yoxdursa → hamısı eyni boş string alır
+    const workerCount = ALL_WORKERS.filter(w =>
+      w.provider === "groq" ? !!groqKey : !!orKey
+    ).length;
+
     const contentChunks = botContent
-      ? splitContent(botContent, availableCount)
+      ? splitContent(botContent, workerCount)
       : [""];
 
     // ── Prompt builder ──
@@ -483,7 +474,7 @@ Cavabı YALNIZ JSON formatında ver, ${count} sual ilə:
     };
 
     // ── Paralel generasiya ──
-    const rawQs = await generateQuestions(
+    const rawQs = await generateParallel(
       questionCount, systemPrompt, buildPrompt,
       groqKey, orKey, contentChunks,
     );
@@ -498,7 +489,7 @@ Cavabı YALNIZ JSON formatında ver, ${count} sual ilə:
     return NextResponse.json({
       questions:       rawQs.map(q => normalizeQ(q, false)),
       reviewQuestions: wrongQs.map(q => normalizeQ(q, true)),
-      meta: { requested: questionCount, generated: rawQs.length, workers: availableCount },
+      meta: { requested: questionCount, generated: rawQs.length },
     });
 
   } catch (err: any) {
