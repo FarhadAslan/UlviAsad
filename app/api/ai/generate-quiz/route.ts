@@ -385,14 +385,10 @@ Cavabı YALNIZ JSON formatında ver:
       }
     }
 
-    // ── Content-i worker sayına görə hissələrə böl ──
-    const workerCount = ALL_WORKERS.filter(w =>
-      w.provider === "groq" ? !!groqKey : !!orKey
-    ).length;
-
-    const contentChunks = botContent
-      ? splitContent(botContent, workerCount)
-      : [""];
+    // ── Content məhdudlaşdırması ──
+    // Bot content varsa — max 2500 simvol (token limitinə görə)
+    // Böyük content-lər truncate edilir
+    const safeContent = botContent ? botContent.slice(0, 2500) : "";
 
     // ── Prompt builder ──
     const lang     = language === "az" ? "Azərbaycan dilində" : language === "ru" ? "Rus dilində" : "İngilis dilində";
@@ -410,7 +406,8 @@ Cavabı YALNIZ JSON formatında ver:
     const aspects = ["", " Fərqli aspektlərə fokuslan.", " Praktiki suallar yarat.", " Nəzəri suallar yarat.", " Müqayisəli suallar yarat."];
 
     const buildPrompt = (count: number, chunk: string, workerIdx: number, attempt: number): string => {
-      const ctx   = chunk ? `\n\nBilik bazası:\n---\n${chunk}\n---\n` : "";
+      // chunk parametri artıq istifadə edilmir — safeContent birbaşa əlavə edilir
+      const ctx   = safeContent ? `\n\nBilik bazası:\n---\n${safeContent}\n---\n` : "";
       const hint  = aspects[workerIdx % aspects.length] || "";
       const retry = attempt > 0 ? ` (cəhd ${attempt + 1} — tamamilə fərqli suallar yarat)` : "";
 
@@ -431,7 +428,7 @@ Cavabı YALNIZ JSON formatında ver, ${count} sual ilə:
     // ── Paralel generasiya ──
     const rawQs = await generateParallel(
       questionCount, systemPrompt, buildPrompt,
-      groqKey, orKey, contentChunks,
+      groqKey, orKey, [""], // contentChunks artıq buildPrompt içindədir
     );
 
     if (rawQs.length === 0) {
