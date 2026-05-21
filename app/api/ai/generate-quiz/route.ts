@@ -173,10 +173,11 @@ async function generateParallel(
     const total = wList.reduce((s, w) => s + w.maxPerCall, 0);
     let remaining = needed;
     return wList.map((w, i) => {
+      if (remaining <= 0) return { worker: w, count: 0, chunk: "" };
       const share = i === wList.length - 1
         ? remaining
         : Math.min(Math.round((w.maxPerCall / total) * needed), w.maxPerCall, remaining);
-      remaining -= share;
+      remaining = Math.max(0, remaining - share);
       const chunk = contentChunks[i % contentChunks.length] || "";
       return { worker: w, count: share, chunk };
     }).filter(a => a.count > 0);
