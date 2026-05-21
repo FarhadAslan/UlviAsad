@@ -21,10 +21,12 @@ const ALL_WORKERS: Worker[] = [
   { id: "llama-3.3-70b-versatile",                provider: "groq",       jsonMode: true,  maxPerCall: 20 },
   // llama-3.1-8b json_object dəstəkləmir — jsonMode: false
   { id: "llama-3.1-8b-instant",                   provider: "groq",       jsonMode: false, maxPerCall: 15 },
-  // OpenRouter — mövcud pulsuz modellər (2026)
+  // OpenRouter — mövcud pulsuz modellər (API-dən yoxlanıldı, 2026-05)
   { id: "meta-llama/llama-3.3-70b-instruct:free", provider: "openrouter", jsonMode: false, maxPerCall: 12 },
-  { id: "deepseek/deepseek-chat-v3-0324:free",    provider: "openrouter", jsonMode: false, maxPerCall: 12 },
-  { id: "mistralai/mistral-small-3.1-24b-instruct:free", provider: "openrouter", jsonMode: false, maxPerCall: 10 },
+  { id: "openai/gpt-oss-120b:free",               provider: "openrouter", jsonMode: false, maxPerCall: 12 },
+  { id: "openai/gpt-oss-20b:free",                provider: "openrouter", jsonMode: false, maxPerCall: 10 },
+  { id: "qwen/qwen3-coder:free",                  provider: "openrouter", jsonMode: false, maxPerCall: 10 },
+  { id: "z-ai/glm-4.5-air:free",                  provider: "openrouter", jsonMode: false, maxPerCall: 10 },
 ];
 
 // ─── JSON parser ──────────────────────────────────────────────────────────────
