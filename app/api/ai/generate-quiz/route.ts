@@ -99,6 +99,32 @@ async function callWorker(
   try {
     const res = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(body) });
 
+    if (res.status === 429) {
+      // Rate limit — error mesajından gözləmə vaxtını çıxar
+      const errData = await res.json().catch(() => null);
+      const errMsg: string = errData?.error?.message || "";
+      console.warn(`[${w.id}] 429: ${errMsg.slice(0, 150)}`);
+
+      // "try again in Xs" formatından saniyəni çıxar
+      const match = errMsg.match(/try again in (\d+(?:\.\d+)?)s/i);
+      const waitSec = match ? Math.ceil(parseFloat(match[1])) + 1 : 15;
+      console.log(`[${w.id}] 429 — ${waitSec}s gözlənilir...`);
+      await new Promise(r => setTimeout(r, waitSec * 1000));
+
+      // Bir dəfə retry
+      const res2 = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(body) });
+      if (!res2.ok) {
+        console.error(`[${w.id}] retry HTTP ${res2.status}`);
+        return null;
+      }
+      const data2 = await res2.json().catch(() => null);
+      const content2 = data2?.choices?.[0]?.message?.content;
+      if (!content2) return null;
+      const qs2 = extractQuestions(content2);
+      console.log(`[${w.id}] retry parsed ${qs2?.length ?? 0} questions`);
+      return qs2;
+    }
+
     if (!res.ok) {
       const errBody = await res.text().catch(() => "");
       console.error(`[${w.id}] HTTP ${res.status}: ${errBody.slice(0, 300)}`);
@@ -173,7 +199,7 @@ async function generateQuestions(
       console.log(`[gen] got ${qs.length}, total=${collected.length}/${totalNeeded}`);
     } else {
       console.warn(`[gen] primary failed, trying OR fallback`);
-      // Primary uğursuz oldu — OpenRouter ilə cəhd et
+      // Primary uğursuz oldu — OpenRouter ilə cəhd et (limit yoxdur)
       if (orFallback) {
         const qs2 = await callWorker(orFallback, groqKey, orKey, system, buildPrompt(askFor, attempt, 1));
         if (qs2 && qs2.length > 0) {
