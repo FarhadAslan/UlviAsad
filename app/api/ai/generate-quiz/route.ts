@@ -160,16 +160,15 @@ async function generateQuestions(
 
   const BATCH = 10; // hər sorğuda max 10 sual
   let attempt = 0;
-  let groqIdx = 0; // Groq model rotation
-  let orIdx   = 0; // OR model rotation
+  let groqIdx = 0;
+  let orIdx   = 0;
 
-  while (collected.length < totalNeeded && attempt < 6) {
+  while (collected.length < totalNeeded && attempt < 3) {
     const stillNeed = totalNeeded - collected.length;
     const askFor = Math.min(stillNeed + 1, BATCH);
 
     console.log(`[gen] attempt=${attempt + 1}, asking=${askFor}, have=${collected.length}/${totalNeeded}`);
 
-    // Əvvəlcə Groq sına
     let qs: any[] | null = null;
     if (groqModels.length > 0) {
       const gm = groqModels[groqIdx % groqModels.length];
@@ -178,11 +177,10 @@ async function generateQuestions(
         console.log(`[gen] Groq(${gm.id}) got ${qs.length}`);
       } else {
         console.warn(`[gen] Groq(${gm.id}) failed → OR fallback`);
-        groqIdx++; // növbəti Groq modeli
+        groqIdx++;
       }
     }
 
-    // Groq uğursuz oldu → OpenRouter sına
     if (!qs && orModels.length > 0) {
       const om = orModels[orIdx % orModels.length];
       qs = await callWorker(om, groqKey, orKey, system, buildPrompt(askFor, attempt, 1));
@@ -194,15 +192,12 @@ async function generateQuestions(
       }
     }
 
-    if (qs && qs.length > 0) {
-      addAll(qs);
-    }
-
+    if (qs && qs.length > 0) addAll(qs);
     attempt++;
 
-    // Daha sual lazımdırsa — 2s fasilə
-    if (collected.length < totalNeeded) {
-      await new Promise(r => setTimeout(r, 2000));
+    // Hələ çatmırsa — qısa fasilə (eyni sorğu daxilində retry)
+    if (collected.length < totalNeeded && attempt < 3) {
+      await new Promise(r => setTimeout(r, 1000));
     }
   }
 

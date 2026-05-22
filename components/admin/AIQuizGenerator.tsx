@@ -35,9 +35,10 @@ const LOADER_CSS = `
   40%{opacity:.7;transform:translateY(0)}
 }`;
 
-// 2 paralel sorğu — hər biri 25 sual, hər biri 55s-ə sığır
-// Server içəridə Groq→OR fallback ilə işləyir
-const PARTS = 2;
+// Tək sorğu — server 10 sual qaytarır, frontend ardıcıl çağırır
+const PARTS = 1;
+const BATCH_SIZE = 10; // hər sorğuda 10 sual
+const BATCH_DELAY_MS = 15000; // sorğular arasında 15s (Groq TPM reset)
 
 export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQuizGeneratorProps) {
   const { success, error } = useToast();
@@ -104,32 +105,34 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
     abortRef.current = ctrl;
 
     try {
-      // Sualları PARTS hissəyə böl, hamısını eyni anda göndər
-      const base = Math.floor(questionCount / PARTS);
-      const rem  = questionCount % PARTS;
-      const parts = Array.from({ length: PARTS }, (_, i) => base + (i < rem ? 1 : 0)).filter(n => n > 0);
-
-      const settled = await Promise.allSettled(parts.map(n => fetchPart(n, ctrl.signal)));
-
       const allQs: any[] = [];
       let reviewQs: any[] = [];
-      let failed = 0;
       const seen = new Set<string>();
 
-      for (const r of settled) {
-        if (r.status === "fulfilled") {
-          for (const q of (r.value.questions || [])) {
-            const k = q.text?.trim().toLowerCase();
-            if (k && !seen.has(k)) { seen.add(k); allQs.push(q); }
-          }
-          if (!reviewQs.length) reviewQs = r.value.reviewQuestions || [];
-        } else {
-          if (r.reason?.name === "AbortError") throw r.reason;
-          failed++;
+      // Neçə batch lazımdır
+      const totalBatches = Math.ceil(questionCount / BATCH_SIZE);
+
+      for (let i = 0; i < totalBatches; i++) {
+        if (ctrl.signal.aborted) break;
+
+        const remaining = questionCount - allQs.length;
+        const batchCount = Math.min(remaining, BATCH_SIZE);
+
+        setProgressText(`${allQs.length}/${questionCount} sual yaradıldı...`);
+
+        const data = await fetchPart(batchCount, ctrl.signal);
+        for (const q of (data.questions || [])) {
+          const k = q.text?.trim().toLowerCase();
+          if (k && !seen.has(k)) { seen.add(k); allQs.push(q); }
+        }
+        if (!reviewQs.length) reviewQs = data.reviewQuestions || [];
+
+        // Son batch deyilsə — Groq TPM reset üçün gözlə
+        if (i < totalBatches - 1 && allQs.length < questionCount) {
+          setProgressText(`${allQs.length}/${questionCount} sual — növbəti batch üçün gözlənilir...`);
+          await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
         }
       }
-
-      setFailedParts(failed);
 
       if (allQs.length === 0) { error("AI heç bir sual yarada bilmədi. Yenidən cəhd edin."); return; }
 
