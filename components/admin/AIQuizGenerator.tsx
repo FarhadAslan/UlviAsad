@@ -35,9 +35,9 @@ const LOADER_CSS = `
   40%{opacity:.7;transform:translateY(0)}
 }`;
 
-// Tək sorğu — server içəridə ardıcıl retry ilə işləyir
-// Rate limit problemi olmur
-const PARTS = 1;
+// 2 paralel sorğu — hər biri 25 sual, hər biri 55s-ə sığır
+// Server içəridə Groq→OR fallback ilə işləyir
+const PARTS = 2;
 
 export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQuizGeneratorProps) {
   const { success, error } = useToast();

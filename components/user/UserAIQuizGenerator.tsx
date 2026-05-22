@@ -35,7 +35,7 @@ const LOADER_CSS = `
   40%{opacity:.7;transform:translateY(0)}
 }`;
 
-const PARTS = 1;
+const PARTS = 2;
 
 export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBotId }: UserAIQuizGeneratorProps) {
   const { success, error } = useToast();

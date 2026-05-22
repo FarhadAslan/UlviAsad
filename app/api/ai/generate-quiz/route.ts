@@ -163,7 +163,7 @@ async function generateQuestions(
   let groqIdx = 0; // Groq model rotation
   let orIdx   = 0; // OR model rotation
 
-  while (collected.length < totalNeeded && attempt < 10) {
+  while (collected.length < totalNeeded && attempt < 6) {
     const stillNeed = totalNeeded - collected.length;
     const askFor = Math.min(stillNeed + 1, BATCH);
 
