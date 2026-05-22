@@ -20,12 +20,12 @@ const ALL_WORKERS: Worker[] = [
   { id: "llama-3.3-70b-versatile",                provider: "groq",       jsonMode: true,  maxTokens: 8000 },
   // llama-3.1-8b: TPM=6000 → prompt ~1500t, cavab max 4000t
   { id: "llama-3.1-8b-instant",                   provider: "groq",       jsonMode: false, maxTokens: 4000 },
-  // OpenRouter — pulsuz modellər, limit yoxdur
-  { id: "meta-llama/llama-3.3-70b-instruct:free", provider: "openrouter", jsonMode: false, maxTokens: 8000 },
-  { id: "openai/gpt-oss-120b:free",               provider: "openrouter", jsonMode: false, maxTokens: 8000 },
+  // OpenRouter — rate limit aşağı olanlar əvvəl
   { id: "openai/gpt-oss-20b:free",                provider: "openrouter", jsonMode: false, maxTokens: 8000 },
+  { id: "openai/gpt-oss-120b:free",               provider: "openrouter", jsonMode: false, maxTokens: 8000 },
   { id: "qwen/qwen3-coder:free",                  provider: "openrouter", jsonMode: false, maxTokens: 8000 },
   { id: "z-ai/glm-4.5-air:free",                  provider: "openrouter", jsonMode: false, maxTokens: 8000 },
+  { id: "meta-llama/llama-3.3-70b-instruct:free", provider: "openrouter", jsonMode: false, maxTokens: 8000 },
 ];
 
 // ─── JSON parser ──────────────────────────────────────────────────────────────

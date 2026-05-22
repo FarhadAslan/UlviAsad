@@ -24,7 +24,7 @@ export async function GET() {
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${groqKey}` },
         body: JSON.stringify({
           model: "llama-3.3-70b-versatile",
-          messages: [{ role: "user", content: 'Reply with: {"ok":true}' }],
+          messages: [{ role: "user", content: 'Return this exact JSON: {"ok":true}' }],
           max_tokens: 50,
           response_format: { type: "json_object" },
         }),
@@ -54,7 +54,7 @@ export async function GET() {
           "X-Title": "Muellim Portal",
         },
         body: JSON.stringify({
-          model: "meta-llama/llama-3.3-70b-instruct:free",
+          model: "openai/gpt-oss-20b:free",
           messages: [{ role: "user", content: 'Reply with: {"ok":true}' }],
           max_tokens: 50,
         }),
