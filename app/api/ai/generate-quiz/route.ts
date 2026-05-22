@@ -100,29 +100,11 @@ async function callWorker(
     const res = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(body) });
 
     if (res.status === 429) {
-      // Rate limit — error mesajından gözləmə vaxtını çıxar
+      // Rate limit — gözlətmə, null qaytar ki caller OpenRouter-ə keçsin
       const errData = await res.json().catch(() => null);
       const errMsg: string = errData?.error?.message || "";
-      console.warn(`[${w.id}] 429: ${errMsg.slice(0, 150)}`);
-
-      // "try again in Xs" formatından saniyəni çıxar
-      const match = errMsg.match(/try again in (\d+(?:\.\d+)?)s/i);
-      const waitSec = match ? Math.ceil(parseFloat(match[1])) + 1 : 15;
-      console.log(`[${w.id}] 429 — ${waitSec}s gözlənilir...`);
-      await new Promise(r => setTimeout(r, waitSec * 1000));
-
-      // Bir dəfə retry
-      const res2 = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(body) });
-      if (!res2.ok) {
-        console.error(`[${w.id}] retry HTTP ${res2.status}`);
-        return null;
-      }
-      const data2 = await res2.json().catch(() => null);
-      const content2 = data2?.choices?.[0]?.message?.content;
-      if (!content2) return null;
-      const qs2 = extractQuestions(content2);
-      console.log(`[${w.id}] retry parsed ${qs2?.length ?? 0} questions`);
-      return qs2;
+      console.warn(`[${w.id}] 429 rate limit: ${errMsg.slice(0, 100)}`);
+      return null;
     }
 
     if (!res.ok) {
@@ -149,12 +131,11 @@ async function callWorker(
 }
 
 // ─── Sual generasiyası ────────────────────────────────────────────────────────
-// Groq TPM limitləri (on_demand plan):
-//   llama-3.3-70b: 12,000 TPM — 10 sual ~3400 token → max 3 sorğu/dəq
-//   llama-3.1-8b:  6,000 TPM  — 10 sual ~2800 token → max 2 sorğu/dəq
-//
-// Strategiya: 10 sual × N sorğu, hər sorğu arasında 5s fasilə
-// 50 sual = 5 sorğu × 10 sual, ~25 saniyə
+// Strategiya:
+//   - Hər sorğuda 10 sual istə (Groq TPM limitinə sığır)
+//   - Groq 429 alsa → dərhal OpenRouter-ə keç (fərqli rate limit)
+//   - OpenRouter da uğursuz olsa → növbəti OR modeli sına
+//   - Sorğular arasında 2s fasilə (Groq TPM-i azaltmaq üçün)
 async function generateQuestions(
   totalNeeded: number,
   system: string,
@@ -163,15 +144,10 @@ async function generateQuestions(
   orKey: string | undefined,
 ): Promise<any[]> {
 
-  const allModels = ALL_WORKERS.filter(w =>
-    w.provider === "groq" ? !!groqKey : !!orKey
-  );
+  const groqModels  = ALL_WORKERS.filter(w => w.provider === "groq"       && !!groqKey);
+  const orModels    = ALL_WORKERS.filter(w => w.provider === "openrouter" && !!orKey);
+  const allModels   = [...groqModels, ...orModels];
   if (allModels.length === 0) return [];
-
-  // Əsas model: llama-3.3-70b (ən yaxşı keyfiyyət)
-  const primary = allModels.find(w => w.id === "llama-3.3-70b-versatile") || allModels[0];
-  // Fallback: OpenRouter (limit yoxdur)
-  const orFallback = allModels.find(w => w.provider === "openrouter");
 
   const collected: any[] = [];
   const seen = new Set<string>();
@@ -182,45 +158,55 @@ async function generateQuestions(
     }
   };
 
-  // Hər sorğuda max 10 sual — TPM limitinə sığır (~3400 token)
-  const BATCH = 10;
+  const BATCH = 10; // hər sorğuda max 10 sual
   let attempt = 0;
+  let groqIdx = 0; // Groq model rotation
+  let orIdx   = 0; // OR model rotation
 
-  while (collected.length < totalNeeded) {
+  while (collected.length < totalNeeded && attempt < 10) {
     const stillNeed = totalNeeded - collected.length;
     const askFor = Math.min(stillNeed + 1, BATCH);
 
-    console.log(`[gen] attempt=${attempt + 1}, asking=${askFor}, collected=${collected.length}/${totalNeeded}`);
+    console.log(`[gen] attempt=${attempt + 1}, asking=${askFor}, have=${collected.length}/${totalNeeded}`);
 
-    const qs = await callWorker(primary, groqKey, orKey, system, buildPrompt(askFor, attempt, attempt > 0 ? 1 : 0));
+    // Əvvəlcə Groq sına
+    let qs: any[] | null = null;
+    if (groqModels.length > 0) {
+      const gm = groqModels[groqIdx % groqModels.length];
+      qs = await callWorker(gm, groqKey, orKey, system, buildPrompt(askFor, attempt, attempt > 0 ? 1 : 0));
+      if (qs) {
+        console.log(`[gen] Groq(${gm.id}) got ${qs.length}`);
+      } else {
+        console.warn(`[gen] Groq(${gm.id}) failed → OR fallback`);
+        groqIdx++; // növbəti Groq modeli
+      }
+    }
+
+    // Groq uğursuz oldu → OpenRouter sına
+    if (!qs && orModels.length > 0) {
+      const om = orModels[orIdx % orModels.length];
+      qs = await callWorker(om, groqKey, orKey, system, buildPrompt(askFor, attempt, 1));
+      if (qs) {
+        console.log(`[gen] OR(${om.id}) got ${qs.length}`);
+      } else {
+        console.warn(`[gen] OR(${om.id}) also failed`);
+        orIdx++;
+      }
+    }
 
     if (qs && qs.length > 0) {
       addAll(qs);
-      console.log(`[gen] got ${qs.length}, total=${collected.length}/${totalNeeded}`);
-    } else {
-      console.warn(`[gen] primary failed, trying OR fallback`);
-      // Primary uğursuz oldu — OpenRouter ilə cəhd et (limit yoxdur)
-      if (orFallback) {
-        const qs2 = await callWorker(orFallback, groqKey, orKey, system, buildPrompt(askFor, attempt, 1));
-        if (qs2 && qs2.length > 0) {
-          addAll(qs2);
-          console.log(`[gen] OR got ${qs2.length}, total=${collected.length}/${totalNeeded}`);
-        }
-      }
     }
 
     attempt++;
 
-    // Daha sual lazımdırsa — 5 saniyə gözlə (TPM sayğacı azalır)
+    // Daha sual lazımdırsa — 2s fasilə
     if (collected.length < totalNeeded) {
-      console.log(`[gen] waiting 5s for TPM reset...`);
-      await new Promise(r => setTimeout(r, 5000));
+      await new Promise(r => setTimeout(r, 2000));
     }
-
-    // Sonsuz loop-dan qorun — max 8 cəhd
-    if (attempt >= 8) break;
   }
 
+  console.log(`[gen] final: ${collected.length}/${totalNeeded}`);
   return collected.slice(0, totalNeeded);
 }
 
