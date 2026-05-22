@@ -5,12 +5,24 @@ import { authOptions } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 export const maxDuration = 55;
 
-async function callGroq(apiKey: string, model: string, jsonMode: boolean, count: number, maxTokens: number) {
+const PROMPT_SYS = "Sən quiz sualları yaradan AI assistentsən. Cavabı YALNIZ JSON formatında ver.";
+const PROMPT_USER = (n: number) =>
+  `Azərbaycan dilində "Coğrafiya" mövzusu üzrə DƏQIQ ${n} ədəd test sualı yarat.\nCavabı YALNIZ JSON formatında ver:\n{"questions":[{"text":"Sual","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"}]}`;
+
+async function testModel(
+  endpoint: string,
+  apiKey: string,
+  model: string,
+  jsonMode: boolean,
+  maxTokens: number,
+  count: number,
+  extraHeaders: Record<string, string> = {},
+) {
   const body: any = {
     model,
     messages: [
-      { role: "system", content: "Sən quiz sualları yaradan AI assistentsən. Cavabı YALNIZ JSON formatında ver." },
-      { role: "user", content: `Azərbaycan dilində "Coğrafiya" mövzusu üzrə DƏQIQ ${count} ədəd test sualı yarat.\n\nCavabı YALNIZ JSON formatında ver, ${count} sual ilə:\n{"questions":[{"text":"Sual mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"}]}` },
+      { role: "system", content: PROMPT_SYS },
+      { role: "user",   content: PROMPT_USER(count) },
     ],
     temperature: 0.7,
     max_tokens: maxTokens,
@@ -19,20 +31,20 @@ async function callGroq(apiKey: string, model: string, jsonMode: boolean, count:
 
   const start = Date.now();
   try {
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const res = await fetch(endpoint, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}`, ...extraHeaders },
       body: JSON.stringify(body),
     });
     const elapsed = Date.now() - start;
     const data = await res.json().catch(() => null);
-    const content = data?.choices?.[0]?.message?.content || "";
-    
-    // Count questions in response
+    const content: string = data?.choices?.[0]?.message?.content || "";
+
     let qCount = 0;
     try {
-      const parsed = JSON.parse(content.replace(/^```json\s*/im,"").replace(/\s*```\s*$/im,"").trim());
-      qCount = parsed?.questions?.length || 0;
+      const t = content.replace(/^```json\s*/im, "").replace(/\s*```\s*$/im, "").trim();
+      const p = JSON.parse(t);
+      qCount = p?.questions?.length || (Array.isArray(p) ? p.length : 0);
     } catch { qCount = -1; }
 
     return {
@@ -41,9 +53,7 @@ async function callGroq(apiKey: string, model: string, jsonMode: boolean, count:
       ok: res.ok,
       elapsed_ms: elapsed,
       questions_parsed: qCount,
-      content_length: content.length,
       error: data?.error?.message || null,
-      content_preview: content.slice(0, 200),
     };
   } catch (e: any) {
     return { model, error: e?.message, elapsed_ms: Date.now() - start };
@@ -58,26 +68,39 @@ export async function GET() {
     }
 
     const groqKey = process.env.GROQ_API_KEY;
-    if (!groqKey) return NextResponse.json({ error: "GROQ_API_KEY yoxdur" });
+    const orKey   = process.env.OPENROUTER_API_KEY;
+    const results: any = { env: { groq: !!groqKey, openrouter: !!orKey } };
 
-    // Test 1: 10 sual — llama-3.3-70b, max_tokens=8000
-    const t10 = await callGroq(groqKey, "llama-3.3-70b-versatile", true, 10, 8000);
-    
-    await new Promise(r => setTimeout(r, 1000));
-    
-    // Test 2: 27 sual — llama-3.3-70b, max_tokens=8000
-    const t27 = await callGroq(groqKey, "llama-3.3-70b-versatile", true, 27, 8000);
+    // Groq test
+    if (groqKey) {
+      results.groq = await testModel(
+        "https://api.groq.com/openai/v1/chat/completions",
+        groqKey, "llama-3.3-70b-versatile", true, 8000, 5,
+      );
+      await new Promise(r => setTimeout(r, 1000));
+    }
 
-    await new Promise(r => setTimeout(r, 1000));
+    // OpenRouter tests
+    if (orKey) {
+      const orHeaders = { "HTTP-Referer": "https://ulvi-asad-hnez.vercel.app", "X-Title": "Muellim Portal" };
+      const orModels = [
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "openai/gpt-oss-120b:free",
+        "openai/gpt-oss-20b:free",
+        "qwen/qwen3-coder:free",
+        "z-ai/glm-4.5-air:free",
+      ];
+      results.openrouter = {};
+      for (const m of orModels) {
+        results.openrouter[m] = await testModel(
+          "https://openrouter.ai/api/v1/chat/completions",
+          orKey, m, false, 8000, 5, orHeaders,
+        );
+        await new Promise(r => setTimeout(r, 300));
+      }
+    }
 
-    // Test 3: llama-3.1-8b ilə 10 sual, max_tokens=4000
-    const t25b = await callGroq(groqKey, "llama-3.1-8b-instant", false, 10, 4000);
-
-    return NextResponse.json({
-      test_10q: t10,
-      test_27q: t27,
-      test_25q_8b: t25b,
-    });
+    return NextResponse.json(results);
   } catch (err: any) {
     return NextResponse.json({ error: err?.message }, { status: 500 });
   }
