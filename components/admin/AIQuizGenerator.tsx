@@ -35,10 +35,7 @@ const LOADER_CSS = `
   40%{opacity:.7;transform:translateY(0)}
 }`;
 
-// Tək sorğu — server 10 sual qaytarır, frontend ardıcıl çağırır
-const PARTS = 1;
-const BATCH_SIZE = 10; // hər sorğuda 10 sual
-const BATCH_DELAY_MS = 15000; // sorğular arasında 15s (Groq TPM reset)
+
 
 export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQuizGeneratorProps) {
   const { success, error } = useToast();
@@ -81,17 +78,6 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
     setProgress(val);
   };
 
-  const fetchPart = async (count: number, signal: AbortSignal) => {
-    const res = await fetch("/api/ai/generate-quiz", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, questionCount: count, category, language, botId: botId || undefined, avoidTexts: [] }),
-      signal,
-    });
-    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `HTTP ${res.status}`); }
-    return res.json() as Promise<{ questions: any[]; reviewQuestions: any[] }>;
-  };
-
   const handleGenerate = async () => {
     if (!title.trim()) { error("Quiz mövzusu daxil edin"); return; }
     if (questionCount < 1 || questionCount > 50) { error("Sual sayı 1-50 arasında olmalıdır"); return; }
@@ -105,49 +91,18 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
     abortRef.current = ctrl;
 
     try {
-      const allQs: any[] = [];
-      let reviewQs: any[] = [];
-      const seen = new Set<string>();
+      setProgressText(`AI modelləri paralel işləyir — ${questionCount} sual...`);
+      const res = await fetch("/api/ai/generate-quiz", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, questionCount, category, language, botId: botId || undefined, avoidTexts: [] }),
+        signal: ctrl.signal,
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `HTTP ${res.status}`); }
+      const data = await res.json() as { questions: any[]; reviewQuestions: any[] };
 
-      // Dinamik batch — çatışmayan suallar üçün əlavə batch göndərilir
-      const baseBatches = Math.ceil(questionCount / BATCH_SIZE);
-      const MAX_BATCHES = baseBatches + 3; // max 3 əlavə top-up batch
-      let batchNum = 0;
-
-      while (allQs.length < questionCount && batchNum < MAX_BATCHES) {
-        if (ctrl.signal.aborted) break;
-
-        const remaining = questionCount - allQs.length;
-        const batchCount = Math.min(remaining, BATCH_SIZE);
-        if (batchCount <= 0) break;
-
-        const isTopUp = batchNum >= baseBatches;
-        setProgressText(isTopUp
-          ? `${allQs.length}/${questionCount} sual — çatışmayan suallar tamamlanır...`
-          : `${allQs.length}/${questionCount} sual yaradıldı...`);
-
-        try {
-          const data = await fetchPart(batchCount, ctrl.signal);
-          for (const q of (data.questions || [])) {
-            const k = q.text?.trim().toLowerCase();
-            if (k && !seen.has(k)) { seen.add(k); allQs.push(q); }
-          }
-          if (!reviewQs.length) reviewQs = data.reviewQuestions || [];
-        } catch (batchErr: any) {
-          if (batchErr?.name === "AbortError") throw batchErr;
-          setFailedParts(prev => prev + 1);
-          console.warn(`[batch ${batchNum + 1}] failed:`, batchErr?.message);
-        }
-
-        batchNum++;
-
-        // Hələ çatmırsa — növbəti batch üçün gözlə
-        if (allQs.length < questionCount && batchNum < MAX_BATCHES) {
-          const delay = isTopUp ? 5000 : BATCH_DELAY_MS; // top-up batch-lər üçün qısa gözləmə
-          setProgressText(`${allQs.length}/${questionCount} sual — növbəti batch üçün gözlənilir...`);
-          await new Promise(r => setTimeout(r, delay));
-        }
-      }
+      const allQs = data.questions || [];
+      const reviewQs = data.reviewQuestions || [];
 
       if (allQs.length === 0) { error("AI heç bir sual yarada bilmədi. Yenidən cəhd edin."); return; }
 

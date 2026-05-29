@@ -130,13 +130,13 @@ async function callWorker(
   }
 }
 
-// ─── Sual generasiyası ────────────────────────────────────────────────────────
+// ─── Sual generasiyası (PARALEL) ──────────────────────────────────────────────
 // Strategiya:
-//   - Hər sorğuda 10 sual istə (Groq TPM limitinə sığır)
-//   - Groq 429 alsa → dərhal OpenRouter-ə keç (fərqli rate limit)
-//   - OpenRouter da uğursuz olsa → növbəti OR modeli sına
-//   - Sorğular arasında 500ms fasilə (Groq TPM-i azaltmaq üçün)
-//   - Max 6 cəhd, hər cəhddə +3 artıq sual istə (deduplikasiya itkisini kompensasiya)
+//   - Bütün mövcud modelləri PARALEL çağır (Promise.allSettled)
+//   - Hər modelə deduplikasiya buferi ilə sual say (+5 artıq)
+//   - 1 Groq + 2-3 OpenRouter modeli eyni anda → rate limitə düşmür
+//   - Max 2 round: ilk paralel round + çatışmırsa 1 əlavə round
+//   - Round-lar arası yalnız 200ms fasilə
 async function generateQuestions(
   totalNeeded: number,
   system: string,
@@ -147,8 +147,7 @@ async function generateQuestions(
 
   const groqModels  = ALL_WORKERS.filter(w => w.provider === "groq"       && !!groqKey);
   const orModels    = ALL_WORKERS.filter(w => w.provider === "openrouter" && !!orKey);
-  const allModels   = [...groqModels, ...orModels];
-  if (allModels.length === 0) return [];
+  if (groqModels.length === 0 && orModels.length === 0) return [];
 
   const collected: any[] = [];
   const seen = new Set<string>();
@@ -159,48 +158,59 @@ async function generateQuestions(
     }
   };
 
-  const BATCH = 10; // hər sorğuda max 10 sual
-  const MAX_ATTEMPTS = 6; // deduplikasiya itkisini kompensasiya etmək üçün daha çox cəhd
-  let attempt = 0;
-  let groqIdx = 0;
-  let orIdx   = 0;
+  // ── Paralel round: modellər arasında sualları böl ──
+  const MAX_ROUNDS = 3;
 
-  while (collected.length < totalNeeded && attempt < MAX_ATTEMPTS) {
+  for (let round = 0; round < MAX_ROUNDS && collected.length < totalNeeded; round++) {
     const stillNeed = totalNeeded - collected.length;
-    // +3 artıq istə — AI bəzən tələb olunandan az yaradır, deduplikasiya da sual itirir
-    const askFor = Math.min(stillNeed + 3, BATCH);
+    if (stillNeed <= 0) break;
 
-    console.log(`[gen] attempt=${attempt + 1}, asking=${askFor}, have=${collected.length}/${totalNeeded}`);
-
-    let qs: any[] | null = null;
+    // Hər round-da istifadə ediləcək modelləri seç:
+    //   - Round 0: 1 Groq (70b) + 2 OpenRouter (fərqli modellər)
+    //   - Round 1+: Növbəti modellər (əvvəlkilərdən fərqli)
+    const roundWorkers: Worker[] = [];
     if (groqModels.length > 0) {
-      const gm = groqModels[groqIdx % groqModels.length];
-      qs = await callWorker(gm, groqKey, orKey, system, buildPrompt(askFor, attempt, attempt > 0 ? 1 : 0));
-      if (qs) {
-        console.log(`[gen] Groq(${gm.id}) got ${qs.length}`);
+      roundWorkers.push(groqModels[round % groqModels.length]);
+    }
+    // Hər round-da 2-3 OR modeli əlavə et (rate limit fərqli olduğu üçün paralel çağırılır)
+    const orCount = Math.min(3, orModels.length);
+    for (let i = 0; i < orCount; i++) {
+      const idx = (round * orCount + i) % orModels.length;
+      const m = orModels[idx];
+      if (!roundWorkers.some(w => w.id === m.id)) roundWorkers.push(m);
+    }
+
+    if (roundWorkers.length === 0) break;
+
+    // Hər modelə neçə sual istəməli: bərabər böl + deduplikasiya buferi
+    const perWorker = Math.ceil(stillNeed / roundWorkers.length) + 5;
+    // Max 25 sual (token limitinə görə)
+    const askEach = Math.min(perWorker, 25);
+
+    console.log(`[gen] round=${round + 1}, workers=${roundWorkers.length}, askEach=${askEach}, have=${collected.length}/${totalNeeded}`);
+
+    // PARALEL ÇAĞIRIŞ — bütün modellər eyni anda
+    const promises = roundWorkers.map((w, i) =>
+      callWorker(w, groqKey, orKey, system, buildPrompt(askEach, i, round))
+    );
+    const results = await Promise.allSettled(promises);
+
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      if (r.status === "fulfilled" && r.value && r.value.length > 0) {
+        console.log(`[gen] ${roundWorkers[i].id} → ${r.value.length} sual`);
+        addAll(r.value);
       } else {
-        console.warn(`[gen] Groq(${gm.id}) failed → OR fallback`);
-        groqIdx++;
+        const reason = r.status === "rejected" ? r.reason?.message : "null response";
+        console.warn(`[gen] ${roundWorkers[i].id} uğursuz: ${reason}`);
       }
     }
 
-    if (!qs && orModels.length > 0) {
-      const om = orModels[orIdx % orModels.length];
-      qs = await callWorker(om, groqKey, orKey, system, buildPrompt(askFor, attempt, 1));
-      if (qs) {
-        console.log(`[gen] OR(${om.id}) got ${qs.length}`);
-      } else {
-        console.warn(`[gen] OR(${om.id}) also failed`);
-        orIdx++;
-      }
-    }
+    console.log(`[gen] round ${round + 1} done: ${collected.length}/${totalNeeded}`);
 
-    if (qs && qs.length > 0) addAll(qs);
-    attempt++;
-
-    // Hələ çatmırsa — qısa fasilə (eyni sorğu daxilində retry)
-    if (collected.length < totalNeeded && attempt < MAX_ATTEMPTS) {
-      await new Promise(r => setTimeout(r, 500));
+    // Hələ çatmırsa və daha round varsa — qısa fasilə
+    if (collected.length < totalNeeded && round < MAX_ROUNDS - 1) {
+      await new Promise(r => setTimeout(r, 200));
     }
   }
 
