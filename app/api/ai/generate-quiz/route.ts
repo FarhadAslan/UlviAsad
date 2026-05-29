@@ -28,10 +28,13 @@ const GROQ_WORKERS: Worker[] = [
 ];
 
 const OR_WORKERS: Worker[] = [
-  { id: "meta-llama/llama-3.3-70b-instruct:free", provider: "openrouter", jsonMode: false, maxTokens: 8000 },
-  { id: "google/gemma-3-27b-it:free",              provider: "openrouter", jsonMode: false, maxTokens: 8000 },
-  { id: "qwen/qwen3-14b:free",                     provider: "openrouter", jsonMode: false, maxTokens: 8000 },
-  { id: "mistralai/mistral-7b-instruct:free",       provider: "openrouter", jsonMode: false, maxTokens: 8000 },
+  { id: "openrouter/free",                         provider: "openrouter", jsonMode: false, maxTokens: 8000 },
+  { id: "deepseek/deepseek-v4-flash:free",         provider: "openrouter", jsonMode: false, maxTokens: 8000 },
+  { id: "google/gemma-4-31b-it:free",              provider: "openrouter", jsonMode: false, maxTokens: 8000 },
+  { id: "qwen/qwen3-coder:free",                   provider: "openrouter", jsonMode: false, maxTokens: 8000 },
+  { id: "minimax/minimax-m2.5:free",               provider: "openrouter", jsonMode: false, maxTokens: 8000 },
+  { id: "meta-llama/llama-3.3-70b-instruct:free",  provider: "openrouter", jsonMode: false, maxTokens: 8000 },
+  { id: "meta-llama/llama-3.2-3b-instruct:free",  provider: "openrouter", jsonMode: false, maxTokens: 4000 },
 ];
 
 // ─── JSON parser ──────────────────────────────────────────────────────────────
@@ -89,8 +92,13 @@ function isValidQuestion(q: any): boolean {
   if (!q.text || typeof q.text !== "string" || q.text.trim().length < 5) return false;
   if (!Array.isArray(q.options) || q.options.length < 2) return false;
   if (!q.correctOption) return false;
-  // Hər option-ın text sahəsi olmalıdır
-  return q.options.every((o: any) => o && typeof o.text === "string" && o.text.trim().length > 0);
+  // Hər option ya sətir olmalıdır ya da obyekt və text sahəsi olmalıdır
+  return q.options.every((o: any) => {
+    if (!o) return false;
+    if (typeof o === "string" && o.trim().length > 0) return true;
+    if (typeof o === "object" && typeof o.text === "string" && o.text.trim().length > 0) return true;
+    return false;
+  });
 }
 
 // ─── Tək model çağırışı ───────────────────────────────────────────────────────
@@ -101,9 +109,9 @@ async function callWorker(
   system:     string,
   userPrompt: string,
   retryCount: number = 0
-): Promise<any[] | null> {
+): Promise<any[]> {
   const key = w.provider === "groq" ? groqKey : orKey;
-  if (!key) return null;
+  if (!key) throw new Error(`[${w.id}] API açarı tapılmadı (missing key)`);
 
   const endpoint = w.provider === "groq"
     ? "https://api.groq.com/openai/v1/chat/completions"
@@ -143,7 +151,7 @@ async function callWorker(
 
     if (res.status === 429) {
       const errData = await res.json().catch(() => null);
-      console.warn(`[${w.id}] 429 rate limit: ${String(errData?.error?.message || "").slice(0, 80)}`);
+      const limitMsg = String(errData?.error?.message || "Rate limit").slice(0, 80);
       
       // Auto-retry one time after 2.5 seconds
       if (retryCount === 0) {
@@ -151,39 +159,39 @@ async function callWorker(
         await new Promise(r => setTimeout(r, 2500));
         return callWorker(w, groqKey, orKey, system, userPrompt, 1);
       }
-      return null;
+      throw new Error(`[${w.id}] 429 limit: ${limitMsg}`);
     }
     if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      console.error(`[${w.id}] HTTP ${res.status}: ${body.slice(0, 200)}`);
-      return null;
+      const errText = await res.text().catch(() => "");
+      throw new Error(`[${w.id}] HTTP ${res.status}: ${errText.slice(0, 100)}`);
     }
 
     const data    = await res.json().catch(() => null);
     const content = data?.choices?.[0]?.message?.content;
     if (!content) {
-      console.error(`[${w.id}] boş cavab`);
-      return null;
+      throw new Error(`[${w.id}] boş cavab (empty response)`);
     }
 
     const qs = extractQuestions(content);
     if (!qs) {
-      console.error(`[${w.id}] JSON parse uğursuz: ${content.slice(0, 150)}`);
-      return null;
+      throw new Error(`[${w.id}] JSON parse xətası (content: ${content.slice(0, 50)}...)`);
     }
 
     const valid = qs.filter(isValidQuestion);
+    if (valid.length === 0) {
+      throw new Error(`[${w.id}] ${qs.length} sualdan heç biri valid deyil`);
+    }
+
     console.log(`[${w.id}] ✓ ${valid.length}/${qs.length} etibarlı sual`);
-    return valid.length > 0 ? valid : null;
+    return valid;
 
   } catch (e: any) {
     clearTimeout(timer);
     if (e?.name === "AbortError") {
-      console.warn(`[${w.id}] timeout (${WORKER_TIMEOUT_MS}ms)`);
+      throw new Error(`[${w.id}] timeout (${WORKER_TIMEOUT_MS}ms)`);
     } else {
-      console.error(`[${w.id}] xəta: ${e?.message}`);
+      throw e;
     }
-    return null;
   }
 }
 
@@ -193,10 +201,20 @@ const LABELS = ["A", "B", "C", "D"];
 function normalizeQuestion(q: any): any {
   // Options normallaşdır
   const rawOptions: { label: string; text: string }[] = Array.isArray(q.options)
-    ? q.options.map((o: any, i: number) => ({
-        label: (o.label || LABELS[i] || String.fromCharCode(65 + i)).toUpperCase(),
-        text:  String(o.text || "").trim(),
-      }))
+    ? q.options.map((o: any, i: number) => {
+        let textVal = "";
+        let labelVal = LABELS[i] || String.fromCharCode(65 + i);
+        if (o && typeof o === "object") {
+          textVal = String(o.text || "").trim();
+          if (o.label) labelVal = String(o.label).toUpperCase();
+        } else if (typeof o === "string") {
+          textVal = o.trim();
+        }
+        return {
+          label: labelVal,
+          text: textVal,
+        };
+      })
     : LABELS.map(l => ({ label: l, text: "" }));
 
   // Düzgün cavabın mətni
@@ -237,13 +255,13 @@ async function generateAllParallel(
   buildPrompt: (count: number, hint: string) => string,
   groqKey:     string | undefined,
   orKey:       string | undefined,
-): Promise<any[]> {
+): Promise<{ questions: any[]; errors: string[] }> {
 
   const availableGroq = groqKey ? GROQ_WORKERS : [];
   const availableOR   = orKey   ? OR_WORKERS   : [];
   const allWorkers    = [...availableGroq, ...availableOR];
 
-  if (allWorkers.length === 0) return [];
+  if (allWorkers.length === 0) return { questions: [], errors: ["API açarları tapılmadı"] };
 
   // Fərqlı aspekt göstəriciləri — hər model fərqli suallar yaratması üçün
   const hints = [
@@ -263,6 +281,7 @@ async function generateAllParallel(
 
   const collected: any[] = [];
   const seen = new Set<string>();
+  const errors: string[] = [];
 
   const addQuestions = (qs: any[]) => {
     for (const q of qs) {
@@ -292,7 +311,8 @@ async function generateAllParallel(
         addQuestions(qs);
       }
     } catch (e: any) {
-      console.log(`[gen] worker ${w.id} failed:`, e?.message);
+      console.error(`[gen] worker ${w.id} failed:`, e?.message);
+      errors.push(e?.message || `[${w.id}] Bilinməyən xəta`);
     }
   });
 
@@ -325,7 +345,10 @@ async function generateAllParallel(
   const elapsed = Date.now() - startTime;
   console.log(`[gen] tamamlandı: ${collected.length}/${totalNeeded} sual, ${elapsed}ms`);
 
-  return collected.slice(0, totalNeeded);
+  return {
+    questions: collected.slice(0, totalNeeded),
+    errors,
+  };
 }
 
 // ─── POST handler ─────────────────────────────────────────────────────────────
@@ -423,7 +446,7 @@ Cavabı YALNIZ JSON formatında ver, DƏQIQ ${count} sual ilə:
     };
 
     // ── Paralel generasiya ──
-    const rawQuestions = await generateAllParallel(
+    const genResult = await generateAllParallel(
       questionCount,
       systemPrompt,
       buildPrompt,
@@ -431,9 +454,14 @@ Cavabı YALNIZ JSON formatında ver, DƏQIQ ${count} sual ilə:
       orKey,
     );
 
+    const rawQuestions = genResult.questions;
+
     if (rawQuestions.length === 0) {
+      const errorDetails = genResult.errors.length > 0
+        ? "\n\nƏtraflı xətalar:\n" + genResult.errors.join("\n")
+        : "";
       return NextResponse.json(
-        { error: "AI sual yarada bilmədi. API limitləri dolmuş ola bilər — bir neçə saniyə gözləyib yenidən cəhd edin." },
+        { error: `AI sual yarada bilmədi. API limitləri dolmuş ola bilər — bir neçə saniyə gözləyib yenidən cəhd edin.${errorDetails}` },
         { status: 502 }
       );
     }
