@@ -23,8 +23,6 @@ interface Worker {
 const GROQ_WORKERS: Worker[] = [
   { id: "llama-3.3-70b-versatile", provider: "groq", jsonMode: true,  maxTokens: 8000 },
   { id: "llama-3.1-8b-instant",    provider: "groq", jsonMode: false, maxTokens: 4000 },
-  { id: "gemma2-9b-it",            provider: "groq", jsonMode: false, maxTokens: 4000 },
-  { id: "mixtral-8x7b-32768",      provider: "groq", jsonMode: false, maxTokens: 4000 },
 ];
 
 const OR_WORKERS: Worker[] = [
@@ -32,7 +30,6 @@ const OR_WORKERS: Worker[] = [
   { id: "deepseek/deepseek-v4-flash:free",         provider: "openrouter", jsonMode: false, maxTokens: 8000 },
   { id: "google/gemma-4-31b-it:free",              provider: "openrouter", jsonMode: false, maxTokens: 8000 },
   { id: "qwen/qwen3-coder:free",                   provider: "openrouter", jsonMode: false, maxTokens: 8000 },
-  { id: "minimax/minimax-m2.5:free",               provider: "openrouter", jsonMode: false, maxTokens: 8000 },
   { id: "meta-llama/llama-3.3-70b-instruct:free",  provider: "openrouter", jsonMode: false, maxTokens: 8000 },
   { id: "meta-llama/llama-3.2-3b-instruct:free",  provider: "openrouter", jsonMode: false, maxTokens: 4000 },
 ];
@@ -248,7 +245,7 @@ function normalizeQuestion(q: any): any {
   };
 }
 
-// ─── Əsas generasiya funksiyası — TAM PARALEL ─────────────────────────────────
+// ─── Əsas generasiya funksiyası — ARDICIL FALLBACK ────────────────────────────
 async function generateAllParallel(
   totalNeeded: number,
   system:      string,
@@ -259,11 +256,41 @@ async function generateAllParallel(
 
   const availableGroq = groqKey ? GROQ_WORKERS : [];
   const availableOR   = orKey   ? OR_WORKERS   : [];
-  const allWorkers    = [...availableGroq, ...availableOR];
+  
+  // Modellərin ardıcıllığı (Fallback Sequence)
+  // Ən stabil və yüksək keyfiyyətli modellər öndə gəlir
+  const activeWorkers: Worker[] = [];
+  
+  // Əgər OpenRouter açarı varsa, onun stabil modellərini önə daxil edirik
+  if (orKey) {
+    activeWorkers.push(
+      ...availableOR.filter(w => w.id === "openrouter/free"),
+      ...availableOR.filter(w => w.id === "deepseek/deepseek-v4-flash:free"),
+      ...availableOR.filter(w => w.id === "google/gemma-4-31b-it:free"),
+      ...availableOR.filter(w => w.id === "qwen/qwen3-coder:free"),
+      ...availableOR.filter(w => w.id === "meta-llama/llama-3.3-70b-instruct:free"),
+    );
+  }
+  
+  // Groq modelləri
+  if (groqKey) {
+    activeWorkers.push(
+      ...availableGroq.filter(w => w.id === "llama-3.3-70b-versatile"),
+      ...availableGroq.filter(w => w.id === "llama-3.1-8b-instant"),
+    );
+  }
+  
+  // Fallback yüngül modellər
+  if (orKey) {
+    activeWorkers.push(
+      ...availableOR.filter(w => w.id === "meta-llama/llama-3.2-3b-instruct:free"),
+    );
+  }
 
-  if (allWorkers.length === 0) return { questions: [], errors: ["API açarları tapılmadı"] };
+  if (activeWorkers.length === 0) {
+    return { questions: [], errors: ["Aktiv AI modeli konfiqurasiya edilməyib"] };
+  }
 
-  // Fərqlı aspekt göstəriciləri — hər model fərqli suallar yaratması üçün
   const hints = [
     "Diqqət: Çox xırda və az bilinən detallardan (niş) çətin suallar yarat.",
     "Diqqət: Yalnız rəqəmlər, illər, miqdarlar və tarixlərlə bağlı suallar yarat.",
@@ -275,9 +302,8 @@ async function generateAllParallel(
     "Diqqət: Mövzunun istisnaları, qayda pozuntuları və nadir halları ilə bağlı suallar yarat."
   ];
 
-  // Bütün worker-lər EYNİ ANDA başlayır
   const startTime = Date.now();
-  console.log(`[gen] ${allWorkers.length} worker paralel başladı, ${totalNeeded} sual lazımdır`);
+  console.log(`[gen] ardıcıl fallback başladı. ${activeWorkers.length} model növbəyə alındı. Lazımdır: ${totalNeeded}`);
 
   const collected: any[] = [];
   const seen = new Set<string>();
@@ -294,56 +320,41 @@ async function generateAllParallel(
     }
   };
 
-  // Worker-ları işə sal və bitdikcə dərhal addQuestions çağır
-  const workerPromises = allWorkers.map(async (w, i) => {
-    // 429 xətasına düşməmək üçün API sorğularına kiçik (stagger) gecikmə veririk
-    if (i > 0) {
-      await new Promise(r => setTimeout(r, i * 400));
+  // Modelləri ardıcıl olaraq yoxlayırıq
+  for (const w of activeWorkers) {
+    if (collected.length >= totalNeeded) break;
+
+    // Safety timeout yoxlaması — Vercel 27s limitinə 6 saniyə qalmış dayandır və əlimizdəkini qaytar
+    const elapsed = Date.now() - startTime;
+    if (elapsed > TOTAL_TIMEOUT_MS - 6000) {
+      console.warn(`[gen] Zaman limitinə yaxınlaşırıq (${elapsed}ms). Dövrü dayandırırıq. Suallar: ${collected.length}`);
+      break;
     }
 
-    // Hər modeldən tam sayı (və ya azı 30) istəyirik ki, 50 suala tez çataq
-    const count  = Math.max(totalNeeded, 30); 
-    const hint   = hints[i % hints.length];
+    const remaining = totalNeeded - collected.length;
+    // Çatışmayan sual sayı qədər (minimum 15 ki, deduplikasiyaya pay qalsın) sorğu göndəririk
+    const count = Math.max(remaining + 3, 15);
+    const hint = hints[Math.floor(Math.random() * hints.length)];
     const prompt = buildPrompt(count, hint);
+
+    console.log(`[gen] model=${w.id} yoxlanılır. Lazımdır=${remaining}, İstənilir=${count}`);
+
     try {
       const qs = await callWorker(w, groqKey, orKey, system, prompt);
       if (qs && Array.isArray(qs)) {
         addQuestions(qs);
+        console.log(`[gen] model=${w.id} uğurla tamamlandı. Cəmi yığılan sual: ${collected.length}/${totalNeeded}`);
+        if (collected.length >= totalNeeded) break;
       }
     } catch (e: any) {
-      console.error(`[gen] worker ${w.id} failed:`, e?.message);
-      errors.push(e?.message || `[${w.id}] Bilinməyən xəta`);
+      const errMsg = e?.message || `${w.id} failed`;
+      console.error(`[gen] model=${w.id} xətası:`, errMsg);
+      errors.push(errMsg);
     }
-  });
-
-  // Hər 500ms yoxlayırıq ki, ehtiyac olan sayda sual yığılıbmı
-  const earlyExitChecker = new Promise<void>(resolve => {
-    const interval = setInterval(() => {
-      if (collected.length >= totalNeeded) {
-        clearInterval(interval);
-        resolve();
-      }
-    }, 500);
-    setTimeout(() => {
-      clearInterval(interval);
-      resolve();
-    }, TOTAL_TIMEOUT_MS);
-  });
-
-  const safetyTimeout = new Promise<void>(resolve => setTimeout(resolve, TOTAL_TIMEOUT_MS));
-
-  // 3 şərtdən hansı tez bitsə: 
-  // 1. Bütün workerlər işini bitirdi
-  // 2. Kifayət qədər sual yığıldı (earlyExitChecker)
-  // 3. 27s vaxt bitdi (safetyTimeout)
-  await Promise.race([
-    Promise.all(workerPromises),
-    earlyExitChecker,
-    safetyTimeout
-  ]);
+  }
 
   const elapsed = Date.now() - startTime;
-  console.log(`[gen] tamamlandı: ${collected.length}/${totalNeeded} sual, ${elapsed}ms`);
+  console.log(`[gen] tamamlandı. Cəmi yığılan: ${collected.length}/${totalNeeded} sual, müddət: ${elapsed}ms`);
 
   return {
     questions: collected.slice(0, totalNeeded),
