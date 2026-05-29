@@ -95,11 +95,12 @@ function isValidQuestion(q: any): boolean {
 
 // ─── Tək model çağırışı ───────────────────────────────────────────────────────
 async function callWorker(
-  w: Worker,
-  groqKey: string | undefined,
-  orKey: string | undefined,
-  system: string,
+  w:          Worker,
+  groqKey:    string | undefined,
+  orKey:      string | undefined,
+  system:     string,
   userPrompt: string,
+  retryCount: number = 0
 ): Promise<any[] | null> {
   const key = w.provider === "groq" ? groqKey : orKey;
   if (!key) return null;
@@ -143,6 +144,13 @@ async function callWorker(
     if (res.status === 429) {
       const errData = await res.json().catch(() => null);
       console.warn(`[${w.id}] 429 rate limit: ${String(errData?.error?.message || "").slice(0, 80)}`);
+      
+      // Auto-retry one time after 2.5 seconds
+      if (retryCount === 0) {
+        console.log(`[${w.id}] rate limit retry in 2.5s...`);
+        await new Promise(r => setTimeout(r, 2500));
+        return callWorker(w, groqKey, orKey, system, userPrompt, 1);
+      }
       return null;
     }
     if (!res.ok) {
@@ -237,23 +245,16 @@ async function generateAllParallel(
 
   if (allWorkers.length === 0) return [];
 
-  // Hər worker neçə sual istəyəcək
-  // Max token limitinə görə: 4000 token ≈ 15-20 sual, 8000 token ≈ 30-35 sual
-  const perWorkerCount = (w: Worker): number => {
-    const maxByTokens = w.maxTokens >= 6000 ? 30 : 20;
-    return Math.min(totalNeeded, maxByTokens);
-  };
-
   // Fərqlı aspekt göstəriciləri — hər model fərqli suallar yaratması üçün
   const hints = [
-    "",
-    " Müxtəlif aspektlərə fokuslan, əvvəlki suallardan tamamilə fərqli suallar yarat.",
-    " Praktiki, tətbiqi suallar yarat. Nəzəriyyədən uzaq ol.",
-    " Nəzəri, konseptual suallar yarat.",
-    " Müqayisəli suallar yarat — iki anlayışı, tarixi, şəxsiyyəti müqayisə et.",
-    " Tarix, ad, rəqəm içərən dəqiq faktual suallar yarat.",
-    " Səbəb-nəticə əlaqəsini yoxlayan suallar yarat.",
-    " Tərif sualları yarat — anlayışın düzgün izahını seç.",
+    "Diqqət: Çox xırda və az bilinən detallardan (niş) çətin suallar yarat.",
+    "Diqqət: Yalnız rəqəmlər, illər, miqdarlar və tarixlərlə bağlı suallar yarat.",
+    "Diqqət: Mövzunun ən məşhur faktlarını yoxlayan təməl/ümumi suallar yarat.",
+    "Diqqət: Məntiqi ardıcıllıq və səbəb-nəticə əlaqəsi tələb edən analitik suallar yarat.",
+    "Diqqət: Təriflər, terminlər və elmi anlayışların izahı ilə bağlı suallar yarat.",
+    "Diqqət: Mövzuya aid şəxsiyyətlər, alimlər, yazıçılar və ya liderlərlə bağlı suallar yarat.",
+    "Diqqət: İki fərqli anlayışı müqayisə edən və fərqlərini soruşan suallar yarat.",
+    "Diqqət: Mövzunun istisnaları, qayda pozuntuları və nadir halları ilə bağlı suallar yarat."
   ];
 
   // Bütün worker-lər EYNİ ANDA başlayır
@@ -265,6 +266,7 @@ async function generateAllParallel(
 
   const addQuestions = (qs: any[]) => {
     for (const q of qs) {
+      if (collected.length >= totalNeeded) break;
       const key = (q.text || "").trim().toLowerCase();
       if (key.length > 5 && !seen.has(key)) {
         seen.add(key);
@@ -273,44 +275,52 @@ async function generateAllParallel(
     }
   };
 
-  // Worker-ları işə sal
-  const workerPromises = allWorkers.map((w, i) => {
-    const count  = perWorkerCount(w);
+  // Worker-ları işə sal və bitdikcə dərhal addQuestions çağır
+  const workerPromises = allWorkers.map(async (w, i) => {
+    // 429 xətasına düşməmək üçün API sorğularına kiçik (stagger) gecikmə veririk
+    if (i > 0) {
+      await new Promise(r => setTimeout(r, i * 400));
+    }
+
+    // Hər modeldən tam sayı (və ya azı 30) istəyirik ki, 50 suala tez çataq
+    const count  = Math.max(totalNeeded, 30); 
     const hint   = hints[i % hints.length];
     const prompt = buildPrompt(count, hint);
-    return callWorker(w, groqKey, orKey, system, prompt);
+    try {
+      const qs = await callWorker(w, groqKey, orKey, system, prompt);
+      if (qs && Array.isArray(qs)) {
+        addQuestions(qs);
+      }
+    } catch (e: any) {
+      console.log(`[gen] worker ${w.id} failed:`, e?.message);
+    }
   });
 
-  // Safety timeout — hər worker 25s içində bitər, bu 27s safety net-dir
-  const safetyTimeout = new Promise<PromiseSettledResult<any[] | null>[]>(resolve =>
-    setTimeout(
-      () => resolve(allWorkers.map(() => ({ status: "fulfilled" as const, value: null }))),
-      TOTAL_TIMEOUT_MS,
-    )
-  );
+  // Hər 500ms yoxlayırıq ki, ehtiyac olan sayda sual yığılıbmı
+  const earlyExitChecker = new Promise<void>(resolve => {
+    const interval = setInterval(() => {
+      if (collected.length >= totalNeeded) {
+        clearInterval(interval);
+        resolve();
+      }
+    }, 500);
+    setTimeout(() => {
+      clearInterval(interval);
+      resolve();
+    }, TOTAL_TIMEOUT_MS);
+  });
 
-  // Ya bütün worker-lər bitir, ya da 27s safety timeout işə düşür
-  const results = await Promise.race([
-    Promise.allSettled(workerPromises),
-    safetyTimeout,
+  const safetyTimeout = new Promise<void>(resolve => setTimeout(resolve, TOTAL_TIMEOUT_MS));
+
+  // 3 şərtdən hansı tez bitsə: 
+  // 1. Bütün workerlər işini bitirdi
+  // 2. Kifayət qədər sual yığıldı (earlyExitChecker)
+  // 3. 27s vaxt bitdi (safetyTimeout)
+  await Promise.race([
+    Promise.all(workerPromises),
+    earlyExitChecker,
+    safetyTimeout
   ]);
-
-  for (const r of results) {
-    if (r.status === "fulfilled" && Array.isArray(r.value)) {
-      addQuestions(r.value);
-    }
-  }
-
-  // Əgər timeout-dan əvvəl bitibsə, nəticələri yığ
-  // (Bu nöqtədə collected artıq doldurulub)
-  const settledResults = await Promise.allSettled(
-    workerPromises.map(p => p.catch(() => null))
-  );
-  for (const r of settledResults) {
-    if (r.status === "fulfilled" && Array.isArray(r.value)) {
-      addQuestions(r.value);
-    }
-  }
 
   const elapsed = Date.now() - startTime;
   console.log(`[gen] tamamlandı: ${collected.length}/${totalNeeded} sual, ${elapsed}ms`);
