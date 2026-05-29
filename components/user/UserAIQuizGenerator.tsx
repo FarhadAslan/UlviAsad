@@ -108,26 +108,43 @@ export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBo
       let reviewQs: any[] = [];
       const seen = new Set<string>();
 
-      const totalBatches = Math.ceil(count / BATCH_SIZE);
+      // Dinamik batch — çatışmayan suallar üçün əlavə batch göndərilir
+      const baseBatches = Math.ceil(count / BATCH_SIZE);
+      const MAX_BATCHES = baseBatches + 3; // max 3 əlavə top-up batch
+      let batchNum = 0;
 
-      for (let i = 0; i < totalBatches; i++) {
+      while (allQs.length < count && batchNum < MAX_BATCHES) {
         if (ctrl.signal.aborted) break;
 
         const remaining = count - allQs.length;
         const batchCount = Math.min(remaining, BATCH_SIZE);
+        if (batchCount <= 0) break;
 
-        setProgressText(`${allQs.length}/${count} sual yaradıldı...`);
+        const isTopUp = batchNum >= baseBatches;
+        setProgressText(isTopUp
+          ? `${allQs.length}/${count} sual — çatışmayan suallar tamamlanır...`
+          : `${allQs.length}/${count} sual yaradıldı...`);
 
-        const data = await fetchPart(batchCount, ctrl.signal);
-        for (const q of (data.questions || [])) {
-          const k = q.text?.trim().toLowerCase();
-          if (k && !seen.has(k)) { seen.add(k); allQs.push(q); }
+        try {
+          const data = await fetchPart(batchCount, ctrl.signal);
+          for (const q of (data.questions || [])) {
+            const k = q.text?.trim().toLowerCase();
+            if (k && !seen.has(k)) { seen.add(k); allQs.push(q); }
+          }
+          if (!reviewQs.length) reviewQs = data.reviewQuestions || [];
+        } catch (batchErr: any) {
+          if (batchErr?.name === "AbortError") throw batchErr;
+          setFailedParts(prev => prev + 1);
+          console.warn(`[batch ${batchNum + 1}] failed:`, batchErr?.message);
         }
-        if (!reviewQs.length) reviewQs = data.reviewQuestions || [];
 
-        if (i < totalBatches - 1 && allQs.length < count) {
+        batchNum++;
+
+        // Hələ çatmırsa — növbəti batch üçün gözlə
+        if (allQs.length < count && batchNum < MAX_BATCHES) {
+          const delay = isTopUp ? 5000 : BATCH_DELAY_MS; // top-up batch-lər üçün qısa gözləmə
           setProgressText(`${allQs.length}/${count} sual — növbəti batch üçün gözlənilir...`);
-          await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
+          await new Promise(r => setTimeout(r, delay));
         }
       }
 

@@ -135,7 +135,8 @@ async function callWorker(
 //   - Hər sorğuda 10 sual istə (Groq TPM limitinə sığır)
 //   - Groq 429 alsa → dərhal OpenRouter-ə keç (fərqli rate limit)
 //   - OpenRouter da uğursuz olsa → növbəti OR modeli sına
-//   - Sorğular arasında 2s fasilə (Groq TPM-i azaltmaq üçün)
+//   - Sorğular arasında 500ms fasilə (Groq TPM-i azaltmaq üçün)
+//   - Max 6 cəhd, hər cəhddə +3 artıq sual istə (deduplikasiya itkisini kompensasiya)
 async function generateQuestions(
   totalNeeded: number,
   system: string,
@@ -159,13 +160,15 @@ async function generateQuestions(
   };
 
   const BATCH = 10; // hər sorğuda max 10 sual
+  const MAX_ATTEMPTS = 6; // deduplikasiya itkisini kompensasiya etmək üçün daha çox cəhd
   let attempt = 0;
   let groqIdx = 0;
   let orIdx   = 0;
 
-  while (collected.length < totalNeeded && attempt < 3) {
+  while (collected.length < totalNeeded && attempt < MAX_ATTEMPTS) {
     const stillNeed = totalNeeded - collected.length;
-    const askFor = Math.min(stillNeed + 1, BATCH);
+    // +3 artıq istə — AI bəzən tələb olunandan az yaradır, deduplikasiya da sual itirir
+    const askFor = Math.min(stillNeed + 3, BATCH);
 
     console.log(`[gen] attempt=${attempt + 1}, asking=${askFor}, have=${collected.length}/${totalNeeded}`);
 
@@ -196,8 +199,8 @@ async function generateQuestions(
     attempt++;
 
     // Hələ çatmırsa — qısa fasilə (eyni sorğu daxilində retry)
-    if (collected.length < totalNeeded && attempt < 3) {
-      await new Promise(r => setTimeout(r, 1000));
+    if (collected.length < totalNeeded && attempt < MAX_ATTEMPTS) {
+      await new Promise(r => setTimeout(r, 500));
     }
   }
 

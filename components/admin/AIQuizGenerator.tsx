@@ -109,28 +109,43 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
       let reviewQs: any[] = [];
       const seen = new Set<string>();
 
-      // Neçə batch lazımdır
-      const totalBatches = Math.ceil(questionCount / BATCH_SIZE);
+      // Dinamik batch — çatışmayan suallar üçün əlavə batch göndərilir
+      const baseBatches = Math.ceil(questionCount / BATCH_SIZE);
+      const MAX_BATCHES = baseBatches + 3; // max 3 əlavə top-up batch
+      let batchNum = 0;
 
-      for (let i = 0; i < totalBatches; i++) {
+      while (allQs.length < questionCount && batchNum < MAX_BATCHES) {
         if (ctrl.signal.aborted) break;
 
         const remaining = questionCount - allQs.length;
         const batchCount = Math.min(remaining, BATCH_SIZE);
+        if (batchCount <= 0) break;
 
-        setProgressText(`${allQs.length}/${questionCount} sual yaradıldı...`);
+        const isTopUp = batchNum >= baseBatches;
+        setProgressText(isTopUp
+          ? `${allQs.length}/${questionCount} sual — çatışmayan suallar tamamlanır...`
+          : `${allQs.length}/${questionCount} sual yaradıldı...`);
 
-        const data = await fetchPart(batchCount, ctrl.signal);
-        for (const q of (data.questions || [])) {
-          const k = q.text?.trim().toLowerCase();
-          if (k && !seen.has(k)) { seen.add(k); allQs.push(q); }
+        try {
+          const data = await fetchPart(batchCount, ctrl.signal);
+          for (const q of (data.questions || [])) {
+            const k = q.text?.trim().toLowerCase();
+            if (k && !seen.has(k)) { seen.add(k); allQs.push(q); }
+          }
+          if (!reviewQs.length) reviewQs = data.reviewQuestions || [];
+        } catch (batchErr: any) {
+          if (batchErr?.name === "AbortError") throw batchErr;
+          setFailedParts(prev => prev + 1);
+          console.warn(`[batch ${batchNum + 1}] failed:`, batchErr?.message);
         }
-        if (!reviewQs.length) reviewQs = data.reviewQuestions || [];
 
-        // Son batch deyilsə — Groq TPM reset üçün gözlə
-        if (i < totalBatches - 1 && allQs.length < questionCount) {
+        batchNum++;
+
+        // Hələ çatmırsa — növbəti batch üçün gözlə
+        if (allQs.length < questionCount && batchNum < MAX_BATCHES) {
+          const delay = isTopUp ? 5000 : BATCH_DELAY_MS; // top-up batch-lər üçün qısa gözləmə
           setProgressText(`${allQs.length}/${questionCount} sual — növbəti batch üçün gözlənilir...`);
-          await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
+          await new Promise(r => setTimeout(r, delay));
         }
       }
 
