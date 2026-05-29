@@ -1,10 +1,15 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Sparkles, X, Loader2, Bot, AlertCircle } from "lucide-react";
+import { Sparkles, X, Loader2, Bot, AlertCircle, CheckCircle2, Zap } from "lucide-react";
 import { useToast } from "@/components/ui/toast-1";
 
-interface AiBot { id: string; name: string; category: string; active: boolean; }
+interface AiBot {
+  id: string;
+  name: string;
+  category: string;
+  active: boolean;
+}
 
 interface AIQuizGeneratorProps {
   onGenerate: (questions: any[], category?: string) => void;
@@ -12,6 +17,7 @@ interface AIQuizGeneratorProps {
   categories: { value: string; label: string }[];
 }
 
+// ── Animasiya CSS ──────────────────────────────────────────────────────────────
 const LOADER_CSS = `
 .ai-lw { position:relative;display:flex;align-items:center;justify-content:center;
   width:160px;height:160px;font-family:"Inter",sans-serif;font-size:1.1em;font-weight:300;
@@ -35,193 +41,246 @@ const LOADER_CSS = `
   40%{opacity:.7;transform:translateY(0)}
 }`;
 
-
+// Frontend timeout — 30 saniyə
+const FRONTEND_TIMEOUT_MS = 30_000;
 
 export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQuizGeneratorProps) {
   const { success, error } = useToast();
-  const [title, setTitle]                 = useState("");
+
+  const [title,         setTitle]         = useState("");
   const [questionCount, setQuestionCount] = useState(10);
-  const [category, setCategory]           = useState("");
-  const [language, setLanguage]           = useState("az");
-  const [botId, setBotId]                 = useState("");
-  const [bots, setBots]                   = useState<AiBot[]>([]);
-  const [botsLoading, setBotsLoading]     = useState(true);
-  const [loading, setLoading]             = useState(false);
-  const [progress, setProgress]           = useState(0);
-  const [progressText, setProgressText]   = useState("");
-  const [failedParts, setFailedParts]     = useState(0);
+  const [category,      setCategory]      = useState("");
+  const [language,      setLanguage]      = useState("az");
+  const [botId,         setBotId]         = useState("");
+  const [bots,          setBots]          = useState<AiBot[]>([]);
+  const [botsLoading,   setBotsLoading]   = useState(true);
+  const [loading,       setLoading]       = useState(false);
+  const [progress,      setProgress]      = useState(0);
+  const [progressText,  setProgressText]  = useState("");
+  const [elapsed,       setElapsed]       = useState(0);
+
   const abortRef    = useRef<AbortController | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timerRef    = useRef<ReturnType<typeof setInterval> | null>(null);
   const fakeRef     = useRef(0);
 
+  // Botları yüklə
   useEffect(() => {
     fetch("/api/ai-bots?active=true", { cache: "no-store" })
-      .then(r => r.json()).then(d => { if (Array.isArray(d)) setBots(d); })
-      .catch(() => {}).finally(() => setBotsLoading(false));
+      .then(r => r.json())
+      .then(d => { if (Array.isArray(d)) setBots(d); })
+      .catch(() => {})
+      .finally(() => setBotsLoading(false));
   }, []);
 
-  useEffect(() => () => { if (intervalRef.current) clearInterval(intervalRef.current); }, []);
+  // Cleanup
+  useEffect(() => () => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    if (timerRef.current)    clearInterval(timerRef.current);
+  }, []);
 
   const selectedBot = bots.find(b => b.id === botId);
 
+  // ── Fake progress animasiyası ──
   const startProgress = () => {
     fakeRef.current = 0;
+    setElapsed(0);
     if (intervalRef.current) clearInterval(intervalRef.current);
+    if (timerRef.current)    clearInterval(timerRef.current);
+
+    // Progress bar: ilk 20 saniyədə ~85%-ə qədər gedir, sonra yavaşlayır
     intervalRef.current = setInterval(() => {
-      fakeRef.current = Math.min(88, fakeRef.current + Math.random() * 2.5 + 0.5);
+      fakeRef.current = Math.min(
+        88,
+        fakeRef.current + (fakeRef.current < 50 ? 3 : fakeRef.current < 75 ? 1.5 : 0.4)
+      );
       setProgress(Math.round(fakeRef.current));
     }, 350);
+
+    // Saniyə sayacı
+    let sec = 0;
+    timerRef.current = setInterval(() => {
+      sec++;
+      setElapsed(sec);
+    }, 1000);
   };
 
   const stopProgress = (val = 100) => {
     if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
+    if (timerRef.current)    { clearInterval(timerRef.current);    timerRef.current    = null; }
     setProgress(val);
   };
 
-  const fetchPart = async (count: number, avoidTexts: string[], signal: AbortSignal) => {
-    const res = await fetch("/api/ai/generate-quiz", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, questionCount: count, category, language, botId: botId || undefined, avoidTexts }),
-      signal,
-    });
-    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `HTTP ${res.status}`); }
-    return res.json() as Promise<{ questions: any[]; reviewQuestions: any[] }>;
-  };
-
+  // ── Əsas generasiya funksiyası ──
   const handleGenerate = async () => {
     if (!title.trim()) { error("Quiz mövzusu daxil edin"); return; }
     if (questionCount < 1 || questionCount > 50) { error("Sual sayı 1-50 arasında olmalıdır"); return; }
 
-    setLoading(true); setProgress(0); setFailedParts(0);
-    setProgressText(`0/${questionCount} sual yaradılır...`);
-    await new Promise(r => setTimeout(r, 50));
+    setLoading(true);
+    setProgress(0);
+    setProgressText(`${questionCount} sual yaradılır...`);
+    await new Promise(r => setTimeout(r, 50)); // render üçün
     startProgress();
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
+    // Frontend timeout — 30 saniyə
+    const frontendTimeout = setTimeout(() => {
+      ctrl.abort();
+    }, FRONTEND_TIMEOUT_MS);
+
     try {
-      const allQs: any[] = [];
-      let reviewQs: any[] = [];
-      const seen = new Set<string>();
-      const avoidTexts: string[] = [];
+      const res = await fetch("/api/ai/generate-quiz", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({
+          title:         title.trim(),
+          questionCount,
+          category:      category || undefined,
+          language,
+          botId:         botId || undefined,
+        }),
+        signal: ctrl.signal,
+      });
 
-      const BATCH_SIZE = 15;
-      let batchNum = 0;
-      const MAX_BATCHES = Math.ceil(questionCount / BATCH_SIZE) + 3;
+      clearTimeout(frontendTimeout);
 
-      while (allQs.length < questionCount && batchNum < MAX_BATCHES) {
-        if (ctrl.signal.aborted) break;
-
-        const remaining = questionCount - allQs.length;
-        const batchCount = Math.min(remaining, BATCH_SIZE);
-        if (batchCount <= 0) break;
-
-        setProgressText(`${allQs.length}/${questionCount} sual yaradıldı...`);
-
-        try {
-          const data = await fetchPart(batchCount, avoidTexts, ctrl.signal);
-          let addedInBatch = 0;
-          for (const q of (data.questions || [])) {
-            const k = q.text?.trim().toLowerCase();
-            if (k && !seen.has(k)) { 
-              seen.add(k); 
-              allQs.push(q);
-              avoidTexts.push(q.text); 
-              addedInBatch++;
-            }
-          }
-          if (!reviewQs.length && data.reviewQuestions) reviewQs = data.reviewQuestions;
-
-          if (addedInBatch === 0 && allQs.length < questionCount) {
-             await new Promise(r => setTimeout(r, 2000));
-          }
-        } catch (batchErr: any) {
-          if (batchErr?.name === "AbortError") throw batchErr;
-          setFailedParts(prev => prev + 1);
-          console.warn(`[batch ${batchNum + 1}] failed:`, batchErr?.message);
-          await new Promise(r => setTimeout(r, 2000));
-        }
-
-        batchNum++;
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status} xətası`);
       }
 
-      if (allQs.length === 0) { error("AI heç bir sual yarada bilmədi. Yenidən cəhd edin."); return; }
+      const data = await res.json();
+      const questions: any[] = data.questions || [];
 
-      const final = [...allQs.slice(0, questionCount), ...reviewQs];
+      if (questions.length === 0) {
+        throw new Error("AI heç bir sual yarada bilmədi. API limitləri dolmuş ola bilər, bir az gözləyib yenidən cəhd edin.");
+      }
+
       stopProgress(100);
-      setProgressText(`${final.length} sual hazırdır!`);
-      await new Promise(r => setTimeout(r, 600));
+      setProgressText(`${questions.length} sual hazırdır!`);
+      await new Promise(r => setTimeout(r, 500));
 
-      success(`${final.length} sual yaradıldı!`);
-      onGenerate(final, category || undefined);
+      // Meta məlumat — əgər tam deyilsə istifadəçiyə bildiriş
+      if (data.meta && !data.meta.complete && questions.length < questionCount) {
+        success(`${questions.length} sual yaradıldı (${questionCount} istənilmişdi — limitə görə az gəldi)`);
+      } else {
+        success(`${questions.length} sual uğurla yaradıldı! ✓`);
+      }
+
+      onGenerate(questions, category || undefined);
       onClose();
 
     } catch (e: any) {
-      if (e?.name === "AbortError") error("Əməliyyat ləğv edildi.");
-      else if (typeof navigator !== "undefined" && !navigator.onLine) error("İnternet bağlantısı yoxdur.");
-      else error(e?.message || "Xəta baş verdi. Yenidən cəhd edin.");
+      clearTimeout(frontendTimeout);
+      if (e?.name === "AbortError") {
+        error("Vaxt aşıldı (30s). API limitləri dolmuş ola bilər — yenidən cəhd edin.");
+      } else if (typeof navigator !== "undefined" && !navigator.onLine) {
+        error("İnternet bağlantısı yoxdur.");
+      } else {
+        error(e?.message || "Xəta baş verdi. Yenidən cəhd edin.");
+      }
     } finally {
-      stopProgress(0); setLoading(false); setProgress(0); setProgressText(""); abortRef.current = null;
+      clearTimeout(frontendTimeout);
+      stopProgress(0);
+      setLoading(false);
+      setProgress(0);
+      setProgressText("");
+      setElapsed(0);
+      abortRef.current = null;
     }
   };
 
+  // ── RENDER ──────────────────────────────────────────────────────────────────
   return (
     <>
       <style>{LOADER_CSS}</style>
 
-      {/* Full-screen loading overlay */}
+      {/* Tam ekran loading overlay */}
       {loading && (
-        <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-8"
-          style={{ background: "linear-gradient(135deg,#0f0020 0%,#1a0533 40%,#2d1060 70%,#1a0533 100%)" }}>
+        <div
+          className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-8"
+          style={{ background: "linear-gradient(135deg,#0f0020 0%,#1a0533 40%,#2d1060 70%,#1a0533 100%)" }}
+        >
+          {/* Animasiyalı dairə */}
           <div className="ai-lw">
-            {"Generating".split("").map((ch, i) => <span key={i} className="ai-ll">{ch}</span>)}
+            {"Generating".split("").map((ch, i) => (
+              <span key={i} className="ai-ll">{ch}</span>
+            ))}
             <div className="ai-lc" />
           </div>
-          <div className="w-64 space-y-3">
-            <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
-              <div className="h-2 rounded-full transition-all duration-500"
-                style={{ width: `${progress}%`, background: "linear-gradient(90deg,#ad5fff,#667eea)" }} />
+
+          {/* Progress məlumatı */}
+          <div className="w-72 space-y-3">
+            <div className="w-full bg-white/10 rounded-full h-2.5 overflow-hidden">
+              <div
+                className="h-2.5 rounded-full transition-all duration-500"
+                style={{ width: `${progress}%`, background: "linear-gradient(90deg,#ad5fff,#667eea,#06b6d4)" }}
+              />
             </div>
-            <p className="text-center text-white/60 text-sm">{progressText}</p>
+
+            <div className="flex items-center justify-between text-sm">
+              <p className="text-white/70">{progressText}</p>
+              <p className="text-white/40 tabular-nums">{elapsed}s</p>
+            </div>
+
+            {/* Model statusu */}
+            <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/50 space-y-1">
+              <div className="flex items-center gap-1.5 text-purple-300">
+                <Zap size={11} />
+                <span>Bütün modellər paralel çalışır</span>
+              </div>
+              <div>Groq: llama-3.3-70b · llama-3.1-8b · gemma2 · mixtral</div>
+              <div>OpenRouter: llama-3.3 · gemma-3 · qwen3 · mistral</div>
+            </div>
           </div>
-          <button onClick={() => abortRef.current?.abort()}
-            className="px-6 py-2.5 rounded-xl text-sm font-medium text-white/60 border border-white/15 hover:text-white hover:border-white/35 transition-all">
+
+          {/* Dayandır düyməsi */}
+          <button
+            onClick={() => abortRef.current?.abort()}
+            className="px-6 py-2.5 rounded-xl text-sm font-medium text-white/60 border border-white/15 hover:text-white hover:border-white/35 transition-all"
+          >
             Dayandır
           </button>
-          {failedParts > 0 && (
-            <p className="text-xs text-amber-400 flex items-center gap-1.5">
-              <AlertCircle size={13} /> {failedParts} sorğu uğursuz oldu, davam edir...
-            </p>
-          )}
         </div>
       )}
 
       {/* Modal */}
-      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+      <div
+        className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
         style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
-        onClick={e => { if (e.target === e.currentTarget && !loading) onClose(); }}>
+        onClick={e => { if (e.target === e.currentTarget && !loading) onClose(); }}
+      >
         <div className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col max-h-[92vh] sm:max-h-[88vh]">
 
+          {/* Mobil çəkəc */}
           <div className="flex justify-center pt-3 pb-1 sm:hidden flex-shrink-0">
             <div className="w-10 h-1 rounded-full bg-slate-200" />
           </div>
 
-          <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-100 flex-shrink-0"
-            style={{ background: "linear-gradient(135deg,#667eea 0%,#764ba2 100%)" }}>
+          {/* Header */}
+          <div
+            className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-100 flex-shrink-0 rounded-t-2xl"
+            style={{ background: "linear-gradient(135deg,#667eea 0%,#764ba2 100%)" }}
+          >
             <div className="flex items-center gap-2 text-white">
               <Sparkles size={18} />
               <h2 className="text-base sm:text-lg font-bold">AI ilə Quiz Yarat</h2>
             </div>
-            <button onClick={onClose} disabled={loading}
-              className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-all disabled:opacity-50">
+            <button
+              onClick={onClose}
+              disabled={loading}
+              className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-all disabled:opacity-50"
+            >
               <X size={18} />
             </button>
           </div>
 
+          {/* Məzmun */}
           <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
-            {/* Bot */}
+
+            {/* AI Bot seçimi */}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">
                 AI Bot <span className="text-slate-400 text-xs">(isteğe bağlı)</span>
@@ -234,20 +293,40 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
                 <div className="rounded-xl border border-dashed border-slate-200 p-3 text-center text-sm text-slate-400">
                   <Bot size={18} className="mx-auto mb-1 opacity-40" />
                   Hələ AI bot yaradılmayıb.{" "}
-                  <a href="/admin/ai-botlar" target="_blank" className="text-[#1a7fe0] hover:underline font-medium">Bot yarat →</a>
+                  <a href="/admin/ai-botlar" target="_blank" className="text-[#1a7fe0] hover:underline font-medium">
+                    Bot yarat →
+                  </a>
                 </div>
               ) : (
-                <select value={botId} onChange={e => {
-                  const v = e.target.value; setBotId(v);
-                  if (!v) setCategory(""); else { const b = bots.find(x => x.id === v); if (b?.category) setCategory(b.category); }
-                }} className="select-field" disabled={loading}>
+                <select
+                  value={botId}
+                  onChange={e => {
+                    const v = e.target.value;
+                    setBotId(v);
+                    if (!v) {
+                      setCategory("");
+                    } else {
+                      const b = bots.find(x => x.id === v);
+                      if (b?.category) setCategory(b.category);
+                    }
+                  }}
+                  className="select-field"
+                  disabled={loading}
+                >
                   <option value="">Ümumi AI (Bot olmadan)</option>
-                  {bots.map(b => <option key={b.id} value={b.id}>{b.name}{b.category ? ` (${b.category})` : ""}</option>)}
+                  {bots.map(b => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}{b.category ? ` (${b.category})` : ""}
+                    </option>
+                  ))}
                 </select>
               )}
               {selectedBot && (
-                <div className="mt-2 rounded-lg p-2.5 text-xs text-purple-700 bg-purple-50 border border-purple-100">
-                  🤖 <strong>{selectedBot.name}</strong> — suallar yalnız bu botun bilik bazasından yaradılacaq
+                <div className="mt-2 rounded-lg p-2.5 text-xs text-purple-700 bg-purple-50 border border-purple-100 flex items-center gap-2">
+                  <Bot size={13} className="flex-shrink-0" />
+                  <span>
+                    <strong>{selectedBot.name}</strong> — suallar yalnız bu botun bilik bazasından yaradılacaq
+                  </span>
                 </div>
               )}
             </div>
@@ -257,9 +336,15 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
               <label className="block text-sm font-medium text-slate-700 mb-1.5">
                 Quiz Mövzusu <span className="text-red-500">*</span>
               </label>
-              <input type="text" value={title} onChange={e => setTitle(e.target.value)}
-                placeholder="Məs: Azərbaycan Konstitusiyası, Cəbr..."
-                className="input-field" disabled={loading} />
+              <input
+                type="text"
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && !loading && title.trim()) handleGenerate(); }}
+                placeholder="Məs: Azərbaycan Konstitusiyası, Cəbr, Hüquq..."
+                className="input-field"
+                disabled={loading}
+              />
             </div>
 
             {/* Sual sayı */}
@@ -267,10 +352,38 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
               <label className="block text-sm font-medium text-slate-700 mb-1.5">
                 Sual Sayı <span className="text-red-500">*</span>
               </label>
-              <input type="number" value={questionCount}
-                onChange={e => setQuestionCount(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))}
-                min={1} max={50} className="input-field" disabled={loading} />
-            <p className="mt-1 text-xs text-slate-400">Groq + OpenRouter modelləri ardıcıl işləyir</p>
+              <div className="flex items-center gap-3">
+                <input
+                  type="number"
+                  value={questionCount}
+                  onChange={e => setQuestionCount(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))}
+                  min={1}
+                  max={50}
+                  className="input-field w-28"
+                  disabled={loading}
+                />
+                {/* Sürətli seçim düymələri */}
+                <div className="flex gap-1.5">
+                  {[10, 20, 30, 50].map(n => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setQuestionCount(n)}
+                      disabled={loading}
+                      className={`px-2.5 py-1.5 text-xs rounded-lg font-medium transition-all border ${
+                        questionCount === n
+                          ? "bg-purple-600 text-white border-purple-600"
+                          : "bg-white text-slate-500 border-slate-200 hover:border-purple-300 hover:text-purple-600"
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <p className="mt-1 text-xs text-slate-400">
+                Maksimum 50 sual · 8 model paralel işləyir · ≤ 30 saniyə
+              </p>
             </div>
 
             {/* Kateqoriya */}
@@ -279,30 +392,91 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">
                   Kateqoriya <span className="text-slate-400 text-xs">(isteğe bağlı)</span>
                 </label>
-                <select value={category} onChange={e => setCategory(e.target.value)} className="select-field" disabled={loading}>
+                <select
+                  value={category}
+                  onChange={e => setCategory(e.target.value)}
+                  className="select-field"
+                  disabled={loading}
+                >
                   <option value="">Avtomatik seç</option>
-                  {categories.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                  {categories.map(c => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
+                  ))}
                 </select>
               </div>
             )}
 
-            <div className="rounded-xl p-3 text-xs text-purple-700 border border-purple-200 bg-purple-50">
-              <p className="font-medium mb-1">⚡ Necə işləyir:</p>
-              <ul className="space-y-0.5 text-purple-600">
-                <li>• Groq + OpenRouter modelləri ardıcıl işləyir, rate limit olmur</li>
-                <li>• Hər model uğursuz olsa növbəti sınanır</li>
-                <li>• 50 sual üçün ~20-40 saniyə kifayətdir</li>
+            {/* Dil seçimi */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Dil</label>
+              <div className="flex gap-2">
+                {[
+                  { value: "az", label: "🇦🇿 Azərbaycanca" },
+                  { value: "ru", label: "🇷🇺 Rusca" },
+                  { value: "en", label: "🇬🇧 İngiliscə" },
+                ].map(l => (
+                  <button
+                    key={l.value}
+                    type="button"
+                    onClick={() => setLanguage(l.value)}
+                    disabled={loading}
+                    className={`flex-1 py-2 text-xs rounded-xl font-medium transition-all border ${
+                      language === l.value
+                        ? "bg-purple-600 text-white border-purple-600"
+                        : "bg-white text-slate-500 border-slate-200 hover:border-purple-300"
+                    }`}
+                  >
+                    {l.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Məlumat bloku */}
+            <div className="rounded-xl p-3 text-xs border border-purple-200 bg-purple-50">
+              <p className="font-semibold text-purple-800 mb-1.5 flex items-center gap-1.5">
+                <Zap size={12} /> Necə işləyir:
+              </p>
+              <ul className="space-y-1 text-purple-700">
+                <li className="flex items-start gap-1.5">
+                  <CheckCircle2 size={11} className="mt-0.5 flex-shrink-0 text-purple-500" />
+                  <span>8 AI modeli <strong>eyni anda</strong> paralel işə başlayır</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <CheckCircle2 size={11} className="mt-0.5 flex-shrink-0 text-purple-500" />
+                  <span>Groq (llama-3.3-70b, llama-3.1-8b, gemma2, mixtral) + OpenRouter (4 model)</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <CheckCircle2 size={11} className="mt-0.5 flex-shrink-0 text-purple-500" />
+                  <span>50 sual üçün ən geci <strong>30 saniyə</strong> · rate limit olmur</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <CheckCircle2 size={11} className="mt-0.5 flex-shrink-0 text-purple-500" />
+                  <span>Təkrar suallar avtomatik silinir, unikal suallar qalır</span>
+                </li>
               </ul>
             </div>
           </div>
 
-          <div className="flex gap-3 px-4 sm:px-6 py-3 sm:py-4 border-t border-slate-100 bg-slate-50 flex-shrink-0">
-            <button onClick={handleGenerate} disabled={loading || !title.trim()}
-              className="flex-1 py-2.5 rounded-xl font-semibold text-sm text-white flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
-              style={{ background: "linear-gradient(135deg,#667eea 0%,#764ba2 100%)" }}>
-              {loading ? <><Loader2 size={16} className="animate-spin" /> Yaradılır...</> : <><Sparkles size={16} /> Quiz Yarat</>}
+          {/* Footer */}
+          <div className="flex gap-3 px-4 sm:px-6 py-3 sm:py-4 border-t border-slate-100 bg-slate-50 flex-shrink-0 rounded-b-2xl">
+            <button
+              onClick={handleGenerate}
+              disabled={loading || !title.trim()}
+              className="flex-1 py-2.5 rounded-xl font-semibold text-sm text-white flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 active:scale-[0.98]"
+              style={{ background: "linear-gradient(135deg,#667eea 0%,#764ba2 100%)" }}
+            >
+              {loading ? (
+                <><Loader2 size={16} className="animate-spin" /> Yaradılır...</>
+              ) : (
+                <><Sparkles size={16} /> Quiz Yarat</>
+              )}
             </button>
-            <button onClick={onClose} disabled={loading} className="btn-secondary px-4 sm:px-6 text-sm disabled:opacity-50">
+            <button
+              onClick={onClose}
+              disabled={loading}
+              className="btn-secondary px-4 sm:px-6 text-sm disabled:opacity-50"
+            >
               Ləğv et
             </button>
           </div>

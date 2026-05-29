@@ -158,12 +158,8 @@ export default function UserQuizForm({ quiz, onSuccess, onCancel, preselectedBot
         <UserAIQuizGenerator
           preselectedBotId={preselectedBotId}
           onClose={() => setShowAI(false)}
-          onGenerate={(aiQuestions, reviewQuestions, usedBotId) => {
-            // Əvvəlcə təkrar (səhv cavablanmış) suallar, sonra yeni suallar
-            const review = (reviewQuestions || []).map((q: any) => ({ ...q, isReview: undefined }));
-            const combined = [...review, ...aiQuestions];
-            setQuestions(combined.length > 0 ? combined : [emptyQuestion()]);
-            // Hansı botla yaradıldığını saxla
+          onGenerate={(aiQuestions, usedBotId) => {
+            setQuestions(aiQuestions.length > 0 ? aiQuestions : [emptyQuestion()]);
             if (usedBotId) setSourceBotId(usedBotId);
           }}
         />

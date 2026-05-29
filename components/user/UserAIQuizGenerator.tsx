@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Sparkles, X, Loader2, Bot, AlertCircle } from "lucide-react";
+import { Sparkles, X, Loader2, Bot, CheckCircle2, Zap } from "lucide-react";
 import { useToast } from "@/components/ui/toast-1";
 
 interface AiBot { id: string; name: string; category: string; active: boolean; isUserBot?: boolean; }
 
 interface UserAIQuizGeneratorProps {
-  onGenerate: (questions: any[], reviewQuestions?: any[], usedBotId?: string) => void;
+  onGenerate: (questions: any[], usedBotId?: string) => void;
   onClose: () => void;
   preselectedBotId?: string;
 }
@@ -35,57 +35,65 @@ const LOADER_CSS = `
   40%{opacity:.7;transform:translateY(0)}
 }`;
 
-
+const FRONTEND_TIMEOUT_MS = 30_000;
 
 export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBotId }: UserAIQuizGeneratorProps) {
   const { success, error } = useToast();
-  const [title, setTitle]               = useState("");
-  const [questionCount, setQuestionCount] = useState<string>("10");
-  const [botId, setBotId]               = useState(preselectedBotId || "");
-  const [userBots, setUserBots]         = useState<AiBot[]>([]);
-  const [botsLoading, setBotsLoading]   = useState(true);
-  const [loading, setLoading]           = useState(false);
-  const [progress, setProgress]         = useState(0);
-  const [progressText, setProgressText] = useState("");
-  const [failedParts, setFailedParts]   = useState(0);
+
+  const [title,         setTitle]         = useState("");
+  const [questionCount, setQuestionCount] = useState("10");
+  const [botId,         setBotId]         = useState(preselectedBotId || "");
+  const [userBots,      setUserBots]      = useState<AiBot[]>([]);
+  const [botsLoading,   setBotsLoading]   = useState(true);
+  const [loading,       setLoading]       = useState(false);
+  const [progress,      setProgress]      = useState(0);
+  const [progressText,  setProgressText]  = useState("");
+  const [elapsed,       setElapsed]       = useState(0);
+
   const abortRef    = useRef<AbortController | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timerRef    = useRef<ReturnType<typeof setInterval> | null>(null);
   const fakeRef     = useRef(0);
 
   useEffect(() => {
     fetch("/api/user-bots", { cache: "no-store" })
-      .then(r => r.json()).then(d => { if (Array.isArray(d)) setUserBots(d.map((b: AiBot) => ({ ...b, isUserBot: true }))); })
-      .catch(() => {}).finally(() => setBotsLoading(false));
+      .then(r => r.json())
+      .then(d => { if (Array.isArray(d)) setUserBots(d.map((b: AiBot) => ({ ...b, isUserBot: true }))); })
+      .catch(() => {})
+      .finally(() => setBotsLoading(false));
   }, []);
 
   useEffect(() => { if (preselectedBotId) setBotId(preselectedBotId); }, [preselectedBotId]);
-  useEffect(() => () => { if (intervalRef.current) clearInterval(intervalRef.current); }, []);
+
+  useEffect(() => () => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    if (timerRef.current)    clearInterval(timerRef.current);
+  }, []);
 
   const selectedBot = userBots.find(b => b.id === botId);
 
   const startProgress = () => {
     fakeRef.current = 0;
+    setElapsed(0);
     if (intervalRef.current) clearInterval(intervalRef.current);
+    if (timerRef.current)    clearInterval(timerRef.current);
+
     intervalRef.current = setInterval(() => {
-      fakeRef.current = Math.min(88, fakeRef.current + Math.random() * 2.5 + 0.5);
+      fakeRef.current = Math.min(
+        88,
+        fakeRef.current + (fakeRef.current < 50 ? 3 : fakeRef.current < 75 ? 1.5 : 0.4)
+      );
       setProgress(Math.round(fakeRef.current));
     }, 350);
+
+    let sec = 0;
+    timerRef.current = setInterval(() => { sec++; setElapsed(sec); }, 1000);
   };
 
   const stopProgress = (val = 100) => {
     if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
+    if (timerRef.current)    { clearInterval(timerRef.current);    timerRef.current    = null; }
     setProgress(val);
-  };
-
-  const fetchPart = async (reqCount: number, avoidTexts: string[], signal: AbortSignal) => {
-    const res = await fetch("/api/ai/generate-quiz", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, questionCount: reqCount, language: "az", botId: botId || undefined, avoidTexts }),
-      signal,
-    });
-    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `HTTP ${res.status}`); }
-    return res.json() as Promise<{ questions: any[]; reviewQuestions: any[] }>;
   };
 
   const handleGenerate = async () => {
@@ -93,81 +101,69 @@ export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBo
     if (!title.trim()) { error("Quiz mövzusu daxil edin"); return; }
     if (count < 1 || count > 50) { error("Sual sayı 1-50 arasında olmalıdır"); return; }
 
-    setLoading(true); setProgress(0); setFailedParts(0);
-    setProgressText(`0/${count} sual yaradılır...`);
+    setLoading(true);
+    setProgress(0);
+    setProgressText(`${count} sual yaradılır...`);
     await new Promise(r => setTimeout(r, 50));
     startProgress();
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
+    const frontendTimeout = setTimeout(() => ctrl.abort(), FRONTEND_TIMEOUT_MS);
+
     try {
-      const allQs: any[] = [];
-      let reviewQs: any[] = [];
-      const seen = new Set<string>();
-      const avoidTexts: string[] = [];
+      const res = await fetch("/api/ai/generate-quiz", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({
+          title:         title.trim(),
+          questionCount: count,
+          language:      "az",
+          botId:         botId || undefined,
+        }),
+        signal: ctrl.signal,
+      });
 
-      const BATCH_SIZE = 15;
-      let batchNum = 0;
-      const MAX_BATCHES = Math.ceil(count / BATCH_SIZE) + 3;
+      clearTimeout(frontendTimeout);
 
-      while (allQs.length < count && batchNum < MAX_BATCHES) {
-        if (ctrl.signal.aborted) break;
-
-        const remaining = count - allQs.length;
-        const batchCount = Math.min(remaining, BATCH_SIZE);
-        if (batchCount <= 0) break;
-
-        setProgressText(`${allQs.length}/${count} sual yaradıldı...`);
-
-        try {
-          const data = await fetchPart(batchCount, avoidTexts, ctrl.signal);
-          let addedInBatch = 0;
-          for (const q of (data.questions || [])) {
-            const k = q.text?.trim().toLowerCase();
-            if (k && !seen.has(k)) { 
-              seen.add(k); 
-              allQs.push(q);
-              avoidTexts.push(q.text); 
-              addedInBatch++;
-            }
-          }
-          if (!reviewQs.length && data.reviewQuestions) reviewQs = data.reviewQuestions;
-
-          if (addedInBatch === 0 && allQs.length < count) {
-             await new Promise(r => setTimeout(r, 2000));
-          }
-        } catch (batchErr: any) {
-          if (batchErr?.name === "AbortError") throw batchErr;
-          setFailedParts(prev => prev + 1);
-          console.warn(`[batch ${batchNum + 1}] failed:`, batchErr?.message);
-          await new Promise(r => setTimeout(r, 2000));
-        }
-
-        batchNum++;
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || `HTTP ${res.status} xətası`);
       }
 
-      if (allQs.length === 0) { error("AI heç bir sual yarada bilmədi. Yenidən cəhd edin."); return; }
+      const data = await res.json();
+      const questions: any[] = data.questions || [];
 
-      const finalQs = allQs.slice(0, count);
+      if (questions.length === 0) {
+        throw new Error("AI heç bir sual yarada bilmədi. Yenidən cəhd edin.");
+      }
+
       stopProgress(100);
-      setProgressText(`${finalQs.length + reviewQs.length} sual hazırdır!`);
-      await new Promise(r => setTimeout(r, 600));
+      setProgressText(`${questions.length} sual hazırdır!`);
+      await new Promise(r => setTimeout(r, 500));
 
-      const msg = reviewQs.length > 0
-        ? `${finalQs.length} yeni + ${reviewQs.length} təkrar sual əlavə edildi!`
-        : `${finalQs.length} sual yaradıldı!`;
-      success(msg);
-
-      onGenerate(finalQs, reviewQs, botId || undefined);
+      success(`${questions.length} sual uğurla yaradıldı! ✓`);
+      onGenerate(questions, botId || undefined);
       onClose();
 
     } catch (e: any) {
-      if (e?.name === "AbortError") error("Əməliyyat ləğv edildi.");
-      else if (typeof navigator !== "undefined" && !navigator.onLine) error("İnternet bağlantısı yoxdur.");
-      else error(e?.message || "Xəta baş verdi. Yenidən cəhd edin.");
+      clearTimeout(frontendTimeout);
+      if (e?.name === "AbortError") {
+        error("Vaxt aşıldı (30s). API limitləri dolmuş ola bilər — yenidən cəhd edin.");
+      } else if (typeof navigator !== "undefined" && !navigator.onLine) {
+        error("İnternet bağlantısı yoxdur.");
+      } else {
+        error(e?.message || "Xəta baş verdi. Yenidən cəhd edin.");
+      }
     } finally {
-      stopProgress(0); setLoading(false); setProgress(0); setProgressText(""); abortRef.current = null;
+      clearTimeout(frontendTimeout);
+      stopProgress(0);
+      setLoading(false);
+      setProgress(0);
+      setProgressText("");
+      setElapsed(0);
+      abortRef.current = null;
     }
   };
 
@@ -175,55 +171,80 @@ export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBo
     <>
       <style>{LOADER_CSS}</style>
 
+      {/* Tam ekran loading overlay */}
       {loading && (
-        <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-8"
-          style={{ background: "linear-gradient(135deg,#0f0020 0%,#1a0533 40%,#2d1060 70%,#1a0533 100%)" }}>
+        <div
+          className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-8"
+          style={{ background: "linear-gradient(135deg,#0f0020 0%,#1a0533 40%,#2d1060 70%,#1a0533 100%)" }}
+        >
           <div className="uai-lw">
-            {"Generating".split("").map((ch, i) => <span key={i} className="uai-ll">{ch}</span>)}
+            {"Generating".split("").map((ch, i) => (
+              <span key={i} className="uai-ll">{ch}</span>
+            ))}
             <div className="uai-lc" />
           </div>
-          <div className="w-64 space-y-3">
-            <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
-              <div className="h-2 rounded-full transition-all duration-500"
-                style={{ width: `${progress}%`, background: "linear-gradient(90deg,#ad5fff,#667eea)" }} />
+
+          <div className="w-72 space-y-3">
+            <div className="w-full bg-white/10 rounded-full h-2.5 overflow-hidden">
+              <div
+                className="h-2.5 rounded-full transition-all duration-500"
+                style={{ width: `${progress}%`, background: "linear-gradient(90deg,#ad5fff,#667eea,#06b6d4)" }}
+              />
             </div>
-            <p className="text-center text-white/60 text-sm">{progressText}</p>
+            <div className="flex items-center justify-between text-sm">
+              <p className="text-white/70">{progressText}</p>
+              <p className="text-white/40 tabular-nums">{elapsed}s</p>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/50 space-y-1">
+              <div className="flex items-center gap-1.5 text-purple-300">
+                <Zap size={11} />
+                <span>8 model paralel çalışır</span>
+              </div>
+              <div>Groq + OpenRouter modelləri eyni anda işləyir</div>
+            </div>
           </div>
-          <button onClick={() => abortRef.current?.abort()}
-            className="px-6 py-2.5 rounded-xl text-sm font-medium text-white/60 border border-white/15 hover:text-white hover:border-white/35 transition-all">
+
+          <button
+            onClick={() => abortRef.current?.abort()}
+            className="px-6 py-2.5 rounded-xl text-sm font-medium text-white/60 border border-white/15 hover:text-white hover:border-white/35 transition-all"
+          >
             Dayandır
           </button>
-          {failedParts > 0 && (
-            <p className="text-xs text-amber-400 flex items-center gap-1.5">
-              <AlertCircle size={13} /> {failedParts} sorğu uğursuz oldu, davam edir...
-            </p>
-          )}
         </div>
       )}
 
-      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+      {/* Modal */}
+      <div
+        className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
         style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
-        onClick={e => { if (e.target === e.currentTarget && !loading) onClose(); }}>
+        onClick={e => { if (e.target === e.currentTarget && !loading) onClose(); }}
+      >
         <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col max-h-[90vh] sm:max-h-[85vh]">
 
           <div className="flex justify-center pt-3 pb-1 sm:hidden flex-shrink-0">
             <div className="w-10 h-1 rounded-full bg-slate-200" />
           </div>
 
-          <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-100 flex-shrink-0 rounded-t-2xl"
-            style={{ background: "linear-gradient(135deg,#667eea 0%,#764ba2 100%)" }}>
+          <div
+            className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-100 flex-shrink-0 rounded-t-2xl"
+            style={{ background: "linear-gradient(135deg,#667eea 0%,#764ba2 100%)" }}
+          >
             <div className="flex items-center gap-2 text-white">
               <Sparkles size={18} />
               <h2 className="text-base sm:text-lg font-bold">AI ilə Quiz Yarat</h2>
             </div>
-            <button onClick={onClose} disabled={loading}
-              className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-all disabled:opacity-50">
+            <button
+              onClick={onClose}
+              disabled={loading}
+              className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-all disabled:opacity-50"
+            >
               <X size={18} />
             </button>
           </div>
 
           <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
-            {/* Bot */}
+
+            {/* Bot seçimi */}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">
                 Bot <span className="text-slate-400 text-xs">(isteğe bağlı)</span>
@@ -235,18 +256,27 @@ export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBo
               ) : userBots.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-slate-200 p-3 text-center text-sm text-slate-400">
                   <Bot size={18} className="mx-auto mb-1 opacity-40" />
-                  Hələ bot yaratmamısınız. "Botlarım" bölməsindən bot yaradın.
+                  Hələ bot yaratmamısınız. &ldquo;Botlarım&rdquo; bölməsindən bot yaradın.
                 </div>
               ) : (
-                <select value={botId} onChange={e => setBotId(e.target.value)} className="select-field" disabled={loading}>
+                <select
+                  value={botId}
+                  onChange={e => setBotId(e.target.value)}
+                  className="select-field"
+                  disabled={loading}
+                >
                   <option value="">Ümumi AI (Bot olmadan)</option>
-                  {userBots.map(b => <option key={b.id} value={b.id}>{b.name}{b.category ? ` (${b.category})` : ""}</option>)}
+                  {userBots.map(b => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}{b.category ? ` (${b.category})` : ""}
+                    </option>
+                  ))}
                 </select>
               )}
               {selectedBot && (
-                <div className="mt-2 rounded-lg p-2.5 text-xs bg-purple-50 border border-purple-100 text-purple-700">
-                  🤖 <strong>{selectedBot.name}</strong> — yalnız bu PDF-in məzmunundan sual yaradılacaq
-                  <p className="mt-1 text-purple-600">♻️ Əvvəlki quizlərinizdə <strong>səhv cavabladığınız suallar</strong> da avtomatik əlavə ediləcək</p>
+                <div className="mt-2 rounded-lg p-2.5 text-xs bg-purple-50 border border-purple-100 text-purple-700 flex items-center gap-2">
+                  <Bot size={13} className="flex-shrink-0" />
+                  <span><strong>{selectedBot.name}</strong> — yalnız bu botun bilik bazasından sual yaradılacaq</span>
                 </div>
               )}
             </div>
@@ -256,9 +286,15 @@ export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBo
               <label className="block text-sm font-medium text-slate-700 mb-1.5">
                 Quiz Mövzusu <span className="text-red-500">*</span>
               </label>
-              <input type="text" value={title} onChange={e => setTitle(e.target.value)}
+              <input
+                type="text"
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && !loading && title.trim()) handleGenerate(); }}
                 placeholder="Məs: Azərbaycan Tarixi, Riyaziyyat..."
-                className="input-field" disabled={loading} />
+                className="input-field"
+                disabled={loading}
+              />
             </div>
 
             {/* Sual sayı */}
@@ -266,30 +302,79 @@ export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBo
               <label className="block text-sm font-medium text-slate-700 mb-1.5">
                 Sual Sayı <span className="text-red-500">*</span>
               </label>
-              <input type="number" value={questionCount}
-                onChange={e => setQuestionCount(e.target.value)}
-                onBlur={() => { const n = parseInt(questionCount) || 1; setQuestionCount(String(Math.min(50, Math.max(1, n)))); }}
-                min={1} max={50} className="input-field" disabled={loading} />
-              <p className="mt-1 text-xs text-slate-400">Groq + OpenRouter modelləri ardıcıl işləyir</p>
+              <div className="flex items-center gap-3">
+                <input
+                  type="number"
+                  value={questionCount}
+                  onChange={e => setQuestionCount(e.target.value)}
+                  onBlur={() => {
+                    const n = parseInt(questionCount) || 1;
+                    setQuestionCount(String(Math.min(50, Math.max(1, n))));
+                  }}
+                  min={1}
+                  max={50}
+                  className="input-field w-24"
+                  disabled={loading}
+                />
+                <div className="flex gap-1.5">
+                  {[10, 20, 30, 50].map(n => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setQuestionCount(String(n))}
+                      disabled={loading}
+                      className={`px-2.5 py-1.5 text-xs rounded-lg font-medium transition-all border ${
+                        questionCount === String(n)
+                          ? "bg-purple-600 text-white border-purple-600"
+                          : "bg-white text-slate-500 border-slate-200 hover:border-purple-300 hover:text-purple-600"
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <p className="mt-1 text-xs text-slate-400">
+                Maksimum 50 sual · ≤ 30 saniyə
+              </p>
             </div>
 
-            <div className="rounded-xl p-3 text-xs text-purple-700 border border-purple-200 bg-purple-50">
-              <p className="font-medium mb-1">💡 Məsləhət:</p>
-              <ul className="space-y-0.5 text-purple-600">
-                <li>• "Botlarım" bölməsindən öz PDF botunuzu seçin</li>
-                <li>• Dəqiq mövzu adı daxil edin</li>
-                <li>• 50 sual üçün ~20-40 saniyə kifayətdir</li>
+            {/* Məlumat */}
+            <div className="rounded-xl p-3 text-xs border border-purple-200 bg-purple-50">
+              <p className="font-semibold text-purple-800 mb-1.5 flex items-center gap-1.5">
+                <Zap size={12} /> Necə işləyir:
+              </p>
+              <ul className="space-y-1 text-purple-700">
+                <li className="flex items-start gap-1.5">
+                  <CheckCircle2 size={11} className="mt-0.5 flex-shrink-0 text-purple-500" />
+                  <span>8 AI modeli <strong>eyni anda</strong> paralel işləyir</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <CheckCircle2 size={11} className="mt-0.5 flex-shrink-0 text-purple-500" />
+                  <span>50 sual üçün ən geci <strong>30 saniyə</strong></span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <CheckCircle2 size={11} className="mt-0.5 flex-shrink-0 text-purple-500" />
+                  <span>Dəqiq mövzu adı daxil edin — daha yaxşı nəticə üçün</span>
+                </li>
               </ul>
             </div>
           </div>
 
           <div className="flex gap-3 px-4 sm:px-6 py-3 sm:py-4 border-t border-slate-100 bg-slate-50 flex-shrink-0 rounded-b-2xl">
-            <button onClick={handleGenerate} disabled={loading || !title.trim()}
-              className="flex-1 py-2.5 rounded-xl font-semibold text-sm text-white flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
-              style={{ background: "linear-gradient(135deg,#667eea 0%,#764ba2 100%)" }}>
+            <button
+              onClick={handleGenerate}
+              disabled={loading || !title.trim()}
+              className="flex-1 py-2.5 rounded-xl font-semibold text-sm text-white flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 active:scale-[0.98]"
+              style={{ background: "linear-gradient(135deg,#667eea 0%,#764ba2 100%)" }}
+            >
               {loading ? <><Loader2 size={16} className="animate-spin" /> Yaradılır...</> : <><Sparkles size={16} /> Quiz Yarat</>}
             </button>
-            <button onClick={onClose} disabled={loading} className="btn-secondary px-4 sm:px-6 disabled:opacity-50 text-sm">
+            <button
+              onClick={onClose}
+              disabled={loading}
+              className="btn-secondary px-4 sm:px-6 disabled:opacity-50 text-sm"
+            >
               Ləğv et
             </button>
           </div>
