@@ -68,6 +68,7 @@ async function callWorker(
   orKey: string | undefined,
   system: string,
   user: string,
+  timeoutMs: number = 6000
 ): Promise<any[] | null> {
   const key = w.provider === "groq" ? groqKey : orKey;
   if (!key) return null;
@@ -97,7 +98,16 @@ async function callWorker(
   if (w.jsonMode) body.response_format = { type: "json_object" };
 
   try {
-    const res = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(body) });
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
+
+    const res = await fetch(endpoint, { 
+      method: "POST", 
+      headers, 
+      body: JSON.stringify(body),
+      signal: controller.signal
+    });
+    clearTimeout(id);
 
     if (res.status === 429) {
       // Rate limit — gözlətmə, null qaytar ki caller OpenRouter-ə keçsin
@@ -125,18 +135,15 @@ async function callWorker(
     if (!qs) console.error(`[${w.id}] parse failed, content=${content.slice(0, 200)}`);
     return qs;
   } catch (e: any) {
-    console.error(`[${w.id}] fetch error: ${e?.message}`);
+    if (e.name === "AbortError") {
+      console.warn(`[${w.id}] fetch timeout after ${timeoutMs}ms`);
+    } else {
+      console.error(`[${w.id}] fetch error: ${e?.message}`);
+    }
     return null;
   }
 }
 
-// ─── Sual generasiyası (PARALEL) ──────────────────────────────────────────────
-// Strategiya:
-//   - Bütün mövcud modelləri PARALEL çağır (Promise.allSettled)
-//   - Hər modelə deduplikasiya buferi ilə sual say (+5 artıq)
-//   - 1 Groq + 2-3 OpenRouter modeli eyni anda → rate limitə düşmür
-//   - Max 2 round: ilk paralel round + çatışmırsa 1 əlavə round
-//   - Round-lar arası yalnız 200ms fasilə
 async function generateQuestions(
   totalNeeded: number,
   system: string,
@@ -144,6 +151,8 @@ async function generateQuestions(
   groqKey: string | undefined,
   orKey: string | undefined,
 ): Promise<any[]> {
+  const startTime = Date.now();
+  const MAX_EXECUTION_TIME = 8000; // 8 saniyə limit (Vercel 10s limitinə düşməmək üçün)
 
   const groqModels  = ALL_WORKERS.filter(w => w.provider === "groq"       && !!groqKey);
   const orModels    = ALL_WORKERS.filter(w => w.provider === "openrouter" && !!orKey);
@@ -158,21 +167,44 @@ async function generateQuestions(
     }
   };
 
-  // ── Paralel round: modellər arasında sualları böl ──
-  const MAX_ROUNDS = 3;
+  const getRemainingTime = () => MAX_EXECUTION_TIME - (Date.now() - startTime);
 
+  // 1. Əvvəlcə ən sürətli Groq modelini tək sınayırıq (Dərhal tamamlamaq üçün)
+  if (groqModels.length > 0 && getRemainingTime() > 2000) {
+    const fastWorker = groqModels[0];
+    const ask = Math.min(totalNeeded, 25) + 5; // buffer
+    console.log(`[gen] Fast path: using ${fastWorker.id} for ${ask} questions...`);
+    const qs = await callWorker(fastWorker, groqKey, orKey, system, buildPrompt(ask, 0, 0), getRemainingTime());
+    if (qs && qs.length > 0) {
+      addAll(qs);
+      console.log(`[gen] Fast path returned ${qs.length} questions. Have: ${collected.length}/${totalNeeded}`);
+      // Əgər kifayət qədər varsa, dərhal qayıt
+      if (collected.length >= totalNeeded) {
+        return collected.slice(0, totalNeeded);
+      }
+    }
+  }
+
+  // 2. Çatışmırsa və vaxt varsa, digər modellərlə paralel davam et
+  const MAX_ROUNDS = 2;
+  
   for (let round = 0; round < MAX_ROUNDS && collected.length < totalNeeded; round++) {
+    const timeRemaining = getRemainingTime();
+    if (timeRemaining < 1500) {
+      console.warn(`[gen] Time limit reached (${timeRemaining}ms left). Returning partial results.`);
+      break; 
+    }
+
     const stillNeed = totalNeeded - collected.length;
     if (stillNeed <= 0) break;
 
-    // Hər round-da istifadə ediləcək modelləri seç:
-    //   - Round 0: 1 Groq (70b) + 2 OpenRouter (fərqli modellər)
-    //   - Round 1+: Növbəti modellər (əvvəlkilərdən fərqli)
     const roundWorkers: Worker[] = [];
-    if (groqModels.length > 0) {
-      roundWorkers.push(groqModels[round % groqModels.length]);
+    // Növbəti Groq modeli (əgər birinci uğursuz oldusa)
+    if (groqModels.length > 1 && round === 0) {
+      roundWorkers.push(groqModels[1]);
     }
-    // Hər round-da 2-3 OR modeli əlavə et (rate limit fərqli olduğu üçün paralel çağırılır)
+    
+    // OpenRouter modelləri (rate limitinə görə paralel)
     const orCount = Math.min(3, orModels.length);
     for (let i = 0; i < orCount; i++) {
       const idx = (round * orCount + i) % orModels.length;
@@ -182,34 +214,25 @@ async function generateQuestions(
 
     if (roundWorkers.length === 0) break;
 
-    // Hər modelə neçə sual istəməli: bərabər böl + deduplikasiya buferi
-    const perWorker = Math.ceil(stillNeed / roundWorkers.length) + 5;
-    // Max 25 sual (token limitinə görə)
-    const askEach = Math.min(perWorker, 25);
+    const askEach = Math.min(stillNeed + 5, 25);
+    // Timeout hər bir çağırış üçün qalan vaxtdan çox olmamalıdır
+    const workerTimeout = Math.min(timeRemaining, 6000);
+    console.log(`[gen] Fallback round=${round + 1}, workers=${roundWorkers.length}, askEach=${askEach}, timeout=${workerTimeout}ms`);
 
-    console.log(`[gen] round=${round + 1}, workers=${roundWorkers.length}, askEach=${askEach}, have=${collected.length}/${totalNeeded}`);
-
-    // PARALEL ÇAĞIRIŞ — bütün modellər eyni anda
     const promises = roundWorkers.map((w, i) =>
-      callWorker(w, groqKey, orKey, system, buildPrompt(askEach, i, round))
+      callWorker(w, groqKey, orKey, system, buildPrompt(askEach, i + 1, round), workerTimeout)
     );
     const results = await Promise.allSettled(promises);
 
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
       if (r.status === "fulfilled" && r.value && r.value.length > 0) {
-        console.log(`[gen] ${roundWorkers[i].id} → ${r.value.length} sual`);
         addAll(r.value);
-      } else {
-        const reason = r.status === "rejected" ? r.reason?.message : "null response";
-        console.warn(`[gen] ${roundWorkers[i].id} uğursuz: ${reason}`);
+        if (collected.length >= totalNeeded) break; // Kifayət qədərsə, digərlərini emal etmə
       }
     }
 
-    console.log(`[gen] round ${round + 1} done: ${collected.length}/${totalNeeded}`);
-
-    // Hələ çatmırsa və daha round varsa — qısa fasilə
-    if (collected.length < totalNeeded && round < MAX_ROUNDS - 1) {
+    if (collected.length < totalNeeded && getRemainingTime() > 1000 && round < MAX_ROUNDS - 1) {
       await new Promise(r => setTimeout(r, 200));
     }
   }

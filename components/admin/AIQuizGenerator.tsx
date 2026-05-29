@@ -78,12 +78,23 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
     setProgress(val);
   };
 
+  const fetchPart = async (count: number, avoidTexts: string[], signal: AbortSignal) => {
+    const res = await fetch("/api/ai/generate-quiz", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, questionCount: count, category, language, botId: botId || undefined, avoidTexts }),
+      signal,
+    });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `HTTP ${res.status}`); }
+    return res.json() as Promise<{ questions: any[]; reviewQuestions: any[] }>;
+  };
+
   const handleGenerate = async () => {
     if (!title.trim()) { error("Quiz mövzusu daxil edin"); return; }
     if (questionCount < 1 || questionCount > 50) { error("Sual sayı 1-50 arasında olmalıdır"); return; }
 
     setLoading(true); setProgress(0); setFailedParts(0);
-    setProgressText(`${questionCount} sual yaradılır...`);
+    setProgressText(`0/${questionCount} sual yaradılır...`);
     await new Promise(r => setTimeout(r, 50));
     startProgress();
 
@@ -91,18 +102,50 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
     abortRef.current = ctrl;
 
     try {
-      setProgressText(`AI modelləri paralel işləyir — ${questionCount} sual...`);
-      const res = await fetch("/api/ai/generate-quiz", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, questionCount, category, language, botId: botId || undefined, avoidTexts: [] }),
-        signal: ctrl.signal,
-      });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `HTTP ${res.status}`); }
-      const data = await res.json() as { questions: any[]; reviewQuestions: any[] };
+      const allQs: any[] = [];
+      let reviewQs: any[] = [];
+      const seen = new Set<string>();
+      const avoidTexts: string[] = [];
 
-      const allQs = data.questions || [];
-      const reviewQs = data.reviewQuestions || [];
+      const BATCH_SIZE = 15;
+      let batchNum = 0;
+      const MAX_BATCHES = Math.ceil(questionCount / BATCH_SIZE) + 3;
+
+      while (allQs.length < questionCount && batchNum < MAX_BATCHES) {
+        if (ctrl.signal.aborted) break;
+
+        const remaining = questionCount - allQs.length;
+        const batchCount = Math.min(remaining, BATCH_SIZE);
+        if (batchCount <= 0) break;
+
+        setProgressText(`${allQs.length}/${questionCount} sual yaradıldı...`);
+
+        try {
+          const data = await fetchPart(batchCount, avoidTexts, ctrl.signal);
+          let addedInBatch = 0;
+          for (const q of (data.questions || [])) {
+            const k = q.text?.trim().toLowerCase();
+            if (k && !seen.has(k)) { 
+              seen.add(k); 
+              allQs.push(q);
+              avoidTexts.push(q.text); 
+              addedInBatch++;
+            }
+          }
+          if (!reviewQs.length && data.reviewQuestions) reviewQs = data.reviewQuestions;
+
+          if (addedInBatch === 0 && allQs.length < questionCount) {
+             await new Promise(r => setTimeout(r, 2000));
+          }
+        } catch (batchErr: any) {
+          if (batchErr?.name === "AbortError") throw batchErr;
+          setFailedParts(prev => prev + 1);
+          console.warn(`[batch ${batchNum + 1}] failed:`, batchErr?.message);
+          await new Promise(r => setTimeout(r, 2000));
+        }
+
+        batchNum++;
+      }
 
       if (allQs.length === 0) { error("AI heç bir sual yarada bilmədi. Yenidən cəhd edin."); return; }
 
