@@ -27,9 +27,9 @@ const GROQ_WORKERS: Worker[] = [
 
 const OR_WORKERS: Worker[] = [
   { id: "openrouter/free",                         provider: "openrouter", jsonMode: false, maxTokens: 8000 },
-  { id: "deepseek/deepseek-v4-flash:free",         provider: "openrouter", jsonMode: false, maxTokens: 8000 },
-  { id: "google/gemma-4-31b-it:free",              provider: "openrouter", jsonMode: false, maxTokens: 8000 },
-  { id: "qwen/qwen3-coder:free",                   provider: "openrouter", jsonMode: false, maxTokens: 8000 },
+  { id: "deepseek/deepseek-r1:free",               provider: "openrouter", jsonMode: false, maxTokens: 8000 },
+  { id: "google/gemma-2-9b-it:free",               provider: "openrouter", jsonMode: false, maxTokens: 8000 },
+  { id: "qwen/qwen-2.5-coder-32b-instruct:free",   provider: "openrouter", jsonMode: false, maxTokens: 8000 },
   { id: "meta-llama/llama-3.3-70b-instruct:free",  provider: "openrouter", jsonMode: false, maxTokens: 8000 },
   { id: "meta-llama/llama-3.2-3b-instruct:free",  provider: "openrouter", jsonMode: false, maxTokens: 4000 },
 ];
@@ -265,9 +265,9 @@ async function generateAllParallel(
   if (orKey) {
     activeWorkers.push(
       ...availableOR.filter(w => w.id === "openrouter/free"),
-      ...availableOR.filter(w => w.id === "deepseek/deepseek-v4-flash:free"),
-      ...availableOR.filter(w => w.id === "google/gemma-4-31b-it:free"),
-      ...availableOR.filter(w => w.id === "qwen/qwen3-coder:free"),
+      ...availableOR.filter(w => w.id === "deepseek/deepseek-r1:free"),
+      ...availableOR.filter(w => w.id === "google/gemma-2-9b-it:free"),
+      ...availableOR.filter(w => w.id === "qwen/qwen-2.5-coder-32b-instruct:free"),
       ...availableOR.filter(w => w.id === "meta-llama/llama-3.3-70b-instruct:free"),
     );
   }
