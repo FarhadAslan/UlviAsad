@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Sparkles, X, Loader2, Bot, CheckCircle2, Zap } from "lucide-react";
+import { Sparkles, X, Loader2, Bot, CheckCircle2, Zap, AlertTriangle } from "lucide-react";
 import { useToast } from "@/components/ui/toast-1";
 
 interface AiBot { id: string; name: string; category: string; active: boolean; isUserBot?: boolean; }
@@ -35,10 +35,11 @@ const LOADER_CSS = `
   40%{opacity:.7;transform:translateY(0)}
 }`;
 
-const FRONTEND_TIMEOUT_MS = 30_000;
+// Frontend timeout backend-dən 5s artıq olsun ki, backend hər zaman əvvəl cavab qaytarsın
+const FRONTEND_TIMEOUT_MS = 55_000;
 
 export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBotId }: UserAIQuizGeneratorProps) {
-  const { success, error } = useToast();
+  const { success, error, warning } = useToast();
 
   const [title,         setTitle]         = useState("");
   const [questionCount, setQuestionCount] = useState("10");
@@ -80,11 +81,11 @@ export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBo
 
     intervalRef.current = setInterval(() => {
       fakeRef.current = Math.min(
-        88,
-        fakeRef.current + (fakeRef.current < 50 ? 3 : fakeRef.current < 75 ? 1.5 : 0.4)
+        90,
+        fakeRef.current + (fakeRef.current < 40 ? 4 : fakeRef.current < 70 ? 2 : fakeRef.current < 85 ? 0.8 : 0.2)
       );
       setProgress(Math.round(fakeRef.current));
-    }, 350);
+    }, 400);
 
     let sec = 0;
     timerRef.current = setInterval(() => { sec++; setElapsed(sec); }, 1000);
@@ -134,23 +135,33 @@ export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBo
 
       const data = await res.json();
       const questions: any[] = data.questions || [];
+      const meta = data.meta || {};
 
       if (questions.length === 0) {
-        throw new Error("AI heç bir sual yarada bilmədi. Yenidən cəhd edin.");
+        throw new Error("AI heç bir sual yarada bilmədi. Mövzunu dəqiqləşdirərək yenidən cəhd edin.");
       }
 
       stopProgress(100);
       setProgressText(`${questions.length} sual hazırdır!`);
       await new Promise(r => setTimeout(r, 500));
 
-      success(`${questions.length} sual uğurla yaradıldı! ✓`);
+      // Tam sual sayı gəlibsə — uğur
+      if (!meta.warning) {
+        success(`${questions.length} sual uğurla yaradıldı! ✓`);
+      } else {
+        // Qismən uğur — warning göstər amma davam et
+        warning(`${questions.length} sual yaradıldı (${count} istənilmişdi). API limiti səbəbindən az gəldi.`);
+      }
+
       onGenerate(questions, botId || undefined);
       onClose();
 
     } catch (e: any) {
       clearTimeout(frontendTimeout);
+      stopProgress(0);
+      
       if (e?.name === "AbortError") {
-        error("Vaxt aşıldı (30s). API limitləri dolmuş ola bilər — yenidən cəhd edin.");
+        error("Vaxt aşıldı. Mövzunu qısaldın və ya sual sayını azaldın, yenidən cəhd edin.");
       } else if (typeof navigator !== "undefined" && !navigator.onLine) {
         error("İnternet bağlantısı yoxdur.");
       } else {
@@ -198,9 +209,9 @@ export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBo
             <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/50 space-y-1">
               <div className="flex items-center gap-1.5 text-purple-300">
                 <Zap size={11} />
-                <span>8 model paralel çalışır</span>
+                <span>Bir neçə AI model paralel işləyir</span>
               </div>
-              <div>Groq + OpenRouter modelləri eyni anda işləyir</div>
+              <div>Groq + OpenRouter modellərindən ən sürətlisi seçilir</div>
             </div>
           </div>
 
@@ -317,7 +328,7 @@ export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBo
                   disabled={loading}
                 />
                 <div className="flex gap-1.5">
-                  {[10, 20, 30, 50].map(n => (
+                  {[5, 10, 20, 30].map(n => (
                     <button
                       key={n}
                       type="button"
@@ -335,7 +346,7 @@ export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBo
                 </div>
               </div>
               <p className="mt-1 text-xs text-slate-400">
-                Maksimum 50 sual · ≤ 30 saniyə
+                Maksimum 50 sual · Tövsiyə: 10-20 sual (daha sürətli)
               </p>
             </div>
 
@@ -347,15 +358,19 @@ export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBo
               <ul className="space-y-1 text-purple-700">
                 <li className="flex items-start gap-1.5">
                   <CheckCircle2 size={11} className="mt-0.5 flex-shrink-0 text-purple-500" />
-                  <span>8 AI modeli <strong>eyni anda</strong> paralel işləyir</span>
+                  <span>Bir neçə AI modeli <strong>eyni anda paralel</strong> işləyir</span>
                 </li>
                 <li className="flex items-start gap-1.5">
                   <CheckCircle2 size={11} className="mt-0.5 flex-shrink-0 text-purple-500" />
-                  <span>50 sual üçün ən geci <strong>30 saniyə</strong></span>
+                  <span>Bir model limit alsa, digəri davam edir</span>
                 </li>
                 <li className="flex items-start gap-1.5">
                   <CheckCircle2 size={11} className="mt-0.5 flex-shrink-0 text-purple-500" />
                   <span>Dəqiq mövzu adı daxil edin — daha yaxşı nəticə üçün</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <AlertTriangle size={11} className="mt-0.5 flex-shrink-0 text-amber-500" />
+                  <span className="text-amber-700">Limit xətası alarsan: bir neçə saniyə gözlə, yenidən cəhd et</span>
                 </li>
               </ul>
             </div>
