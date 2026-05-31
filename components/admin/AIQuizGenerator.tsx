@@ -148,7 +148,10 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `HTTP ${res.status} xətası`);
+        const errorMsg = data.error || `HTTP ${res.status} xətası`;
+        const suggestion = data.suggestion || "";
+        
+        throw new Error(suggestion ? `${errorMsg}\n\n${suggestion}` : errorMsg);
       }
 
       const data = await res.json();
@@ -181,11 +184,18 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
     } catch (e: any) {
       clearTimeout(frontendTimeout);
       if (e?.name === "AbortError") {
-        error("Vaxt aşıldı (30s). API limitləri dolmuş ola bilər — yenidən cəhd edin.");
+        error("Vaxt aşıldı (30s). Sual sayını azaldın (5-10 sual) və yenidən cəhd edin.");
       } else if (typeof navigator !== "undefined" && !navigator.onLine) {
         error("İnternet bağlantısı yoxdur.");
       } else {
-        error(e?.message || "Xəta baş verdi. Yenidən cəhd edin.");
+        const errorMsg = e?.message || "Xəta baş verdi. Yenidən cəhd edin.";
+        // Uzun mesajları toast-da göstər
+        if (errorMsg.length > 100) {
+          error(errorMsg.split('\n')[0]); // İlk sətri göstər
+          console.error("Tam xəta:", errorMsg);
+        } else {
+          error(errorMsg);
+        }
       }
     } finally {
       clearTimeout(frontendTimeout);
@@ -370,7 +380,7 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
                 />
                 {/* Sürətli seçim düymələri */}
                 <div className="flex gap-1.5">
-                  {[10, 20, 30, 50].map(n => (
+                  {[5, 10, 15, 20].map(n => (
                     <button
                       key={n}
                       type="button"
@@ -388,7 +398,7 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
                 </div>
               </div>
               <p className="mt-1 text-xs text-slate-400">
-                Maksimum 50 sual · 2 model paralel · Saatda 10 quiz limiti
+                Maksimum 50 sual · Tövsiyə: 5-15 sual · Saatda 10 quiz limiti
               </p>
             </div>
 
@@ -450,7 +460,7 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
                 </li>
                 <li className="flex items-start gap-1.5">
                   <CheckCircle2 size={11} className="mt-0.5 flex-shrink-0 text-purple-500" />
-                  <span>Groq (llama-3.3-70b, llama-3.1-8b, gemma2) + OpenRouter (8 model)</span>
+                  <span>Hər model <strong>3 dəfə retry</strong> edir (exponential backoff)</span>
                 </li>
                 <li className="flex items-start gap-1.5">
                   <CheckCircle2 size={11} className="mt-0.5 flex-shrink-0 text-purple-500" />
@@ -462,7 +472,7 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
                 </li>
                 <li className="flex items-start gap-1.5">
                   <AlertCircle size={11} className="mt-0.5 flex-shrink-0 text-amber-500" />
-                  <span className="text-amber-700">Saatda max 10 quiz yarada bilərsiniz</span>
+                  <span className="text-amber-700">Saatda max 10 quiz · Tövsiyə: 5-15 sual (daha etibarlı)</span>
                 </li>
               </ul>
             </div>

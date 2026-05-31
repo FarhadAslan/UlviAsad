@@ -164,7 +164,7 @@ function isValidQuestion(q: any): boolean {
   });
 }
 
-// ─── Tək model çağırışı ───────────────────────────────────────────────────────
+// ─── Tək model çağırışı (retry ilə) ──────────────────────────────────────────
 async function callWorker(
   w:          Worker,
   groqKey:    string | undefined,
@@ -199,43 +199,81 @@ async function callWorker(
   };
   if (w.jsonMode) body.response_format = { type: "json_object" };
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), WORKER_TIMEOUT_MS);
+  // Exponential backoff retry: 3 cəhd, 2s → 4s → 8s
+  const maxRetries = 3;
+  let lastError: any = null;
 
-  try {
-    const res = await fetch(endpoint, {
-      method:  "POST",
-      headers,
-      body:    JSON.stringify(body),
-      signal:  controller.signal,
-    });
-    clearTimeout(timer);
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), WORKER_TIMEOUT_MS);
 
-    if (res.status === 429) throw new Error(`[${w.id}] 429 rate-limit`);
-    if (res.status === 401 || res.status === 403) throw new Error(`[${w.id}] API açarı səhvdir (${res.status})`);
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      throw new Error(`[${w.id}] HTTP ${res.status}: ${errText.slice(0, 80)}`);
+    try {
+      const res = await fetch(endpoint, {
+        method:  "POST",
+        headers,
+        body:    JSON.stringify(body),
+        signal:  controller.signal,
+      });
+      clearTimeout(timer);
+
+      // 429 rate limit — retry et
+      if (res.status === 429) {
+        const retryAfter = parseInt(res.headers.get("retry-after") || "2") * 1000;
+        const backoffDelay = Math.min(retryAfter || (2000 * Math.pow(2, attempt - 1)), 10000);
+        
+        if (attempt < maxRetries) {
+          console.log(`[${w.id}] 429 rate-limit, ${backoffDelay}ms sonra retry (${attempt}/${maxRetries})`);
+          await new Promise(r => setTimeout(r, backoffDelay));
+          continue;
+        }
+        throw new Error(`[${w.id}] 429 rate-limit (${maxRetries} cəhd)`);
+      }
+
+      if (res.status === 401 || res.status === 403) throw new Error(`[${w.id}] API açarı səhvdir (${res.status})`);
+      
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        throw new Error(`[${w.id}] HTTP ${res.status}: ${errText.slice(0, 80)}`);
+      }
+
+      const data    = await res.json().catch(() => null);
+      const content = data?.choices?.[0]?.message?.content;
+      if (!content) throw new Error(`[${w.id}] boş cavab`);
+
+      const qs = extractQuestions(content);
+      if (!qs) throw new Error(`[${w.id}] JSON parse xətası`);
+
+      const valid = qs.filter(isValidQuestion);
+      if (valid.length === 0) throw new Error(`[${w.id}] ${qs.length} sualdan heç biri valid deyil`);
+
+      console.log(`[${w.id}] ✓ ${valid.length}/${qs.length} etibarlı sual (cəhd ${attempt})`);
+      return valid;
+
+    } catch (e: any) {
+      clearTimeout(timer);
+      lastError = e;
+      
+      if (e?.name === "AbortError") {
+        throw new Error(`[${w.id}] timeout`);
+      }
+      
+      // Retry edilə bilən xətalar
+      const isRetryable = e?.message?.includes("429") || 
+                          e?.message?.includes("timeout") ||
+                          e?.message?.includes("ECONNRESET");
+      
+      if (isRetryable && attempt < maxRetries) {
+        const backoffDelay = 2000 * Math.pow(2, attempt - 1);
+        console.log(`[${w.id}] Xəta: ${e.message}, ${backoffDelay}ms sonra retry (${attempt}/${maxRetries})`);
+        await new Promise(r => setTimeout(r, backoffDelay));
+        continue;
+      }
+      
+      throw e;
     }
-
-    const data    = await res.json().catch(() => null);
-    const content = data?.choices?.[0]?.message?.content;
-    if (!content) throw new Error(`[${w.id}] boş cavab`);
-
-    const qs = extractQuestions(content);
-    if (!qs) throw new Error(`[${w.id}] JSON parse xətası`);
-
-    const valid = qs.filter(isValidQuestion);
-    if (valid.length === 0) throw new Error(`[${w.id}] ${qs.length} sualdan heç biri valid deyil`);
-
-    console.log(`[${w.id}] ✓ ${valid.length}/${qs.length} etibarlı sual`);
-    return valid;
-
-  } catch (e: any) {
-    clearTimeout(timer);
-    if (e?.name === "AbortError") throw new Error(`[${w.id}] timeout`);
-    throw e;
   }
+
+  throw lastError || new Error(`[${w.id}] ${maxRetries} cəhddən sonra uğursuz`);
 }
 
 // ─── Normalize ────────────────────────────────────────────────────────────────
@@ -389,9 +427,11 @@ async function generateQuestions(
 
     const results = await Promise.all(tasks);
     let newThisRound = 0;
+    let allRateLimited = true;
 
     for (const r of results) {
       if (r.ok) {
+        allRateLimited = false;
         const added = addQuestions(r.qs);
         newThisRound += added;
         console.log(
@@ -401,18 +441,28 @@ async function generateQuestions(
         const msg: string = (r as any).err?.message || `${r.w.id} uğursuz`;
         console.warn(`[gen] ✗ ${r.w.id}:`, msg);
         
-        // Rate limit yalnız 3 dəqiqəlik müvəqqəti blok
+        // Rate limit yalnız 5 dəqiqəlik müvəqqəti blok
         if (msg.includes("429") || msg.toLowerCase().includes("rate-limit")) {
-          console.log(`[gen] ${r.w.id} rate-limited, 3 dəqiqə sonra yenidən cəhd ediləcək`);
+          console.log(`[gen] ${r.w.id} rate-limited, 5 dəqiqə sonra yenidən cəhd ediləcək`);
           rateLimited.add(r.w.id);
-          // 3 dəqiqə sonra rate limit-i sil
-          setTimeout(() => rateLimited.delete(r.w.id), 3 * 60 * 1000);
+          // 5 dəqiqə sonra rate limit-i sil
+          setTimeout(() => rateLimited.delete(r.w.id), 5 * 60 * 1000);
+        } else {
+          // Rate limit olmayan xətalar üçün modeli deaktiv etmə
+          allRateLimited = false;
         }
         if (!errors.includes(msg)) errors.push(msg);
       }
     }
 
     if (collected.length >= totalNeeded) break;
+
+    // Bütün modellər rate-limited isə və heç bir yeni sual gəlməyibsə
+    if (allRateLimited && newThisRound === 0) {
+      console.warn(`[gen] Mərhələ ${round}: Bütün modellər rate-limited. Dayandırılır.`);
+      errors.push("Bütün AI modellər rate limit aldı. 5-10 dəqiqə gözləyib yenidən cəhd edin.");
+      break;
+    }
 
     // Yeni sual gəlmədisə dövrü bitir — sonsuz loop riski
     if (newThisRound === 0) {
@@ -423,13 +473,13 @@ async function generateQuestions(
     // Bütün modellər tükəndisə növbəti dövrə keç (offset artıq bütün modelləri əhatə edir)
     if (available.length <= PARALLEL_COUNT) {
       if (timeLeft() > 15_000 && round <= 2) {
-        console.log("[gen] Qısa fasilə (5s) — rate limit recovery...");
-        await new Promise(r => setTimeout(r, 5_000));
+        console.log("[gen] Qısa fasilə (8s) — rate limit recovery...");
+        await new Promise(r => setTimeout(r, 8_000));
       }
     } else if (newThisRound > 0 && collected.length < totalNeeded && timeLeft() > 10_000) {
-      // Modellər arasında 2 saniyə fasilə — rate limit riski azalır
-      console.log("[gen] Model rotasiyası fasiləsi (2s)...");
-      await new Promise(r => setTimeout(r, 2_000));
+      // Modellər arasında 3 saniyə fasilə — rate limit riski azalır
+      console.log("[gen] Model rotasiyası fasiləsi (3s)...");
+      await new Promise(r => setTimeout(r, 3_000));
     }
   }
 
@@ -563,12 +613,15 @@ YALNIZ JSON, DƏQIQ ${count} sual:`;
 
     if (genResult.questions.length === 0) {
       const isRateLimit = genResult.errors.some(e => e.includes("429") || e.includes("rate-limit"));
+      const hasAllRateLimited = genResult.errors.some(e => e.includes("Bütün AI modellər"));
+      
       return NextResponse.json(
         {
-          error: isRateLimit
-            ? "AI API limiti dolub. Bir neçə dəqiqə gözləyib yenidən cəhd edin."
+          error: isRateLimit || hasAllRateLimited
+            ? "Bütün AI modellər rate limit aldı. 5-10 dəqiqə gözləyib yenidən cəhd edin. Əgər problem davam edərsə, sual sayını azaldın (məs: 5-10 sual)."
             : "AI sual yarada bilmədi. Mövzunu dəqiqləşdirərək yenidən cəhd edin.",
           details: genResult.errors.slice(0, 3),
+          suggestion: "Sual sayını azaldın (5-10 sual) və ya bir neçə dəqiqə sonra yenidən cəhd edin.",
         },
         { status: 502 }
       );

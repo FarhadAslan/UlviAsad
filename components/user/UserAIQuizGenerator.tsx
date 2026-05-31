@@ -130,7 +130,10 @@ export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBo
 
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
-        throw new Error(d.error || `HTTP ${res.status} xətası`);
+        const errorMsg = d.error || `HTTP ${res.status} xətası`;
+        const suggestion = d.suggestion || "";
+        
+        throw new Error(suggestion ? `${errorMsg}\n\n${suggestion}` : errorMsg);
       }
 
       const data = await res.json();
@@ -166,11 +169,18 @@ export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBo
       stopProgress(0);
       
       if (e?.name === "AbortError") {
-        error("Vaxt aşıldı. Mövzunu qısaldın və ya sual sayını azaldın, yenidən cəhd edin.");
+        error("Vaxt aşıldı. Sual sayını azaldın (5-10 sual) və yenidən cəhd edin.");
       } else if (typeof navigator !== "undefined" && !navigator.onLine) {
         error("İnternet bağlantısı yoxdur.");
       } else {
-        error(e?.message || "Xəta baş verdi. Yenidən cəhd edin.");
+        const errorMsg = e?.message || "Xəta baş verdi. Yenidən cəhd edin.";
+        // Uzun mesajları toast-da göstər
+        if (errorMsg.length > 100) {
+          error(errorMsg.split('\n')[0]); // İlk sətri göstər
+          console.error("Tam xəta:", errorMsg);
+        } else {
+          error(errorMsg);
+        }
       }
     } finally {
       clearTimeout(frontendTimeout);
@@ -351,7 +361,7 @@ export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBo
                 </div>
               </div>
               <p className="mt-1 text-xs text-slate-400">
-                Maksimum 50 sual · Tövsiyə: 10-20 sual · Saatda 10 quiz limiti
+                Maksimum 50 sual · Tövsiyə: 5-10 sual · Saatda 10 quiz limiti
               </p>
             </div>
 
@@ -367,19 +377,19 @@ export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBo
                 </li>
                 <li className="flex items-start gap-1.5">
                   <CheckCircle2 size={11} className="mt-0.5 flex-shrink-0 text-purple-500" />
-                  <span>Bir model limit alsa, avtomatik digəri işə düşür</span>
+                  <span>Hər model <strong>3 dəfə retry</strong> edir (exponential backoff)</span>
                 </li>
                 <li className="flex items-start gap-1.5">
                   <CheckCircle2 size={11} className="mt-0.5 flex-shrink-0 text-purple-500" />
-                  <span>Dəqiq mövzu adı daxil edin — daha yaxşı nəticə üçün</span>
+                  <span>Bir model limit alsa, avtomatik digəri işə düşür</span>
                 </li>
                 <li className="flex items-start gap-1.5">
                   <AlertTriangle size={11} className="mt-0.5 flex-shrink-0 text-amber-500" />
-                  <span className="text-amber-700">Saatda max 10 quiz yarada bilərsiniz</span>
+                  <span className="text-amber-700">Saatda max 10 quiz · Tövsiyə: 5-10 sual (daha etibarlı)</span>
                 </li>
                 <li className="flex items-start gap-1.5">
                   <AlertTriangle size={11} className="mt-0.5 flex-shrink-0 text-amber-500" />
-                  <span className="text-amber-700">Limit xətası alarsan: bir neçə saniyə gözlə, yenidən cəhd et</span>
+                  <span className="text-amber-700">Limit xətası: 5-10 dəqiqə gözlə və ya sual sayını azalt</span>
                 </li>
               </ul>
             </div>
