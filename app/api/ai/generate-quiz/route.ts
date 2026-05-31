@@ -341,8 +341,11 @@ async function generateQuestions(
   };
 
   // Overshoot: dedup itkisini kompensasiya etmək üçün az miqdarda artıq istə
-  // Köhnə: +15% → Yeni: +10% (daha az token = daha az limit)
-  const overshoot = (n: number) => Math.min(n + Math.ceil(n * 0.10), n + 5);
+  // Köhnə sistemdəki overshoot dəyərini (15% + 8) bərpa edirik
+  const overshoot = (n: number) => Math.min(n + Math.ceil(n * 0.15), n + 8);
+
+  // Eyni anda işə salınacaq model sayı (paralel)
+  const PARALLEL_COUNT = Math.min(allWorkers.length, 4);
 
   let round = 0;
 
@@ -356,13 +359,11 @@ async function generateQuestions(
       break;
     }
 
-    // Sequential-First: Mərhələyə görə neçə model eyni anda çağırılsın?
-    // Mərhələ 1 → 1 model, Mərhələ 2 → 2 model, Mərhələ 3+ → max 3 model
-    // Bu şəkildə əksər hallarda 1 API sorğusu ilə bitir.
-    const parallelCount = Math.min(round, 3, available.length);
-
-    // Priority sırasına görə model seç (rate-limited olmayanlardan)
-    const workers = available.slice(0, parallelCount);
+    // Paralel: Hər dəfə 4 fərqli model seçilir, növbəti raundda sürüşdürülür
+    const offset  = (round - 1) * PARALLEL_COUNT;
+    const workers = available.slice(offset % available.length)
+      .concat(available.slice(0, offset % available.length))
+      .slice(0, PARALLEL_COUNT);
 
     const askCount = overshoot(remaining);
 
@@ -403,16 +404,17 @@ async function generateQuestions(
     if (collected.length >= totalNeeded) break;
 
     // Yeni sual gəlmədisə dövrü bitir — sonsuz loop riski
-    if (newThisRound === 0 && round >= 3) {
+    if (newThisRound === 0) {
       console.warn(`[gen] Mərhələ ${round}: Yeni sual əldə edilmədi. Dayandırılır.`);
       break;
     }
 
-    // Mərhələ 1 uğurlu olduqda döngü artıq bitib — yalnız çatmadıqda davam edir.
-    // Mərhələ keçidlərində qısa fasilə ver (yalnız vaxt olduqda)
-    if (newThisRound === 0 && timeLeft() > 12_000 && round <= 3) {
-      console.log("[gen] Qısa fasilə (2s)...");
-      await new Promise(r => setTimeout(r, 2_000));
+    // Bütün modellər tükəndisə növbəti dövrə keç (offset artıq bütün modelləri əhatə edir)
+    if (available.length <= PARALLEL_COUNT) {
+      if (timeLeft() > 15_000 && round <= 2) {
+        console.log("[gen] Qısa fasilə (3s)...");
+        await new Promise(r => setTimeout(r, 3_000));
+      }
     }
   }
 
