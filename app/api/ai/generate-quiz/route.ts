@@ -7,9 +7,9 @@ export const dynamic    = "force-dynamic";
 export const runtime    = "nodejs";
 export const maxDuration = 55;
 
-// ─── Timeout konfiqurasiyası ──────────────────────────────────────────────────
-const TOTAL_TIMEOUT_MS  = 48_000; // 48s (Vercel overhead üçün pay)
-const WORKER_TIMEOUT_MS = 20_000; // hər tək model çağırışı üçün max vaxt
+// ─── Timeout ──────────────────────────────────────────────────────────────────
+const TOTAL_TIMEOUT_MS  = 46_000;
+const WORKER_TIMEOUT_MS = 22_000;
 
 // ─── Model konfiqurasiyası ───────────────────────────────────────────────────
 interface Worker {
@@ -17,23 +17,25 @@ interface Worker {
   provider: "groq" | "openrouter";
   jsonMode: boolean;
   maxTokens: number;
-  priority: number;
 }
 
+// Groq — sürətli, yüksək keyfiyyət
+// max_tokens artırıldı ki, 30+ sual tam qaytarılsın
 const GROQ_WORKERS: Worker[] = [
-  { id: "llama-3.3-70b-versatile",  provider: "groq", jsonMode: true,  maxTokens: 6000, priority: 1 },
-  { id: "llama-3.1-8b-instant",     provider: "groq", jsonMode: false, maxTokens: 4000, priority: 2 },
-  { id: "gemma2-9b-it",             provider: "groq", jsonMode: false, maxTokens: 4000, priority: 3 },
-  { id: "mixtral-8x7b-32768",       provider: "groq", jsonMode: false, maxTokens: 4000, priority: 4 },
+  { id: "llama-3.3-70b-versatile", provider: "groq", jsonMode: true,  maxTokens: 8000 },
+  { id: "llama-3.1-8b-instant",    provider: "groq", jsonMode: false, maxTokens: 7000 },
+  { id: "gemma2-9b-it",            provider: "groq", jsonMode: false, maxTokens: 6000 },
+  { id: "mixtral-8x7b-32768",      provider: "groq", jsonMode: false, maxTokens: 6000 },
 ];
 
+// OpenRouter — pulsuz, müstəqil rate limit
 const OR_WORKERS: Worker[] = [
-  { id: "deepseek/deepseek-r1:free",                 provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 1 },
-  { id: "meta-llama/llama-3.3-70b-instruct:free",    provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 2 },
-  { id: "google/gemma-2-9b-it:free",                 provider: "openrouter", jsonMode: false, maxTokens: 4000, priority: 3 },
-  { id: "qwen/qwen-2.5-72b-instruct:free",           provider: "openrouter", jsonMode: false, maxTokens: 4000, priority: 3 },
-  { id: "microsoft/phi-3-medium-128k-instruct:free", provider: "openrouter", jsonMode: false, maxTokens: 4000, priority: 4 },
-  { id: "meta-llama/llama-3.2-3b-instruct:free",     provider: "openrouter", jsonMode: false, maxTokens: 3000, priority: 5 },
+  { id: "deepseek/deepseek-r1:free",                 provider: "openrouter", jsonMode: false, maxTokens: 8000 },
+  { id: "meta-llama/llama-3.3-70b-instruct:free",    provider: "openrouter", jsonMode: false, maxTokens: 8000 },
+  { id: "google/gemma-2-9b-it:free",                 provider: "openrouter", jsonMode: false, maxTokens: 6000 },
+  { id: "qwen/qwen-2.5-72b-instruct:free",           provider: "openrouter", jsonMode: false, maxTokens: 6000 },
+  { id: "microsoft/phi-3-medium-128k-instruct:free", provider: "openrouter", jsonMode: false, maxTokens: 6000 },
+  { id: "meta-llama/llama-3.2-3b-instruct:free",     provider: "openrouter", jsonMode: false, maxTokens: 4000 },
 ];
 
 // ─── JSON parser ──────────────────────────────────────────────────────────────
@@ -59,10 +61,27 @@ function extractQuestions(raw: string): any[] | null {
       if (s < 0 || e < 0) throw new Error("no braces");
       return JSON.parse(text.slice(s, e + 1));
     },
+    // Kəsilmiş JSON-u bərpa etmək üçün — token limiti səbəbindən bitməmiş ola bilər
     () => {
-      const matches = text.match(/\{[^{}]*"text"[^{}]*\}/g);
-      if (!matches?.length) throw new Error("no question objects");
-      return { questions: matches.map(m => JSON.parse(m)) };
+      const s = text.indexOf("[");
+      if (s < 0) throw new Error("no array start");
+      let depth = 0, end = -1;
+      const arr = text.slice(s);
+      const objs: string[] = [];
+      let obj = "";
+      for (let i = 0; i < arr.length; i++) {
+        const ch = arr[i];
+        if (ch === "{") { depth++; obj += ch; }
+        else if (ch === "}") {
+          depth--;
+          obj += ch;
+          if (depth === 0) { objs.push(obj); obj = ""; }
+        } else if (depth > 0) {
+          obj += ch;
+        }
+      }
+      if (objs.length === 0) throw new Error("no objects");
+      return { questions: objs.map(o => JSON.parse(o)) };
     },
   ];
 
@@ -84,8 +103,8 @@ function isValidQuestion(q: any): boolean {
   if (!q.correctOption) return false;
   return q.options.every((o: any) => {
     if (!o) return false;
-    if (typeof o === "string" && o.trim().length > 0) return true;
-    if (typeof o === "object" && typeof o.text === "string" && o.text.trim().length > 0) return true;
+    if (typeof o === "string") return o.trim().length > 0;
+    if (typeof o === "object") return typeof o.text === "string" && o.text.trim().length > 0;
     return false;
   });
 }
@@ -120,7 +139,7 @@ async function callWorker(
       { role: "system", content: system },
       { role: "user",   content: userPrompt },
     ],
-    temperature: 0.65,
+    temperature: 0.7,
     max_tokens:  w.maxTokens,
   };
   if (w.jsonMode) body.response_format = { type: "json_object" };
@@ -138,16 +157,14 @@ async function callWorker(
     clearTimeout(timer);
 
     if (res.status === 429) {
-      const errData = await res.json().catch(() => null);
-      const retryAfter = errData?.error?.message?.match(/try again in (\d+\.?\d*)s/i)?.[1];
-      throw new Error(`[${w.id}] 429 rate-limit${retryAfter ? ` (retry in ${retryAfter}s)` : ""}`);
+      throw new Error(`[${w.id}] 429 rate-limit`);
     }
     if (res.status === 401 || res.status === 403) {
       throw new Error(`[${w.id}] API açarı səhvdir (${res.status})`);
     }
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
-      throw new Error(`[${w.id}] HTTP ${res.status}: ${errText.slice(0, 100)}`);
+      throw new Error(`[${w.id}] HTTP ${res.status}: ${errText.slice(0, 80)}`);
     }
 
     const data    = await res.json().catch(() => null);
@@ -165,7 +182,7 @@ async function callWorker(
 
   } catch (e: any) {
     clearTimeout(timer);
-    if (e?.name === "AbortError") throw new Error(`[${w.id}] timeout (${WORKER_TIMEOUT_MS}ms)`);
+    if (e?.name === "AbortError") throw new Error(`[${w.id}] timeout`);
     throw e;
   }
 }
@@ -215,19 +232,24 @@ function normalizeQuestion(q: any): any {
   };
 }
 
-// ─── CHUNK-BASED PARALEL DİSTRİBUTİON ────────────────────────────────────────
+// ─── Əsas generasiya ─────────────────────────────────────────────────────────
 //
-// PROBLEM: 30 sual istəyəndə tək modelə "30 sual ver" desək — model rate-limit
-//          alır, az sual (bəzən heç) qaytarır.
+// DÜZGÜN STRATEGİYA:
 //
-// HƏLL: "Divide and Conquer" — sual sayını kiçik CHUNK-lara böl, hər chunk-u
-//       ayrı bir modelə ver. Belə etdikdə:
-//       • Hər model az sual yaratdığı üçün rate-limitə düşmür
-//       • 6 model * 5 sual = 30 sual → tam sayda sual
-//       • Biri limitə düşsə, digərləri davam edir
-//       • Hər mərhələdə çatışmayan suallar yenidən paylaşdırılır
+//  ❌ KÖHNƏ (yanlış): Hər modelə sual sayını böl (30 / 4 model = 8 sual/model)
+//     → Nəticə: Az sual, çox dedup itkisi
 //
-async function generateWithParallelFallback(
+//  ✅ YENİ (düzgün): Hər model EYNI TAM SAYI generasiya etsin
+//     → 4 model × 30 sual = 120 cavab, dedupdan sonra ≥ 30 unikal sual
+//     → Rate limit risk azdır: hər model öz müstəqil limitinə malikdir
+//     → Groq + OpenRouter — iki fərqli provider, müstəqil limitlər
+//
+//  MƏRHƏLƏLƏR:
+//  1. Mərhələ 1: İlk N modeli EYNI ANDA, hər birindən TAM sual sayı istə
+//  2. Mərhələ 2: Hələ az sual varsa, növbəti modellər işə salınır
+//  3. Mərhələ 3+: Yenidən cəhd (rate-limit almamış modellərlə)
+//
+async function generateQuestions(
   totalNeeded: number,
   system:      string,
   buildPrompt: (count: number, hint: string) => string,
@@ -238,7 +260,7 @@ async function generateWithParallelFallback(
   const allWorkers: Worker[] = [
     ...(groqKey ? GROQ_WORKERS : []),
     ...(orKey   ? OR_WORKERS   : []),
-  ].sort((a, b) => a.priority - b.priority);
+  ];
 
   if (allWorkers.length === 0) {
     return { questions: [], errors: ["Aktiv AI modeli konfiqurasiya edilməyib"] };
@@ -253,19 +275,18 @@ async function generateWithParallelFallback(
     "Diqqət: İki fərqli anlayışı müqayisə edən suallar yarat.",
   ];
 
-  const startTime     = Date.now();
-  const collected: any[] = [];
-  const seenKeys      = new Set<string>();
-  const errors: string[] = [];
-  const rateLimited   = new Set<string>(); // Rate limit alan modelləri izlə
+  const startTime    = Date.now();
+  const collected:   any[] = [];
+  const seenKeys     = new Set<string>();
+  const errors:      string[] = [];
+  const rateLimited  = new Set<string>();
 
   const timeLeft = () => TOTAL_TIMEOUT_MS - (Date.now() - startTime);
 
-  // Unikal sualları əlavə et, qaytarılan sayı ver
   const addQuestions = (qs: any[]): number => {
     let added = 0;
     for (const q of qs) {
-      const key = (q.text || "").trim().toLowerCase().slice(0, 60);
+      const key = (q.text || "").trim().toLowerCase().slice(0, 80);
       if (key.length > 5 && !seenKeys.has(key)) {
         seenKeys.add(key);
         collected.push(q);
@@ -275,91 +296,96 @@ async function generateWithParallelFallback(
     return added;
   };
 
-  // ── MAX CHUNK ölçüsü ─────────────────────────────────────────────────────────
-  // Bir model bir sorğuda bu qədər sual yarada bilər — rate limit həddi
-  // Groq: RPM (requests per minute) və TPD (tokens per day) limitləri var
-  // Bu dəyər artıq olarsa rate-limit artır; azsa daha çox model lazım olur
-  const MAX_CHUNK = 8;
+  // İlk mərhələdə eyni anda işə salınacaq model sayı
+  // Çox model = daha çox müxtəlifllik + daha az rate limit riski
+  const PARALLEL_COUNT = Math.min(allWorkers.length, 4);
+
+  // Hər model neçə sual yaratmalı?
+  // TAM sual sayını istəyirik — dedup itkisini kompensasiya etmək üçün bir az artıq
+  // Məsələn: 30 sual lazımdırsa → hər model 33-35 sual yaradır
+  const overshoot = (n: number) => Math.min(n + Math.ceil(n * 0.15), n + 8);
 
   let round = 0;
-  const MAX_ROUNDS = 5;
 
-  while (collected.length < totalNeeded && timeLeft() > 8_000 && round < MAX_ROUNDS) {
+  while (collected.length < totalNeeded && timeLeft() > 8_000) {
     round++;
     const remaining = totalNeeded - collected.length;
 
-    // Bu mərhələdə aktiv (rate-limitə düşməmiş) modelləri seç
-    const active = allWorkers.filter(w => !rateLimited.has(w.id));
-    if (active.length === 0) {
-      console.warn("[gen] Bütün modellər rate-limitdədir. Dayanılır.");
+    // Bu mərhələdə aktiv modellər (rate-limit almamışlar)
+    const available = allWorkers.filter(w => !rateLimited.has(w.id));
+    if (available.length === 0) {
+      console.warn("[gen] Bütün modellər rate-limitdədir.");
       break;
     }
 
-    // Neçə model lazım olduğunu hesabla — lazımdan çox model istifadə etmə
-    const workersNeeded = Math.min(active.length, Math.ceil(remaining / MAX_CHUNK));
-    const workers = active.slice(0, workersNeeded);
+    // Mərhələyə görə model sırası: hər dəfə fərqli modellər öndə olsun
+    const offset  = (round - 1) * PARALLEL_COUNT;
+    const workers = available.slice(offset % available.length)
+      .concat(available.slice(0, offset % available.length))
+      .slice(0, PARALLEL_COUNT);
 
-    // Hər model neçə sual yaratmalı
-    // +3 deduplikasiya payı (bəzən modellər eyni sual verə bilər)
-    const askEach = Math.min(Math.ceil(remaining / workers.length) + 3, MAX_CHUNK);
+    // Hər model tam lazım olan sual sayı + buffer qədər generasiya edir
+    const askCount = overshoot(remaining);
 
     console.log(
-      `[gen] Mərhələ ${round}: ${workers.length} model paralel, ` +
-      `hər biri ${askEach} sual, lazım: ${remaining}, vaxt: ${Math.round(timeLeft() / 1000)}s`
+      `[gen] Mərhələ ${round}: ${workers.map(w => w.id.split("/").pop()).join(", ")} | ` +
+      `Hər biri ${askCount} sual | Lazım: ${remaining} | Vaxt: ${Math.round(timeLeft() / 1000)}s`
     );
 
-    // Bütün seçilmiş modellərə EYNI ANDA fərqli hint ilə sorğu göndər
+    // Bütün seçilmiş modellərə EYNI ANDA sorğu göndər
     const tasks = workers.map((w, idx) => {
-      // Hər model fərqli hint alsın ki, fərqli tip suallar gəlsin
-      const hint   = hints[(idx + round * 2) % hints.length];
-      const prompt = buildPrompt(askEach, hint);
+      const hint   = hints[(idx + round * 3) % hints.length];
+      const prompt = buildPrompt(askCount, hint);
       return callWorker(w, groqKey, orKey, system, prompt)
         .then(qs  => ({ w, qs, ok: true  as const }))
         .catch(err => ({ w, err, ok: false as const }));
     });
 
     const results = await Promise.all(tasks);
-    let gotNewThisRound = false;
+    let newThisRound = 0;
 
     for (const r of results) {
       if (r.ok) {
         const added = addQuestions(r.qs);
-        if (added > 0) gotNewThisRound = true;
+        newThisRound += added;
         console.log(
-          `[gen] ✓ ${r.w.id}: ${r.qs.length} sual aldı, ${added} yeni əlavə edildi. ` +
-          `Cəmi: ${collected.length}/${totalNeeded}`
+          `[gen] ✓ ${r.w.id}: ${r.qs.length} aldı → ${added} yeni. Cəmi: ${collected.length}/${totalNeeded}`
         );
       } else {
         const msg: string = (r as any).err?.message || `${r.w.id} uğursuz`;
         console.warn(`[gen] ✗ ${r.w.id}:`, msg);
-
-        // Rate-limit alan modeli növbəti mərhələdən çıxar
         if (msg.includes("429") || msg.toLowerCase().includes("rate-limit")) {
           rateLimited.add(r.w.id);
-          console.warn(`[gen] ${r.w.id} rate-limitə düşdü, növbəti mərhələdə istifadə edilməyəcək.`);
         }
-
         if (!errors.includes(msg)) errors.push(msg);
       }
     }
 
-    // Bu mərhələdə heç yeni sual gəlmədisə — daha gözləməyin mənası yoxdur
-    if (!gotNewThisRound) {
-      console.warn(`[gen] Mərhələ ${round}-də heç yeni sual əldə edilmədi. Dayandırılır.`);
+    if (collected.length >= totalNeeded) break;
+
+    // Yeni sual gəlmədisə dövrü bitir — sonsuz loop riski
+    if (newThisRound === 0) {
+      console.warn(`[gen] Mərhələ ${round}: Yeni sual əldə edilmədi. Dayandırılır.`);
       break;
+    }
+
+    // Bütün modellər tükəndisə növbəti dövrə keç (offset artıq bütün modelləri əhatə edir)
+    if (available.length <= PARALLEL_COUNT) {
+      // Kiçik fasilə ver ki, rate-limitlər azalsın (yalnız çox qısa vaxt qaldıqda deyil)
+      if (timeLeft() > 15_000 && round <= 2) {
+        console.log("[gen] Qısa fasilə (3s)...");
+        await new Promise(r => setTimeout(r, 3_000));
+      }
     }
   }
 
   const elapsed = Date.now() - startTime;
   console.log(
-    `[gen] Tamamlandı. ${collected.length}/${totalNeeded} sual, ` +
-    `${elapsed}ms, ${round} mərhələ. Rate-limitə düşən: ${rateLimited.size} model.`
+    `[gen] Tamamlandı: ${collected.length}/${totalNeeded} sual | ` +
+    `${elapsed}ms | ${round} mərhələ | Rate-limited: ${rateLimited.size}`
   );
 
-  return {
-    questions: collected.slice(0, totalNeeded),
-    errors,
-  };
+  return { questions: collected.slice(0, totalNeeded), errors };
 }
 
 // ─── POST handler ─────────────────────────────────────────────────────────────
@@ -373,10 +399,10 @@ export async function POST(req: NextRequest) {
     const groqKeyRaw = process.env.GROQ_API_KEY;
     const orKey      = process.env.OPENROUTER_API_KEY;
 
-    // Groq açarı "gsk_" ilə başlamalıdır — "xai-" xAI (Grok) açarıdır, Groq deyil
+    // Groq açarı "gsk_" ilə başlamalıdır
     const groqKey = groqKeyRaw?.startsWith("gsk_") ? groqKeyRaw : undefined;
     if (groqKeyRaw && !groqKey) {
-      console.warn("[generate-quiz] GROQ_API_KEY formatı səhvdir (gsk_ ilə başlamalıdır). Groq atlanılır.");
+      console.warn("[generate-quiz] GROQ_API_KEY formatı səhvdir. Groq atlanılır.");
     }
 
     if (!groqKey && !orKey) {
@@ -392,7 +418,6 @@ export async function POST(req: NextRequest) {
 
     const safeCount = Math.min(50, Math.max(1, parseInt(questionCount) || 10));
 
-    // ── Sistem promptu ──
     let systemPrompt = `Sən yüksək keyfiyyətli quiz sualları yaradan ixtisaslaşmış AI assistentsən.
 
 ƏSAS QAYDALAR:
@@ -418,16 +443,13 @@ JSON FORMATI (dəqiq bu struktur):
       if (!bot) {
         return NextResponse.json({ error: "Seçilmiş AI bot tapılmadı" }, { status: 404 });
       }
-
       systemPrompt = `${bot.prompt}
 
 JSON FORMATI (dəqiq bu struktur, başqa heç nə yazma):
 {"questions":[{"text":"Sual mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"}]}`;
-
       botContent = (bot.content || "").slice(0, 5000);
     }
 
-    // ── Prompt builder ──
     const langLabel = language === "az" ? "Azərbaycan dilində"
                     : language === "ru" ? "Rus dilində"
                     : "İngilis dilində";
@@ -452,18 +474,11 @@ Cavabı YALNIZ JSON formatında ver, DƏQIQ ${count} sual ilə:
 {"questions":[{"text":"Sual mətni","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"}]}`;
     };
 
-    // ── Generasiya ──
-    const genResult = await generateWithParallelFallback(
-      safeCount,
-      systemPrompt,
-      buildPrompt,
-      groqKey,
-      orKey,
+    const genResult = await generateQuestions(
+      safeCount, systemPrompt, buildPrompt, groqKey, orKey
     );
 
-    const rawQuestions = genResult.questions;
-
-    if (rawQuestions.length === 0) {
+    if (genResult.questions.length === 0) {
       const isRateLimit = genResult.errors.some(e => e.includes("429") || e.includes("rate-limit"));
       return NextResponse.json(
         {
@@ -476,7 +491,7 @@ Cavabı YALNIZ JSON formatında ver, DƏQIQ ${count} sual ilə:
       );
     }
 
-    const normalized = rawQuestions.map(normalizeQuestion);
+    const normalized = genResult.questions.map(normalizeQuestion);
     const isPartial  = normalized.length < safeCount;
 
     return NextResponse.json({
@@ -486,7 +501,7 @@ Cavabı YALNIZ JSON formatında ver, DƏQIQ ${count} sual ilə:
         generated: normalized.length,
         complete:  !isPartial,
         warning: isPartial
-          ? `${safeCount} sual istənildi, ${normalized.length} sual yaradıldı. API limiti ilə bağlı ola bilər.`
+          ? `${safeCount} sual istənildi, ${normalized.length} sual yaradıldı. Yenidən cəhd edin.`
           : undefined,
       },
     });
