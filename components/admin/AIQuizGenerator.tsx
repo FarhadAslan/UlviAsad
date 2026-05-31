@@ -163,10 +163,16 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
       await new Promise(r => setTimeout(r, 500));
 
       // Meta məlumat — əgər tam deyilsə istifadəçiyə bildiriş
-      if (data.meta && !data.meta.complete && questions.length < questionCount) {
+      const meta = data.meta || {};
+      if (meta.warning) {
         success(`${questions.length} sual yaradıldı (${questionCount} istənilmişdi — limitə görə az gəldi)`);
       } else {
         success(`${questions.length} sual uğurla yaradıldı! ✓`);
+      }
+      
+      // Qalan hüquq sayını göstər
+      if (typeof meta.remaining === 'number') {
+        console.log(`[AI Quiz] Saatda qalan hüquq: ${meta.remaining}`);
       }
 
       onGenerate(questions, category || undefined);
@@ -229,10 +235,10 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
             <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/50 space-y-1">
               <div className="flex items-center gap-1.5 text-purple-300">
                 <Zap size={11} />
-                <span>Bütün modellər paralel çalışır</span>
+                <span>2 model paralel işləyir (rate limit qorunması)</span>
               </div>
-              <div>Groq: llama-3.3-70b · llama-3.1-8b · gemma2 · mixtral</div>
-              <div>OpenRouter: llama-3.3 · gemma-3 · qwen3 · mistral</div>
+              <div>Groq: llama-3.3-70b · llama-3.1-8b · gemma2</div>
+              <div>OpenRouter: llama-4 · qwen3 · gemma-3 · deepseek-r1</div>
             </div>
           </div>
 
@@ -382,7 +388,7 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
                 </div>
               </div>
               <p className="mt-1 text-xs text-slate-400">
-                Maksimum 50 sual · 8 model paralel işləyir · ≤ 30 saniyə
+                Maksimum 50 sual · 2 model paralel · Saatda 10 quiz limiti
               </p>
             </div>
 
@@ -440,19 +446,23 @@ export default function AIQuizGenerator({ onGenerate, onClose, categories }: AIQ
               <ul className="space-y-1 text-purple-700">
                 <li className="flex items-start gap-1.5">
                   <CheckCircle2 size={11} className="mt-0.5 flex-shrink-0 text-purple-500" />
-                  <span>8 AI modeli <strong>eyni anda</strong> paralel işə başlayır</span>
+                  <span>Hər dəfə <strong>2 model paralel</strong> işləyir (API limit riski azalır)</span>
                 </li>
                 <li className="flex items-start gap-1.5">
                   <CheckCircle2 size={11} className="mt-0.5 flex-shrink-0 text-purple-500" />
-                  <span>Groq (llama-3.3-70b, llama-3.1-8b, gemma2, mixtral) + OpenRouter (4 model)</span>
+                  <span>Groq (llama-3.3-70b, llama-3.1-8b, gemma2) + OpenRouter (8 model)</span>
                 </li>
                 <li className="flex items-start gap-1.5">
                   <CheckCircle2 size={11} className="mt-0.5 flex-shrink-0 text-purple-500" />
-                  <span>50 sual üçün ən geci <strong>30 saniyə</strong> · rate limit olmur</span>
+                  <span>Bir model limit alsa, avtomatik digəri işə düşür</span>
                 </li>
                 <li className="flex items-start gap-1.5">
                   <CheckCircle2 size={11} className="mt-0.5 flex-shrink-0 text-purple-500" />
                   <span>Təkrar suallar avtomatik silinir, unikal suallar qalır</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <AlertCircle size={11} className="mt-0.5 flex-shrink-0 text-amber-500" />
+                  <span className="text-amber-700">Saatda max 10 quiz yarada bilərsiniz</span>
                 </li>
               </ul>
             </div>

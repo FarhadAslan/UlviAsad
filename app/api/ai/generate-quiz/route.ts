@@ -11,20 +11,26 @@ export const maxDuration = 55;
 const TOTAL_TIMEOUT_MS  = 46_000;
 const WORKER_TIMEOUT_MS = 22_000;
 
-// ─── Per-user throttle (in-memory sliding window) ─────────────────────────────
-// Saatda bir istifadəçi max 5 dəfə quiz generasiya edə bilər.
-// Serverless-də hər invocation ayrı prosesdə işləyir — bu "soft" qoruyucudur.
+// ─── Per-user throttle (DB-based) ─────────────────────────────────────────────
+// Saatda bir istifadəçi max 10 dəfə quiz generasiya edə bilər.
+// DB-based olduğu üçün serverless-də də işləyir.
 const USER_WINDOW_MS  = 60 * 60 * 1000; // 1 saat
-const USER_MAX_CALLS  = 5;
-const userCallLog     = new Map<string, number[]>(); // userId → [timestamps]
+const USER_MAX_CALLS  = 10;
 
-function isUserThrottled(userId: string): boolean {
-  const now  = Date.now();
-  const prev = (userCallLog.get(userId) ?? []).filter(t => now - t < USER_WINDOW_MS);
-  if (prev.length >= USER_MAX_CALLS) return true;
-  prev.push(now);
-  userCallLog.set(userId, prev);
-  return false;
+async function checkUserThrottle(userId: string): Promise<{ allowed: boolean; remaining: number }> {
+  const now = new Date();
+  const windowStart = new Date(now.getTime() - USER_WINDOW_MS);
+  
+  // Son 1 saatdakı quiz generasiya sayını yoxla
+  const recentCount = await prisma.quiz.count({
+    where: {
+      createdById: userId,
+      createdAt: { gte: windowStart },
+    },
+  });
+  
+  const remaining = Math.max(0, USER_MAX_CALLS - recentCount);
+  return { allowed: recentCount < USER_MAX_CALLS, remaining };
 }
 
 // ─── Response cache (in-memory, 30 dəq TTL) ──────────────────────────────────
@@ -341,11 +347,11 @@ async function generateQuestions(
   };
 
   // Overshoot: dedup itkisini kompensasiya etmək üçün az miqdarda artıq istə
-  // Köhnə sistemdəki overshoot dəyərini (15% + 8) bərpa edirik
-  const overshoot = (n: number) => Math.min(n + Math.ceil(n * 0.15), n + 8);
+  // Azaldılmış overshoot — API limitə daha az təsir edir
+  const overshoot = (n: number) => Math.min(n + Math.ceil(n * 0.08), n + 3);
 
-  // Eyni anda işə salınacaq model sayı (paralel)
-  const PARALLEL_COUNT = Math.min(allWorkers.length, 4);
+  // Eyni anda işə salınacaq model sayı (paralel) — 4-dən 2-yə endirildi
+  const PARALLEL_COUNT = Math.min(allWorkers.length, 2);
 
   let round = 0;
 
@@ -394,8 +400,13 @@ async function generateQuestions(
       } else {
         const msg: string = (r as any).err?.message || `${r.w.id} uğursuz`;
         console.warn(`[gen] ✗ ${r.w.id}:`, msg);
+        
+        // Rate limit yalnız 3 dəqiqəlik müvəqqəti blok
         if (msg.includes("429") || msg.toLowerCase().includes("rate-limit")) {
+          console.log(`[gen] ${r.w.id} rate-limited, 3 dəqiqə sonra yenidən cəhd ediləcək`);
           rateLimited.add(r.w.id);
+          // 3 dəqiqə sonra rate limit-i sil
+          setTimeout(() => rateLimited.delete(r.w.id), 3 * 60 * 1000);
         }
         if (!errors.includes(msg)) errors.push(msg);
       }
@@ -412,9 +423,13 @@ async function generateQuestions(
     // Bütün modellər tükəndisə növbəti dövrə keç (offset artıq bütün modelləri əhatə edir)
     if (available.length <= PARALLEL_COUNT) {
       if (timeLeft() > 15_000 && round <= 2) {
-        console.log("[gen] Qısa fasilə (3s)...");
-        await new Promise(r => setTimeout(r, 3_000));
+        console.log("[gen] Qısa fasilə (5s) — rate limit recovery...");
+        await new Promise(r => setTimeout(r, 5_000));
       }
+    } else if (newThisRound > 0 && collected.length < totalNeeded && timeLeft() > 10_000) {
+      // Modellər arasında 2 saniyə fasilə — rate limit riski azalır
+      console.log("[gen] Model rotasiyası fasiləsi (2s)...");
+      await new Promise(r => setTimeout(r, 2_000));
     }
   }
 
@@ -437,11 +452,14 @@ export async function POST(req: NextRequest) {
 
     // ── Per-user throttle yoxlaması ──────────────────────────────────────────
     const userId = (session.user as any)?.id ?? (session.user as any)?.email ?? "unknown";
-    if (isUserThrottled(userId)) {
+    const throttle = await checkUserThrottle(userId);
+    
+    if (!throttle.allowed) {
       return NextResponse.json(
         {
           error: `Saatda ${USER_MAX_CALLS} quiz generasiyası limitinə çatdınız. Bir saat sonra yenidən cəhd edin.`,
           retryAfter: USER_WINDOW_MS / 1000,
+          remaining: 0,
         },
         { status: 429 }
       );
@@ -560,8 +578,10 @@ YALNIZ JSON, DƏQIQ ${count} sual:`;
     const isPartial  = normalized.length < safeCount;
 
     // ── Nəticəni cache-ə yaz ─────────────────────────────────────────────────
-    if (!botId && !isPartial) {
+    // Qismən nəticələr də cache-lənir (növbəti dəfə tamamlanması üçün)
+    if (!botId) {
       setCache(cacheKey, normalized);
+      console.log(`[generate-quiz] Cache WRITE: "${title}" (${normalized.length} sual, partial=${isPartial})`);
     }
 
     return NextResponse.json({
@@ -571,6 +591,7 @@ YALNIZ JSON, DƏQIQ ${count} sual:`;
         generated: normalized.length,
         complete:  !isPartial,
         fromCache: false,
+        remaining: throttle.remaining - 1, // Bu request-dən sonra qalan
         warning: isPartial
           ? `${safeCount} sual istənildi, ${normalized.length} sual yaradıldı. Yenidən cəhd edin.`
           : undefined,

@@ -152,6 +152,11 @@ export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBo
         // Qismən uğur — warning göstər amma davam et
         warning(`${questions.length} sual yaradıldı (${count} istənilmişdi). API limiti səbəbindən az gəldi.`);
       }
+      
+      // Qalan hüquq sayını göstər
+      if (typeof meta.remaining === 'number') {
+        console.log(`[AI Quiz] Saatda qalan hüquq: ${meta.remaining}`);
+      }
 
       onGenerate(questions, botId || undefined);
       onClose();
@@ -209,7 +214,7 @@ export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBo
             <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/50 space-y-1">
               <div className="flex items-center gap-1.5 text-purple-300">
                 <Zap size={11} />
-                <span>Bir neçə AI model paralel işləyir</span>
+                <span>2 model paralel işləyir (rate limit qorunması)</span>
               </div>
               <div>Groq + OpenRouter modellərindən ən sürətlisi seçilir</div>
             </div>
@@ -346,7 +351,7 @@ export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBo
                 </div>
               </div>
               <p className="mt-1 text-xs text-slate-400">
-                Maksimum 50 sual · Tövsiyə: 10-20 sual (daha sürətli)
+                Maksimum 50 sual · Tövsiyə: 10-20 sual · Saatda 10 quiz limiti
               </p>
             </div>
 
@@ -358,15 +363,19 @@ export default function UserAIQuizGenerator({ onGenerate, onClose, preselectedBo
               <ul className="space-y-1 text-purple-700">
                 <li className="flex items-start gap-1.5">
                   <CheckCircle2 size={11} className="mt-0.5 flex-shrink-0 text-purple-500" />
-                  <span>Bir neçə AI modeli <strong>eyni anda paralel</strong> işləyir</span>
+                  <span>Hər dəfə <strong>2 model paralel</strong> işləyir (API limit riski azalır)</span>
                 </li>
                 <li className="flex items-start gap-1.5">
                   <CheckCircle2 size={11} className="mt-0.5 flex-shrink-0 text-purple-500" />
-                  <span>Bir model limit alsa, digəri davam edir</span>
+                  <span>Bir model limit alsa, avtomatik digəri işə düşür</span>
                 </li>
                 <li className="flex items-start gap-1.5">
                   <CheckCircle2 size={11} className="mt-0.5 flex-shrink-0 text-purple-500" />
                   <span>Dəqiq mövzu adı daxil edin — daha yaxşı nəticə üçün</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <AlertTriangle size={11} className="mt-0.5 flex-shrink-0 text-amber-500" />
+                  <span className="text-amber-700">Saatda max 10 quiz yarada bilərsiniz</span>
                 </li>
                 <li className="flex items-start gap-1.5">
                   <AlertTriangle size={11} className="mt-0.5 flex-shrink-0 text-amber-500" />
