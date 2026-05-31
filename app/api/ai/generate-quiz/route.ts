@@ -48,8 +48,11 @@ function setCache(key: string, questions: any[]): void {
   responseCache.set(key, { questions, ts: Date.now() });
   // Cache-i 200 elementdən böyük tutma — yaddaş sızmasının qarşısını al
   if (responseCache.size > 200) {
-    const oldest = [...responseCache.entries()].sort((a, b) => a[1].ts - b[1].ts)[0];
-    if (oldest) responseCache.delete(oldest[0]);
+    // Map insertion order qorunur, ilk element ən köhnədir
+    const firstKey = responseCache.keys().next().value;
+    if (firstKey) {
+      responseCache.delete(firstKey);
+    }
   }
 }
 
