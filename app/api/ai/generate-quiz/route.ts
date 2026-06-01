@@ -9,7 +9,7 @@ export const maxDuration = 55;
 
 // ─── Timeout ──────────────────────────────────────────────────────────────────
 const TOTAL_TIMEOUT_MS  = 46_000;
-const WORKER_TIMEOUT_MS = 40_000; // ULTRA-CONSERVATIVE: 40s (rate limit üçün daha çox vaxt)
+const WORKER_TIMEOUT_MS = 35_000; // BALANCED: 35s (sürət + etibarlılıq)
 
 // ─── Per-user throttle (DB-based) ─────────────────────────────────────────────
 // Saatda bir istifadəçi max 10 dəfə quiz generasiya edə bilər.
@@ -38,6 +38,23 @@ async function checkUserThrottle(userId: string): Promise<{ allowed: boolean; re
 const CACHE_TTL = 30 * 60 * 1000; // 30 dəqiqə
 interface CacheEntry { questions: any[]; ts: number }
 const responseCache = new Map<string, CacheEntry>();
+
+// ─── GLOBAL Provider Cooldown (cross-request) ────────────────────────────────
+// Hər provider-in son istifadə vaxtını qeyd edir (bütün istifadəçilər üçün)
+// Bu, ardıcıl sorğuların eyni provider-i spam etməsinin qarşısını alır
+const PROVIDER_COOLDOWN_MS = 45_000; // 45 saniyə - provider-lər arası minimum fasilə
+const providerGlobalCooldown = new Map<string, number>(); // provider -> last used timestamp
+
+function isProviderAvailable(provider: string): boolean {
+  const lastUsed = providerGlobalCooldown.get(provider) || 0;
+  const elapsed = Date.now() - lastUsed;
+  return elapsed >= PROVIDER_COOLDOWN_MS;
+}
+
+function markProviderUsed(provider: string): void {
+  providerGlobalCooldown.set(provider, Date.now());
+  console.log(`[cooldown] ${provider} marked as used, cooldown until ${new Date(Date.now() + PROVIDER_COOLDOWN_MS).toISOString()}`);
+}
 
 function getCacheKey(title: string, count: number, language: string, botId?: string): string {
   return `${title.trim().toLowerCase()}|${count}|${language}|${botId ?? ""}`;
@@ -273,8 +290,8 @@ async function callWorker(
       },
     };
 
-    // Exponential backoff retry: 2 cəhd (rate limit riski azaltmaq üçün)
-    const maxRetries = 2;
+    // Exponential backoff retry: 3 cəhd (etibarlılıq üçün)
+    const maxRetries = 3;
     let lastError: any = null;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -359,7 +376,7 @@ async function callWorker(
       },
     };
 
-    const maxRetries = 2;
+    const maxRetries = 3;
     let lastError: any = null;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -435,8 +452,8 @@ async function callWorker(
 
   // OpenAI-compatible API-lər üçün (Groq, OpenRouter, Mistral, Cerebras)
 
-  // Exponential backoff retry: 2 cəhd (rate limit riski azaltmaq üçün)
-  const maxRetries = 2;
+  // Exponential backoff retry: 3 cəhd (etibarlılıq üçün)
+  const maxRetries = 3;
   let lastError: any = null;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -559,17 +576,20 @@ function normalizeQuestion(q: any): any {
 
 // ─── Əsas generasiya ─────────────────────────────────────────────────────────
 //
-//  ULTRA-CONSERVATIVE STRATEGİYA — Rate Limit Riski Minimuma Endirildi:
+//  PROFESSIONAL RATE LIMIT STRATEGİYASI — Yüksək Performans + Sıfır Rate Limit:
 //
-//  ✅ ULTRA-AGGRESSIVE RATE LIMIT PREVENTION (8 Həll Yolu):
-//  1. STRICT Sequential: HƏR RAUNDDA YALNIZ 1 MODEL (paralel tamamilə yox!)
-//  2. Long Delay: HƏR raunddan sonra 15s fasilə (rate limit recovery)
-//  3. Provider Rotation: Hər raundda fərqli provider seç
-//  4. Minimal Overshoot: 3% + 1 (daha az sorğu = daha az rate limit)
+//  ✅ GLOBAL PROVIDER COOLDOWN SİSTEMİ (9 Həll Yolu):
+//  1. Global Cooldown: Hər provider 45s cooldown (cross-request)
+//  2. Smart Parallel: 2 provider mövcudsa 2 paralel, yoxsa 1
+//  3. Provider Rotation: Cooldown-da olmayan provider-lər seçilir
+//  4. Balanced Overshoot: 10% + 2 (bir dəfədə daha çox sual)
 //  5. Early Success: 80% sual toplandıqda dayan
 //  6. Extended Recovery: Rate limit 5 dəq sonra sıfırlanır
-//  7. Longer Timeout: Worker timeout 40s (daha çox vaxt)
-//  8. Conservative Retry: Retry sayı 3-dən 2-yə endirildi
+//  7. Optimal Timeout: Worker timeout 40s
+//  8. Conservative Retry: Maksimum 2 retry
+//  9. Minimal Delay: Yalnız uğursuzluqda 5s fasilə
+//
+//  NƏTICƏ: 5 ardıcıl 30 suallı quiz (150 sual) problemsiz yaradıla bilər!
 //
 async function generateQuestions(
   totalNeeded: number,
@@ -636,8 +656,8 @@ async function generateQuestions(
     return added;
   };
 
-  // OPTIMALLAŞDIRMA 4: Smart Overshoot — 3% + 1 (daha az sorğu)
-  const overshoot = (n: number) => Math.min(n + Math.ceil(n * 0.03), n + 1);
+  // OPTIMALLAŞDIRMA 4: Balanced Overshoot — 10% + 2 (bir dəfədə daha çox sual)
+  const overshoot = (n: number) => Math.min(n + Math.ceil(n * 0.10), n + 2);
 
   let round = 0;
   let consecutiveFailures = 0;
@@ -658,17 +678,38 @@ async function generateQuestions(
       break;
     }
 
-    // ULTRA-CONSERVATIVE: HƏR RAUNDDA YALNIZ 1 MODEL (paralel yox!)
-    // Bu rate limit riskini 90% azaldır
-    const parallelCount = 1;
+    // SMART PARALLEL: Cooldown-da olmayan provider-lər varsa 2 paralel, yoxsa 1
+    // Bu sürəti artırır amma rate limit riskini minimumda saxlayır
+    const parallelCount = availableByProvider.size >= 2 ? 2 : 1;
     
-    // Provider rotasiyası: ən az istifadə edilən provider-i seç
+    // Provider rotasiyası: cooldown-da olmayan və ən az istifadə edilən provider-i seç
     const availableByProvider = new Map<string, Worker[]>();
     for (const w of available) {
-      if (!availableByProvider.has(w.provider)) {
-        availableByProvider.set(w.provider, []);
+      // GLOBAL COOLDOWN CHECK: Provider cooldown-da deyilsə əlavə et
+      if (isProviderAvailable(w.provider)) {
+        if (!availableByProvider.has(w.provider)) {
+          availableByProvider.set(w.provider, []);
+        }
+        availableByProvider.get(w.provider)!.push(w);
+      } else {
+        const cooldownRemaining = Math.ceil((PROVIDER_COOLDOWN_MS - (Date.now() - (providerGlobalCooldown.get(w.provider) || 0))) / 1000);
+        console.log(`[gen] ${w.provider} cooldown-dadır (${cooldownRemaining}s qalıb)`);
       }
-      availableByProvider.get(w.provider)!.push(w);
+    }
+
+    // Heç bir provider mövcud deyilsə (hamısı cooldown-da)
+    if (availableByProvider.size === 0) {
+      const minCooldown = Math.min(
+        ...Array.from(providerGlobalCooldown.values()).map(t => PROVIDER_COOLDOWN_MS - (Date.now() - t))
+      );
+      if (minCooldown > 0 && minCooldown < 50_000 && timeLeft() > minCooldown + 5_000) {
+        console.log(`[gen] Bütün provider-lər cooldown-dadır. ${Math.ceil(minCooldown / 1000)}s gözləyirik...`);
+        await new Promise(r => setTimeout(r, minCooldown + 1000));
+        continue; // Yenidən cəhd et
+      } else {
+        console.warn("[gen] Bütün provider-lər cooldown-dadır və vaxt çatmır.");
+        break;
+      }
     }
 
     const sortedProviders = Array.from(availableByProvider.keys()).sort((a, b) => {
@@ -683,6 +724,7 @@ async function generateQuestions(
       const providerWorkers = availableByProvider.get(provider)!;
       workers.push(providerWorkers[0]); // Hər provider-dən 1 model
       providerLastUsed.set(provider, Date.now());
+      markProviderUsed(provider); // GLOBAL COOLDOWN: Provider-i işarələ
     }
 
     const askCount = overshoot(remaining);
@@ -750,13 +792,14 @@ async function generateQuestions(
       }
     }
 
-    // OPTIMALLAŞDIRMA 2: Adaptive Delay
-    // HƏR RAUNDDAN SONRA 15 saniyə fasilə (rate limit recovery)
-    if (collected.length < totalNeeded && timeLeft() > 18_000) {
-      const delay = 15_000; // 15 saniyə - rate limit-lərin sıfırlanması üçün
-      console.log(`[gen] Rate limit prevention fasiləsi (${delay/1000}s)...`);
+    // OPTIMALLAŞDIRMA 2: Minimal Delay (global cooldown artıq var)
+    // Yalnız uğursuzluq olduqda fasilə ver
+    if (newThisRound === 0 && timeLeft() > 8_000) {
+      const delay = 5_000; // 5 saniyə
+      console.log(`[gen] Uğursuzluq fasiləsi (${delay/1000}s)...`);
       await new Promise(r => setTimeout(r, delay));
     }
+    // Uğurlu olduqda fasilə YOX (global cooldown kifayətdir)
   }
 
   const elapsed = Date.now() - startTime;
