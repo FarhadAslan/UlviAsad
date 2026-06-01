@@ -148,18 +148,6 @@ const TIER5_WORKERS: Worker[] = [
   // OpenRouter - Mistral
   { id: "mistralai/mistral-7b-instruct:free", provider: "openrouter", jsonMode: false, maxTokens: 5000, priority: 3, tier: 5 },
 ];
-  { id: "mistralai/Mistral-7B-Instruct-v0.3", provider: "huggingface", jsonMode: false, maxTokens: 4000, priority: 2 },
-];
-
-// OpenRouter — müstəqil rate limit. Groq exhausted olduqda işə düşür.
-// 2026 aktiv pulsuz modellər (prioritet sırasında):
-// NOT: Yalnız stabil və sınaqdan keçmiş modellər istifadə edilir
-const OR_WORKERS: Worker[] = [
-  { id: "meta-llama/llama-3.3-70b-instruct:free",     provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 1 },
-  { id: "google/gemma-2-9b-it:free",                  provider: "openrouter", jsonMode: false, maxTokens: 5000, priority: 2 },
-  { id: "qwen/qwen-2-7b-instruct:free",               provider: "openrouter", jsonMode: false, maxTokens: 5000, priority: 3 },
-  { id: "mistralai/mistral-7b-instruct:free",         provider: "openrouter", jsonMode: false, maxTokens: 5000, priority: 4 },
-];
 
 // ─── JSON parser ──────────────────────────────────────────────────────────────
 function extractQuestions(raw: string): any[] | null {
