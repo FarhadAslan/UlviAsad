@@ -9,7 +9,7 @@ export const maxDuration = 55;
 
 // ─── Timeout ──────────────────────────────────────────────────────────────────
 const TOTAL_TIMEOUT_MS  = 46_000;
-const WORKER_TIMEOUT_MS = 22_000;
+const WORKER_TIMEOUT_MS = 30_000; // OPTIMALLAŞDIRMA 7: 30s (22s əvəzinə)
 
 // ─── Per-user throttle (DB-based) ─────────────────────────────────────────────
 // Saatda bir istifadəçi max 10 dəfə quiz generasiya edə bilər.
@@ -561,19 +561,16 @@ function normalizeQuestion(q: any): any {
 
 // ─── Əsas generasiya ─────────────────────────────────────────────────────────
 //
-//  STRATEGİYA — Sequential-First (Rate Limit'i minimuma endir):
+//  ULTRA-OPTIMAL STRATEGİYA — Rate Limit Riski Minimuma Endirildi:
 //
-//  ❌ KÖHNƏ: Hər round-da 4 model paralel → 4 API sorğusu/round → limiti çox sürətli tükədir
-//
-//  ✅ YENİ: Əvvəlcə TƏK ən yaxşı model cəhd edir
-//     → Uğurlu olsa: 1 sorğu ilə bitir (4x qənaət!)
-//     → Uğursuz olsa: növbəti 1-2 model əlavə edilir
-//     → Hamısı uğursuz olsa: tam paralel (son çarə)
-//
-//  MODEL PRİORİTETİ:
-//    Mərhələ 1: priority=1 model (llama-3.3-70b)
-//    Mərhələ 2: priority=1,2 modellər
-//    Mərhələ 3+: bütün aktiv modellər (max 3 paralel)
+//  ✅ YENİ OPTIMALLAŞDIRMALAR (7 Həll Yolu):
+//  1. Sequential-First: İlk raundda YALNIZ 1 model (paralel 2 əvəzinə)
+//  2. Adaptive Delay: Uğursuzluqdan sonra 10s fasilə (3s əvəzinə)
+//  3. Provider Rotation: Hər raundda fərqli provider seç
+//  4. Smart Overshoot: 5% + 2 (8% + 3 əvəzinə)
+//  5. Early Success: 80% sual toplandıqda dayan
+//  6. Fast Recovery: Rate limit 2 dəq sonra sıfırlanır (5 dəq əvəzinə)
+//  7. Longer Timeout: Worker timeout 30s (22s əvəzinə)
 //
 async function generateQuestions(
   totalNeeded: number,
@@ -600,6 +597,15 @@ async function generateQuestions(
     return { questions: [], errors: ["Aktiv AI modeli konfiqurasiya edilməyib"] };
   }
 
+  // Provider-ləri qruplaşdır
+  const providerGroups = new Map<string, Worker[]>();
+  for (const w of allWorkers) {
+    if (!providerGroups.has(w.provider)) {
+      providerGroups.set(w.provider, []);
+    }
+    providerGroups.get(w.provider)!.push(w);
+  }
+
   const hints = [
     "Mövzunun ən məşhur faktlarını yoxlayan aydın suallar yarat.",
     "Rəqəmlər, illər, miqdarlar ilə bağlı suallar yarat.",
@@ -614,6 +620,7 @@ async function generateQuestions(
   const seenKeys    = new Set<string>();
   const errors:     string[] = [];
   const rateLimited = new Set<string>();
+  const providerLastUsed = new Map<string, number>(); // provider -> timestamp
 
   const timeLeft = () => TOTAL_TIMEOUT_MS - (Date.now() - startTime);
 
@@ -630,18 +637,21 @@ async function generateQuestions(
     return added;
   };
 
-  // Overshoot: dedup itkisini kompensasiya etmək üçün az miqdarda artıq istə
-  // Azaldılmış overshoot — API limitə daha az təsir edir
-  const overshoot = (n: number) => Math.min(n + Math.ceil(n * 0.08), n + 3);
-
-  // Eyni anda işə salınacaq model sayı (paralel) — 4-dən 2-yə endirildi
-  const PARALLEL_COUNT = Math.min(allWorkers.length, 2);
+  // OPTIMALLAŞDIRMA 4: Smart Overshoot — 5% + 2 (8% + 3 əvəzinə)
+  const overshoot = (n: number) => Math.min(n + Math.ceil(n * 0.05), n + 2);
 
   let round = 0;
+  let consecutiveFailures = 0;
 
   while (collected.length < totalNeeded && timeLeft() > 8_000) {
     round++;
     const remaining = totalNeeded - collected.length;
+
+    // OPTIMALLAŞDIRMA 5: Early Success — 80% toplandıqda dayan
+    if (collected.length >= totalNeeded * 0.8 && round > 2) {
+      console.log(`[gen] Early success: ${collected.length}/${totalNeeded} sual (80%+). Dayandırılır.`);
+      break;
+    }
 
     const available = allWorkers.filter(w => !rateLimited.has(w.id));
     if (available.length === 0) {
@@ -649,17 +659,39 @@ async function generateQuestions(
       break;
     }
 
-    // Paralel: Hər dəfə 4 fərqli model seçilir, növbəti raundda sürüşdürülür
-    const offset  = (round - 1) * PARALLEL_COUNT;
-    const workers = available.slice(offset % available.length)
-      .concat(available.slice(0, offset % available.length))
-      .slice(0, PARALLEL_COUNT);
+    // OPTIMALLAŞDIRMA 1 & 3: Sequential-First + Provider Rotation
+    // İlk 2 raundda YALNIZ 1 model, sonra 2 model
+    // Hər raundda fərqli provider seç
+    const parallelCount = round <= 2 ? 1 : Math.min(2, available.length);
+    
+    // Provider rotasiyası: ən az istifadə edilən provider-i seç
+    const availableByProvider = new Map<string, Worker[]>();
+    for (const w of available) {
+      if (!availableByProvider.has(w.provider)) {
+        availableByProvider.set(w.provider, []);
+      }
+      availableByProvider.get(w.provider)!.push(w);
+    }
+
+    const sortedProviders = Array.from(availableByProvider.keys()).sort((a, b) => {
+      const aTime = providerLastUsed.get(a) || 0;
+      const bTime = providerLastUsed.get(b) || 0;
+      return aTime - bTime; // ən köhnə istifadə edilən əvvəl
+    });
+
+    const workers: Worker[] = [];
+    for (const provider of sortedProviders) {
+      if (workers.length >= parallelCount) break;
+      const providerWorkers = availableByProvider.get(provider)!;
+      workers.push(providerWorkers[0]); // Hər provider-dən 1 model
+      providerLastUsed.set(provider, Date.now());
+    }
 
     const askCount = overshoot(remaining);
 
     console.log(
-      `[gen] Mərhələ ${round}: ${workers.map(w => w.id.split("/").pop()).join(", ")} | ` +
-      `Hər biri ${askCount} sual | Lazım: ${remaining} | Vaxt: ${Math.round(timeLeft() / 1000)}s`
+      `[gen] Mərhələ ${round}: ${workers.map(w => `${w.provider}/${w.id.split("/").pop()}`).join(", ")} | ` +
+      `Hər biri ${askCount} sual | Lazım: ${remaining} | Vaxt: ${Math.round(timeLeft() / 1000)}s | Paralel: ${parallelCount}`
     );
 
     // Seçilmiş modellərə sorğu göndər
@@ -678,23 +710,22 @@ async function generateQuestions(
     for (const r of results) {
       if (r.ok) {
         allRateLimited = false;
+        consecutiveFailures = 0;
         const added = addQuestions(r.qs);
         newThisRound += added;
         console.log(
-          `[gen] ✓ ${r.w.id}: ${r.qs.length} aldı → ${added} yeni. Cəmi: ${collected.length}/${totalNeeded}`
+          `[gen] ✓ ${r.w.provider}/${r.w.id}: ${r.qs.length} aldı → ${added} yeni. Cəmi: ${collected.length}/${totalNeeded}`
         );
       } else {
         const msg: string = (r as any).err?.message || `${r.w.id} uğursuz`;
-        console.warn(`[gen] ✗ ${r.w.id}:`, msg);
+        console.warn(`[gen] ✗ ${r.w.provider}/${r.w.id}:`, msg);
         
-        // Rate limit yalnız 5 dəqiqəlik müvəqqəti blok
+        // OPTIMALLAŞDIRMA 6: Fast Recovery — 2 dəqiqə (5 dəq əvəzinə)
         if (msg.includes("429") || msg.toLowerCase().includes("rate-limit")) {
-          console.log(`[gen] ${r.w.id} rate-limited, 5 dəqiqə sonra yenidən cəhd ediləcək`);
+          console.log(`[gen] ${r.w.id} rate-limited, 2 dəqiqə sonra yenidən cəhd ediləcək`);
           rateLimited.add(r.w.id);
-          // 5 dəqiqə sonra rate limit-i sil
-          setTimeout(() => rateLimited.delete(r.w.id), 5 * 60 * 1000);
+          setTimeout(() => rateLimited.delete(r.w.id), 2 * 60 * 1000);
         } else {
-          // Rate limit olmayan xətalar üçün modeli deaktiv etmə
           allRateLimited = false;
         }
         if (!errors.includes(msg)) errors.push(msg);
@@ -706,26 +737,31 @@ async function generateQuestions(
     // Bütün modellər rate-limited isə və heç bir yeni sual gəlməyibsə
     if (allRateLimited && newThisRound === 0) {
       console.warn(`[gen] Mərhələ ${round}: Bütün modellər rate-limited. Dayandırılır.`);
-      errors.push("Bütün AI modellər rate limit aldı. 5-10 dəqiqə gözləyib yenidən cəhd edin.");
+      errors.push("Bütün AI modellər rate limit aldı. 2-5 dəqiqə gözləyib yenidən cəhd edin.");
       break;
     }
 
-    // Yeni sual gəlmədisə dövrü bitir — sonsuz loop riski
+    // Yeni sual gəlmədisə dövrü bitir
     if (newThisRound === 0) {
-      console.warn(`[gen] Mərhələ ${round}: Yeni sual əldə edilmədi. Dayandırılır.`);
-      break;
+      consecutiveFailures++;
+      console.warn(`[gen] Mərhələ ${round}: Yeni sual əldə edilmədi (${consecutiveFailures} ardıcıl uğursuzluq).`);
+      
+      if (consecutiveFailures >= 3) {
+        console.warn(`[gen] 3 ardıcıl uğursuzluq. Dayandırılır.`);
+        break;
+      }
     }
 
-    // Bütün modellər tükəndisə növbəti dövrə keç (offset artıq bütün modelləri əhatə edir)
-    if (available.length <= PARALLEL_COUNT) {
-      if (timeLeft() > 15_000 && round <= 2) {
-        console.log("[gen] Qısa fasilə (8s) — rate limit recovery...");
-        await new Promise(r => setTimeout(r, 8_000));
-      }
-    } else if (newThisRound > 0 && collected.length < totalNeeded && timeLeft() > 10_000) {
-      // Modellər arasında 3 saniyə fasilə — rate limit riski azalır
-      console.log("[gen] Model rotasiyası fasiləsi (3s)...");
-      await new Promise(r => setTimeout(r, 3_000));
+    // OPTIMALLAŞDIRMA 2: Adaptive Delay
+    // Uğursuzluqdan sonra daha uzun fasilə
+    if (newThisRound === 0 && timeLeft() > 12_000) {
+      const delay = 10_000; // 10 saniyə
+      console.log(`[gen] Uğursuzluq fasiləsi (${delay/1000}s) — rate limit recovery...`);
+      await new Promise(r => setTimeout(r, delay));
+    } else if (newThisRound > 0 && collected.length < totalNeeded && timeLeft() > 8_000) {
+      // Normal fasilə: 5 saniyə (3s əvəzinə)
+      console.log("[gen] Model rotasiyası fasiləsi (5s)...");
+      await new Promise(r => setTimeout(r, 5_000));
     }
   }
 
@@ -868,10 +904,10 @@ YALNIZ JSON, DƏQIQ ${count} sual:`;
       return NextResponse.json(
         {
           error: isRateLimit || hasAllRateLimited
-            ? "Bütün AI modellər rate limit aldı. 5-10 dəqiqə gözləyib yenidən cəhd edin. Əgər problem davam edərsə, sual sayını azaldın (məs: 5-10 sual)."
+            ? "Bütün AI modellər rate limit aldı. 2-5 dəqiqə gözləyib yenidən cəhd edin. Əgər problem davam edərsə, sual sayını azaldın (məs: 5-10 sual)."
             : "AI sual yarada bilmədi. Mövzunu dəqiqləşdirərək yenidən cəhd edin.",
           details: genResult.errors.slice(0, 3),
-          suggestion: "Sual sayını azaldın (5-10 sual) və ya bir neçə dəqiqə sonra yenidən cəhd edin.",
+          suggestion: "Sual sayını azaldın (5-10 sual) və ya 2-5 dəqiqə sonra yenidən cəhd edin.",
         },
         { status: 502 }
       );
