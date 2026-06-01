@@ -42,12 +42,34 @@ const responseCache = new Map<string, CacheEntry>();
 // ─── GLOBAL Provider Cooldown (cross-request) ────────────────────────────────
 // Hər provider-in son istifadə vaxtını qeyd edir (bütün istifadəçilər üçün)
 // Bu, ardıcıl sorğuların eyni provider-i spam etməsinin qarşısını alır
-const PROVIDER_COOLDOWN_MS = 45_000; // 45 saniyə - provider-lər arası minimum fasilə
+const PROVIDER_COOLDOWN_MS = 20_000; // 20 saniyə - daha sürətli rotation
 const providerGlobalCooldown = new Map<string, number>(); // provider -> last used timestamp
 
 function isProviderAvailable(provider: string): boolean {
   const lastUsed = providerGlobalCooldown.get(provider) || 0;
   const elapsed = Date.now() - lastUsed;
+  return elapsed >= PROVIDER_COOLDOWN_MS;
+}
+
+function markProviderUsed(provider: string): void {
+  providerGlobalCooldown.set(provider, Date.now());
+  console.log(`[cooldown] ${provider} marked as used, cooldown until ${new Date(Date.now() + PROVIDER_COOLDOWN_MS).toISOString()}`);
+}
+
+// ─── MODEL-LEVEL Cooldown (daha granular) ────────────────────────────────────
+// Hər modelin son istifadə vaxtını qeyd edir
+const MODEL_COOLDOWN_MS = 15_000; // 15 saniyə - model-level cooldown
+const modelGlobalCooldown = new Map<string, number>(); // modelId -> last used timestamp
+
+function isModelAvailable(modelId: string): boolean {
+  const lastUsed = modelGlobalCooldown.get(modelId) || 0;
+  const elapsed = Date.now() - lastUsed;
+  return elapsed >= MODEL_COOLDOWN_MS;
+}
+
+function markModelUsed(modelId: string): void {
+  modelGlobalCooldown.set(modelId, Date.now());
+}
   return elapsed >= PROVIDER_COOLDOWN_MS;
 }
 
@@ -722,44 +744,37 @@ async function generateQuestions(
 
     console.log(`[tier-system] Tier ${currentTierIndex + 1}/${availableTiers.length} istifadə edilir (${currentTierWorkers.length} model)`);
 
-    const available = currentTierWorkers.filter(w => !rateLimited.has(w.id));
+    const available = currentTierWorkers.filter(w => !rateLimited.has(w.id) && isModelAvailable(w.id));
     if (available.length === 0) {
-      console.warn(`[tier-system] Tier ${currentTierIndex + 1} tamamilə rate-limited. Növbəti tier-ə keçilir.`);
+      console.warn(`[tier-system] Tier ${currentTierIndex + 1} tamamilə rate-limited və ya cooldown-da. Növbəti tier-ə keçilir.`);
       tierExhausted.add(currentTierIndex);
       currentTierIndex++;
       continue;
-    }
-      break;
     }
 
     // Provider rotasiyası: cooldown-da olmayan və ən az istifadə edilən provider-i seç
     const availableByProvider = new Map<string, Worker[]>();
     for (const w of available) {
-      // GLOBAL COOLDOWN CHECK: Provider cooldown-da deyilsə əlavə et
-      if (isProviderAvailable(w.provider)) {
+      // DUAL COOLDOWN CHECK: Həm provider həm də model cooldown-da deyilsə əlavə et
+      if (isProviderAvailable(w.provider) && isModelAvailable(w.id)) {
+      if (isProviderAvailable(w.provider) && isModelAvailable(w.id)) {
         if (!availableByProvider.has(w.provider)) {
           availableByProvider.set(w.provider, []);
         }
         availableByProvider.get(w.provider)!.push(w);
       } else {
-        const cooldownRemaining = Math.ceil((PROVIDER_COOLDOWN_MS - (Date.now() - (providerGlobalCooldown.get(w.provider) || 0))) / 1000);
-        console.log(`[gen] ${w.provider} cooldown-dadır (${cooldownRemaining}s qalıb)`);
+        const providerCooldown = Math.ceil((PROVIDER_COOLDOWN_MS - (Date.now() - (providerGlobalCooldown.get(w.provider) || 0))) / 1000);
+        const modelCooldown = Math.ceil((MODEL_COOLDOWN_MS - (Date.now() - (modelGlobalCooldown.get(w.id) || 0))) / 1000);
+        console.log(`[gen] ${w.provider}/${w.id.split("/").pop()} cooldown-dadır (provider: ${providerCooldown}s, model: ${modelCooldown}s)`);
       }
     }
 
-    // Heç bir provider mövcud deyilsə (hamısı cooldown-da)
+    // Heç bir provider mövcud deyilsə (hamısı cooldown-da) → Növbəti tier-ə keç
     if (availableByProvider.size === 0) {
-      const minCooldown = Math.min(
-        ...Array.from(providerGlobalCooldown.values()).map(t => PROVIDER_COOLDOWN_MS - (Date.now() - t))
-      );
-      if (minCooldown > 0 && minCooldown < 50_000 && timeLeft() > minCooldown + 5_000) {
-        console.log(`[gen] Bütün provider-lər cooldown-dadır. ${Math.ceil(minCooldown / 1000)}s gözləyirik...`);
-        await new Promise(r => setTimeout(r, minCooldown + 1000));
-        continue; // Yenidən cəhd et
-      } else {
-        console.warn("[gen] Bütün provider-lər cooldown-dadır və vaxt çatmır.");
-        break;
-      }
+      console.warn(`[tier-system] Tier ${currentTierIndex + 1} tamamilə cooldown-da. Növbəti tier-ə keçilir.`);
+      tierExhausted.add(currentTierIndex);
+      currentTierIndex++;
+      continue; // Növbəti tier ilə davam et
     }
 
     // SMART PARALLEL: Cooldown-da olmayan provider-lər varsa 2 paralel, yoxsa 1
@@ -779,6 +794,7 @@ async function generateQuestions(
       workers.push(providerWorkers[0]); // Hər provider-dən 1 model
       providerLastUsed.set(provider, Date.now());
       markProviderUsed(provider); // GLOBAL COOLDOWN: Provider-i işarələ
+      markModelUsed(providerWorkers[0].id); // MODEL COOLDOWN: Model-i işarələ
     }
 
     const askCount = overshoot(remaining);
