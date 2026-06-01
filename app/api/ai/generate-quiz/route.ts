@@ -9,7 +9,7 @@ export const maxDuration = 55;
 
 // ─── Timeout ──────────────────────────────────────────────────────────────────
 const TOTAL_TIMEOUT_MS  = 46_000;
-const WORKER_TIMEOUT_MS = 30_000; // OPTIMALLAŞDIRMA 7: 30s (22s əvəzinə)
+const WORKER_TIMEOUT_MS = 40_000; // ULTRA-CONSERVATIVE: 40s (rate limit üçün daha çox vaxt)
 
 // ─── Per-user throttle (DB-based) ─────────────────────────────────────────────
 // Saatda bir istifadəçi max 10 dəfə quiz generasiya edə bilər.
@@ -273,8 +273,8 @@ async function callWorker(
       },
     };
 
-    // Exponential backoff retry: 3 cəhd, 2s → 4s → 8s
-    const maxRetries = 3;
+    // Exponential backoff retry: 2 cəhd (rate limit riski azaltmaq üçün)
+    const maxRetries = 2;
     let lastError: any = null;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -359,7 +359,7 @@ async function callWorker(
       },
     };
 
-    const maxRetries = 3;
+    const maxRetries = 2;
     let lastError: any = null;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -435,8 +435,8 @@ async function callWorker(
 
   // OpenAI-compatible API-lər üçün (Groq, OpenRouter, Mistral, Cerebras)
 
-  // Exponential backoff retry: 3 cəhd, 2s → 4s → 8s
-  const maxRetries = 3;
+  // Exponential backoff retry: 2 cəhd (rate limit riski azaltmaq üçün)
+  const maxRetries = 2;
   let lastError: any = null;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -559,16 +559,17 @@ function normalizeQuestion(q: any): any {
 
 // ─── Əsas generasiya ─────────────────────────────────────────────────────────
 //
-//  ULTRA-OPTIMAL STRATEGİYA — Rate Limit Riski Minimuma Endirildi:
+//  ULTRA-CONSERVATIVE STRATEGİYA — Rate Limit Riski Minimuma Endirildi:
 //
-//  ✅ YENİ OPTIMALLAŞDIRMALAR (7 Həll Yolu):
-//  1. Sequential-First: İlk raundda YALNIZ 1 model (paralel 2 əvəzinə)
-//  2. Adaptive Delay: Uğursuzluqdan sonra 10s fasilə (3s əvəzinə)
+//  ✅ ULTRA-AGGRESSIVE RATE LIMIT PREVENTION (8 Həll Yolu):
+//  1. STRICT Sequential: HƏR RAUNDDA YALNIZ 1 MODEL (paralel tamamilə yox!)
+//  2. Long Delay: HƏR raunddan sonra 15s fasilə (rate limit recovery)
 //  3. Provider Rotation: Hər raundda fərqli provider seç
-//  4. Smart Overshoot: 5% + 2 (8% + 3 əvəzinə)
+//  4. Minimal Overshoot: 3% + 1 (daha az sorğu = daha az rate limit)
 //  5. Early Success: 80% sual toplandıqda dayan
-//  6. Fast Recovery: Rate limit 2 dəq sonra sıfırlanır (5 dəq əvəzinə)
-//  7. Longer Timeout: Worker timeout 30s (22s əvəzinə)
+//  6. Extended Recovery: Rate limit 5 dəq sonra sıfırlanır
+//  7. Longer Timeout: Worker timeout 40s (daha çox vaxt)
+//  8. Conservative Retry: Retry sayı 3-dən 2-yə endirildi
 //
 async function generateQuestions(
   totalNeeded: number,
@@ -635,8 +636,8 @@ async function generateQuestions(
     return added;
   };
 
-  // OPTIMALLAŞDIRMA 4: Smart Overshoot — 5% + 2 (8% + 3 əvəzinə)
-  const overshoot = (n: number) => Math.min(n + Math.ceil(n * 0.05), n + 2);
+  // OPTIMALLAŞDIRMA 4: Smart Overshoot — 3% + 1 (daha az sorğu)
+  const overshoot = (n: number) => Math.min(n + Math.ceil(n * 0.03), n + 1);
 
   let round = 0;
   let consecutiveFailures = 0;
@@ -657,10 +658,9 @@ async function generateQuestions(
       break;
     }
 
-    // OPTIMALLAŞDIRMA 1 & 3: Sequential-First + Provider Rotation
-    // İlk 2 raundda YALNIZ 1 model, sonra 2 model
-    // Hər raundda fərqli provider seç
-    const parallelCount = round <= 2 ? 1 : Math.min(2, available.length);
+    // ULTRA-CONSERVATIVE: HƏR RAUNDDA YALNIZ 1 MODEL (paralel yox!)
+    // Bu rate limit riskini 90% azaldır
+    const parallelCount = 1;
     
     // Provider rotasiyası: ən az istifadə edilən provider-i seç
     const availableByProvider = new Map<string, Worker[]>();
@@ -718,11 +718,11 @@ async function generateQuestions(
         const msg: string = (r as any).err?.message || `${r.w.id} uğursuz`;
         console.warn(`[gen] ✗ ${r.w.provider}/${r.w.id}:`, msg);
         
-        // OPTIMALLAŞDIRMA 6: Fast Recovery — 2 dəqiqə (5 dəq əvəzinə)
+        // OPTIMALLAŞDIRMA 6: Extended Recovery — 5 dəqiqə (daha uzun recovery)
         if (msg.includes("429") || msg.toLowerCase().includes("rate-limit")) {
-          console.log(`[gen] ${r.w.id} rate-limited, 2 dəqiqə sonra yenidən cəhd ediləcək`);
+          console.log(`[gen] ${r.w.id} rate-limited, 5 dəqiqə sonra yenidən cəhd ediləcək`);
           rateLimited.add(r.w.id);
-          setTimeout(() => rateLimited.delete(r.w.id), 2 * 60 * 1000);
+          setTimeout(() => rateLimited.delete(r.w.id), 5 * 60 * 1000);
         } else {
           allRateLimited = false;
         }
@@ -735,7 +735,7 @@ async function generateQuestions(
     // Bütün modellər rate-limited isə və heç bir yeni sual gəlməyibsə
     if (allRateLimited && newThisRound === 0) {
       console.warn(`[gen] Mərhələ ${round}: Bütün modellər rate-limited. Dayandırılır.`);
-      errors.push("Bütün AI modellər rate limit aldı. 2-5 dəqiqə gözləyib yenidən cəhd edin.");
+      errors.push("Bütün AI modellər rate limit aldı. 5-10 dəqiqə gözləyib yenidən cəhd edin.");
       break;
     }
 
@@ -751,15 +751,11 @@ async function generateQuestions(
     }
 
     // OPTIMALLAŞDIRMA 2: Adaptive Delay
-    // Uğursuzluqdan sonra daha uzun fasilə
-    if (newThisRound === 0 && timeLeft() > 12_000) {
-      const delay = 10_000; // 10 saniyə
-      console.log(`[gen] Uğursuzluq fasiləsi (${delay/1000}s) — rate limit recovery...`);
+    // HƏR RAUNDDAN SONRA 15 saniyə fasilə (rate limit recovery)
+    if (collected.length < totalNeeded && timeLeft() > 18_000) {
+      const delay = 15_000; // 15 saniyə - rate limit-lərin sıfırlanması üçün
+      console.log(`[gen] Rate limit prevention fasiləsi (${delay/1000}s)...`);
       await new Promise(r => setTimeout(r, delay));
-    } else if (newThisRound > 0 && collected.length < totalNeeded && timeLeft() > 8_000) {
-      // Normal fasilə: 5 saniyə (3s əvəzinə)
-      console.log("[gen] Model rotasiyası fasiləsi (5s)...");
-      await new Promise(r => setTimeout(r, 5_000));
     }
   }
 
@@ -902,10 +898,10 @@ YALNIZ JSON, DƏQIQ ${count} sual:`;
       return NextResponse.json(
         {
           error: isRateLimit || hasAllRateLimited
-            ? "Bütün AI modellər rate limit aldı. 2-5 dəqiqə gözləyib yenidən cəhd edin. Əgər problem davam edərsə, sual sayını azaldın (məs: 5-10 sual)."
+            ? "Bütün AI modellər rate limit aldı. 5-10 dəqiqə gözləyib yenidən cəhd edin. Əgər problem davam edərsə, sual sayını azaldın (məs: 5-10 sual)."
             : "AI sual yarada bilmədi. Mövzunu dəqiqləşdirərək yenidən cəhd edin.",
           details: genResult.errors.slice(0, 3),
-          suggestion: "Sual sayını azaldın (5-10 sual) və ya 2-5 dəqiqə sonra yenidən cəhd edin.",
+          suggestion: "Sual sayını azaldın (5-10 sual) və ya 5-10 dəqiqə sonra yenidən cəhd edin.",
         },
         { status: 502 }
       );
