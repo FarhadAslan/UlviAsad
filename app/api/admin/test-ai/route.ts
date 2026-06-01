@@ -36,7 +36,7 @@ async function testOpenRouter(apiKey: string) {
         "X-Title": "Muellim Portal",
       },
       body: JSON.stringify({
-        model: "meta-llama/llama-4-scout:free",
+        model: "deepseek/deepseek-v4-flash:free",
         messages: [{ role: "user", content: 'Say "ok" in JSON: {"msg":"ok"}' }],
         max_tokens: 30,
       }),
@@ -96,7 +96,7 @@ async function testCerebras(apiKey: string) {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: "llama-3.3-70b",
+        model: "gpt-oss-120b",
         messages: [{ role: "user", content: 'Say "ok" in JSON: {"msg":"ok"}' }],
         max_tokens: 30,
       }),

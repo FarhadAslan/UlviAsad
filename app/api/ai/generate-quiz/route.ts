@@ -92,9 +92,10 @@ const MISTRAL_WORKERS: Worker[] = [
   { id: "mistral-tiny",            provider: "mistral", jsonMode: false, maxTokens: 4000, priority: 2 },
 ];
 
-// Cerebras — 2,100 tokens/sec, ən sürətli inference
+// Cerebras — ~3,000 tokens/sec, ən sürətli inference
+// gpt-oss-120b — 2026-da production-da olan yeganə model
 const CEREBRAS_WORKERS: Worker[] = [
-  { id: "llama-3.3-70b",           provider: "cerebras", jsonMode: false, maxTokens: 6000, priority: 1 },
+  { id: "gpt-oss-120b",            provider: "cerebras", jsonMode: false, maxTokens: 6000, priority: 1 },
 ];
 
 // HuggingFace — 100+ model, rate limited amma çox müxtəliflik
@@ -106,14 +107,13 @@ const HF_WORKERS: Worker[] = [
 // OpenRouter — müstəqil rate limit. Groq exhausted olduqda işə düşür.
 // 2026 aktiv pulsuz modellər (prioritet sırasında):
 const OR_WORKERS: Worker[] = [
-  { id: "meta-llama/llama-4-scout:free",              provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 1 },
-  { id: "meta-llama/llama-4-maverick:free",           provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 2 },
-  { id: "qwen/qwen3-8b:free",                         provider: "openrouter", jsonMode: false, maxTokens: 5000, priority: 3 },
-  { id: "meta-llama/llama-3.3-70b-instruct:free",     provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 4 },
-  { id: "google/gemma-2-9b-it:free",                  provider: "openrouter", jsonMode: false, maxTokens: 4000, priority: 5 },
-  { id: "qwen/qwen-2.5-72b-instruct:free",            provider: "openrouter", jsonMode: false, maxTokens: 5000, priority: 6 },
-  { id: "meta-llama/llama-3.2-3b-instruct:free",      provider: "openrouter", jsonMode: false, maxTokens: 3000, priority: 7 },
-  // DeepSeek-R1 keyfiyyətlidir, amma yavaş + çox məşhur → son fallback
+  { id: "deepseek/deepseek-v4-flash:free",            provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 1 },
+  { id: "qwen/qwen3.6-plus:free",                     provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 2 },
+  { id: "meta-llama/llama-4-maverick:free",           provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 3 },
+  { id: "google/gemma-4-31b-it:free",                 provider: "openrouter", jsonMode: false, maxTokens: 5000, priority: 4 },
+  { id: "qwen/qwen3-8b:free",                         provider: "openrouter", jsonMode: false, maxTokens: 5000, priority: 5 },
+  { id: "meta-llama/llama-3.3-70b-instruct:free",     provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 6 },
+  { id: "deepseek/deepseek-chat:free",                provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 7 },
   { id: "deepseek/deepseek-r1:free",                  provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 8 },
 ];
 
