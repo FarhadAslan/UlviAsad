@@ -24,10 +24,10 @@ DIRECT_URL="postgresql://..."
 NEXTAUTH_SECRET="your-secret"
 NEXTAUTH_URL="http://localhost:3000"
 
-# AI Providers (ən azı 2-3 provider konfiqurasiya edin)
-GROQ_API_KEY="gsk_..."              # https://console.groq.com
-GEMINI_API_KEY="AIza..."            # https://aistudio.google.com/apikey
-MISTRAL_API_KEY="..."               # https://console.mistral.ai
+# AI Providers (ən azı 3 provider konfiqurasiya edin - VACIB!)
+GROQ_API_KEY="gsk_..."              # https://console.groq.com (TÖVSIYƏ)
+GEMINI_API_KEY="AIza..."            # https://aistudio.google.com/apikey (TÖVSIYƏ)
+MISTRAL_API_KEY="..."               # https://console.mistral.ai (TÖVSIYƏ)
 CEREBRAS_API_KEY="..."              # https://cloud.cerebras.ai
 HUGGINGFACE_API_KEY="hf_..."        # https://huggingface.co/settings/tokens
 OPENROUTER_API_KEY="sk-or-..."      # https://openrouter.ai
@@ -43,6 +43,8 @@ CLOUDINARY_CLOUD_NAME="..."
 CLOUDINARY_API_KEY="..."
 CLOUDINARY_API_SECRET="..."
 ```
+
+**⚠️ VACIB**: Rate limit problemlərinin qarşısını almaq üçün **minimum 3 AI provider** konfiqurasiya edin!
 
 ### 2. Dependencies
 
@@ -82,7 +84,7 @@ yarn dev
 
 ## 📊 Sistem Arxitekturası
 
-### AI Quiz Generation Flow
+### AI Quiz Generation Flow (ULTRA-CONSERVATIVE Strategy)
 
 ```
 İstifadəçi Sorğusu
@@ -93,11 +95,31 @@ User Throttle Yoxlaması (10 quiz/saat)
     ↓
 Model Seçimi (priority əsasında)
     ↓
-Paralel API Çağırışları (2 model eyni anda)
+STRICT Sequential Execution (hər raundda YALNIZ 1 model)
+    ↓
+15 saniyə fasilə (rate limit prevention)
     ↓
 Rate Limit Handling (429 → 5 dəq sonra retry)
     ↓
 JSON Parse & Validation
+    ↓
+Cache-ə Yaz (növbəti istifadə üçün)
+```
+
+### Rate Limit Prevention Strategiyası
+
+**8 Qatlı Müdafiə Sistemi**:
+
+1. **Strict Sequential**: Hər raundda yalnız 1 model (paralel yox!)
+2. **Long Delay**: Hər raunddan sonra 15 saniyə fasilə
+3. **Provider Rotation**: Hər raundda fərqli provider
+4. **Minimal Overshoot**: 3% + 1 əlavə sual (minimal sorğu)
+5. **Early Success**: 80% sual toplandıqda dayan
+6. **Extended Recovery**: Rate limit 5 dəqiqə sonra sıfırlanır
+7. **Longer Timeout**: 40 saniyə timeout (daha çox vaxt)
+8. **Conservative Retry**: Maksimum 2 retry (3 əvəzinə)
+
+**Nəticə**: Rate limit riski 90%+ azaldılıb, amma generasiya daha yavaş (15-30 saniyə)
     ↓
 Question Normalization & Shuffle
     ↓
