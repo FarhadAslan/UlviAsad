@@ -70,8 +70,6 @@ function isModelAvailable(modelId: string): boolean {
 function markModelUsed(modelId: string): void {
   modelGlobalCooldown.set(modelId, Date.now());
 }
-  return elapsed >= PROVIDER_COOLDOWN_MS;
-}
 
 function markProviderUsed(provider: string): void {
   providerGlobalCooldown.set(provider, Date.now());
