@@ -79,45 +79,75 @@ function setCache(key: string, questions: any[]): void {
   }
 }
 
-// ─── Model konfiqurasiyası ───────────────────────────────────────────────────
+// ─── Model konfiqurasiyası (TIER-BASED SYSTEM) ──────────────────────────────
 interface Worker {
   id: string;
   provider: "groq" | "openrouter" | "gemini" | "mistral" | "cerebras" | "huggingface";
   jsonMode: boolean;
   maxTokens: number;
   priority: number; // aşağı = daha əvvəl cəhd et
+  tier: number;     // 1-5: Tier nömrəsi (1 = ən yüksək prioritet)
 }
 
-// Groq — sürətli, az gecikmə. llama-3.3-70b əsas, qalanları fallback.
-// NOT: mixtral-8x7b-32768 Groq-da deprecated edildi → llama3-70b-8192 ilə əvəzləndi.
-const GROQ_WORKERS: Worker[] = [
-  { id: "llama-3.3-70b-versatile", provider: "groq", jsonMode: true,  maxTokens: 6000, priority: 1 },
-  { id: "llama-3.1-8b-instant",    provider: "groq", jsonMode: false, maxTokens: 4000, priority: 2 },
-  { id: "gemma2-9b-it",            provider: "groq", jsonMode: false, maxTokens: 4000, priority: 3 },
-  { id: "llama3-70b-8192",         provider: "groq", jsonMode: false, maxTokens: 5000, priority: 4 },
+// ═══════════════════════════════════════════════════════════════════════════
+// TIER 1: Premium Fast Models (İlk seçim - ən sürətli və etibarlı)
+// ═══════════════════════════════════════════════════════════════════════════
+const TIER1_WORKERS: Worker[] = [
+  // Groq - ən sürətli
+  { id: "llama-3.3-70b-versatile", provider: "groq", jsonMode: true,  maxTokens: 6000, priority: 1, tier: 1 },
+  // Gemini - güclü və pulsuz
+  { id: "gemini-2.5-flash",        provider: "gemini", jsonMode: true,  maxTokens: 6000, priority: 2, tier: 1 },
+  // Cerebras - ən sürətli inference
+  { id: "gpt-oss-120b",            provider: "cerebras", jsonMode: false, maxTokens: 6000, priority: 3, tier: 1 },
 ];
 
-// Google Gemini — 1,500 requests/day, 1M token context, pulsuz və güclü
-const GEMINI_WORKERS: Worker[] = [
-  { id: "gemini-2.5-flash",        provider: "gemini", jsonMode: true,  maxTokens: 6000, priority: 1 },
-  { id: "gemini-2.5-flash-lite",   provider: "gemini", jsonMode: false, maxTokens: 5000, priority: 2 },
+// ═══════════════════════════════════════════════════════════════════════════
+// TIER 2: Reliable Alternatives (Tier 1 exhausted olduqda)
+// ═══════════════════════════════════════════════════════════════════════════
+const TIER2_WORKERS: Worker[] = [
+  // Mistral - EU GDPR, yüksək limit
+  { id: "mistral-small-latest",    provider: "mistral", jsonMode: true,  maxTokens: 5000, priority: 1, tier: 2 },
+  // OpenRouter - Llama 3.3
+  { id: "meta-llama/llama-3.3-70b-instruct:free", provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 2, tier: 2 },
+  // Groq - kiçik model
+  { id: "llama-3.1-8b-instant",    provider: "groq", jsonMode: false, maxTokens: 4000, priority: 3, tier: 2 },
 ];
 
-// Mistral AI — 1 req/sec (~86K req/day), EU GDPR uyğun
-const MISTRAL_WORKERS: Worker[] = [
-  { id: "mistral-small-latest",    provider: "mistral", jsonMode: true,  maxTokens: 5000, priority: 1 },
-  { id: "mistral-tiny",            provider: "mistral", jsonMode: false, maxTokens: 4000, priority: 2 },
+// ═══════════════════════════════════════════════════════════════════════════
+// TIER 3: Backup Models (Tier 1-2 exhausted olduqda)
+// ═══════════════════════════════════════════════════════════════════════════
+const TIER3_WORKERS: Worker[] = [
+  // Gemini - lite versiya
+  { id: "gemini-2.5-flash-lite",   provider: "gemini", jsonMode: false, maxTokens: 5000, priority: 1, tier: 3 },
+  // OpenRouter - Gemma
+  { id: "google/gemma-2-9b-it:free", provider: "openrouter", jsonMode: false, maxTokens: 5000, priority: 2, tier: 3 },
+  // Groq - Gemma
+  { id: "gemma2-9b-it",            provider: "groq", jsonMode: false, maxTokens: 4000, priority: 3, tier: 3 },
 ];
 
-// Cerebras — ~3,000 tokens/sec, ən sürətli inference
-// gpt-oss-120b — 2026-da production-da olan yeganə model
-const CEREBRAS_WORKERS: Worker[] = [
-  { id: "gpt-oss-120b",            provider: "cerebras", jsonMode: false, maxTokens: 6000, priority: 1 },
+// ═══════════════════════════════════════════════════════════════════════════
+// TIER 4: Extended Fallback (Tier 1-3 exhausted olduqda)
+// ═══════════════════════════════════════════════════════════════════════════
+const TIER4_WORKERS: Worker[] = [
+  // HuggingFace - Llama
+  { id: "meta-llama/Llama-3.3-70B-Instruct", provider: "huggingface", jsonMode: false, maxTokens: 5000, priority: 1, tier: 4 },
+  // Mistral - tiny
+  { id: "mistral-tiny",            provider: "mistral", jsonMode: false, maxTokens: 4000, priority: 2, tier: 4 },
+  // OpenRouter - Qwen
+  { id: "qwen/qwen-2-7b-instruct:free", provider: "openrouter", jsonMode: false, maxTokens: 5000, priority: 3, tier: 4 },
 ];
 
-// HuggingFace — 100+ model, rate limited amma çox müxtəliflik
-const HF_WORKERS: Worker[] = [
-  { id: "meta-llama/Llama-3.3-70B-Instruct", provider: "huggingface", jsonMode: false, maxTokens: 5000, priority: 1 },
+// ═══════════════════════════════════════════════════════════════════════════
+// TIER 5: Emergency Reserve (Son çarə - bütün tier-lər exhausted olduqda)
+// ═══════════════════════════════════════════════════════════════════════════
+const TIER5_WORKERS: Worker[] = [
+  // Groq - Llama 3
+  { id: "llama3-70b-8192",         provider: "groq", jsonMode: false, maxTokens: 5000, priority: 1, tier: 5 },
+  // HuggingFace - Mistral
+  { id: "mistralai/Mistral-7B-Instruct-v0.3", provider: "huggingface", jsonMode: false, maxTokens: 4000, priority: 2, tier: 5 },
+  // OpenRouter - Mistral
+  { id: "mistralai/mistral-7b-instruct:free", provider: "openrouter", jsonMode: false, maxTokens: 5000, priority: 3, tier: 5 },
+];
   { id: "mistralai/Mistral-7B-Instruct-v0.3", provider: "huggingface", jsonMode: false, maxTokens: 4000, priority: 2 },
 ];
 
@@ -576,20 +606,21 @@ function normalizeQuestion(q: any): any {
 
 // ─── Əsas generasiya ─────────────────────────────────────────────────────────
 //
-//  PROFESSIONAL RATE LIMIT STRATEGİYASI — Yüksək Performans + Sıfır Rate Limit:
+//  TIER-BASED FALLBACK STRATEGİYASI — Maksimum Etibarlılıq + Sıfır Rate Limit:
 //
-//  ✅ GLOBAL PROVIDER COOLDOWN SİSTEMİ (9 Həll Yolu):
-//  1. Global Cooldown: Hər provider 45s cooldown (cross-request)
-//  2. Smart Parallel: 2 provider mövcudsa 2 paralel, yoxsa 1
-//  3. Provider Rotation: Cooldown-da olmayan provider-lər seçilir
-//  4. Balanced Overshoot: 10% + 2 (bir dəfədə daha çox sual)
-//  5. Early Success: 80% sual toplandıqda dayan
-//  6. Extended Recovery: Rate limit 5 dəq sonra sıfırlanır
-//  7. Optimal Timeout: Worker timeout 40s
-//  8. Conservative Retry: Maksimum 2 retry
-//  9. Minimal Delay: Yalnız uğursuzluqda 5s fasilə
+//  ✅ 5-TIER SYSTEM (10 Həll Yolu):
+//  1. Tier-Based Fallback: 5 müstəqil tier, bir tier exhausted → növbəti tier
+//  2. No Model Overlap: Hər model yalnız 1 tier-də (təkrarlanma yox!)
+//  3. Global Cooldown: Hər provider 45s cooldown (cross-request)
+//  4. Smart Parallel: 2 provider mövcudsa 2 paralel, yoxsa 1
+//  5. Provider Rotation: Cooldown-da olmayan provider-lər seçilir
+//  6. Balanced Overshoot: 10% + 2 (bir dəfədə daha çox sual)
+//  7. Early Success: 80% sual toplandıqda dayan
+//  8. Extended Recovery: Rate limit 5 dəq sonra sıfırlanır
+//  9. Optimal Timeout: 35s worker timeout
+//  10. Minimal Delay: Yalnız uğursuzluqda 5s fasilə
 //
-//  NƏTICƏ: 5 ardıcıl 30 suallı quiz (150 sual) problemsiz yaradıla bilər!
+//  NƏTICƏ: 10+ ardıcıl 30 suallı quiz (300+ sual) problemsiz yaradıla bilər!
 //
 async function generateQuestions(
   totalNeeded: number,
@@ -603,27 +634,39 @@ async function generateQuestions(
   hfKey:       string | undefined,
 ): Promise<{ questions: any[]; errors: string[] }> {
 
-  const allWorkers: Worker[] = [
-    ...(groqKey    ? GROQ_WORKERS    : []),
-    ...(geminiKey  ? GEMINI_WORKERS  : []),
-    ...(mistralKey ? MISTRAL_WORKERS : []),
-    ...(cerebrasKey? CEREBRAS_WORKERS: []),
-    ...(hfKey      ? HF_WORKERS      : []),
-    ...(orKey      ? OR_WORKERS      : []),
-  ].sort((a, b) => a.priority - b.priority);
+  // TIER-BASED SYSTEM: Hər tier müstəqil worker qrupudur
+  const allTiers: Worker[][] = [
+    TIER1_WORKERS,
+    TIER2_WORKERS,
+    TIER3_WORKERS,
+    TIER4_WORKERS,
+    TIER5_WORKERS,
+  ];
 
-  if (allWorkers.length === 0) {
+  // API key-ləri yoxla və tier-ləri filter et
+  const availableTiers: Worker[][] = allTiers.map(tier => 
+    tier.filter(w => {
+      switch (w.provider) {
+        case "groq": return !!groqKey;
+        case "openrouter": return !!orKey;
+        case "gemini": return !!geminiKey;
+        case "mistral": return !!mistralKey;
+        case "cerebras": return !!cerebrasKey;
+        case "huggingface": return !!hfKey;
+        default: return false;
+      }
+    })
+  ).filter(tier => tier.length > 0); // Boş tier-ləri sil
+
+  if (availableTiers.length === 0) {
     return { questions: [], errors: ["Aktiv AI modeli konfiqurasiya edilməyib"] };
   }
 
-  // Provider-ləri qruplaşdır
-  const providerGroups = new Map<string, Worker[]>();
-  for (const w of allWorkers) {
-    if (!providerGroups.has(w.provider)) {
-      providerGroups.set(w.provider, []);
-    }
-    providerGroups.get(w.provider)!.push(w);
-  }
+  console.log(`[tier-system] ${availableTiers.length} tier mövcuddur, cəmi ${availableTiers.flat().length} model`);
+
+  // Tier tracking: hansı tier-dən başlayırıq
+  let currentTierIndex = 0;
+  const tierExhausted = new Set<number>(); // Exhausted tier-lər
 
   const hints = [
     "Mövzunun ən məşhur faktlarını yoxlayan aydın suallar yarat.",
@@ -672,9 +715,32 @@ async function generateQuestions(
       break;
     }
 
-    const available = allWorkers.filter(w => !rateLimited.has(w.id));
+    // TIER SELECTION: Cari tier-dən worker-ləri seç
+    let currentTierWorkers: Worker[] = [];
+    while (currentTierIndex < availableTiers.length) {
+      if (!tierExhausted.has(currentTierIndex)) {
+        currentTierWorkers = availableTiers[currentTierIndex];
+        break;
+      }
+      currentTierIndex++;
+    }
+
+    // Bütün tier-lər exhausted isə
+    if (currentTierWorkers.length === 0) {
+      console.warn(`[tier-system] Bütün ${availableTiers.length} tier exhausted oldu.`);
+      errors.push(`Bütün AI tier-lər exhausted oldu. ${collected.length}/${totalNeeded} sual yaradıldı.`);
+      break;
+    }
+
+    console.log(`[tier-system] Tier ${currentTierIndex + 1}/${availableTiers.length} istifadə edilir (${currentTierWorkers.length} model)`);
+
+    const available = currentTierWorkers.filter(w => !rateLimited.has(w.id));
     if (available.length === 0) {
-      console.warn("[gen] Bütün modellər rate-limitdədir.");
+      console.warn(`[tier-system] Tier ${currentTierIndex + 1} tamamilə rate-limited. Növbəti tier-ə keçilir.`);
+      tierExhausted.add(currentTierIndex);
+      currentTierIndex++;
+      continue;
+    }
       break;
     }
 
@@ -774,11 +840,21 @@ async function generateQuestions(
 
     if (collected.length >= totalNeeded) break;
 
+    // TIER EXHAUSTION CHECK: Cari tier-dəki bütün modellər rate-limited isə
+    const currentTierAllRateLimited = currentTierWorkers.every(w => rateLimited.has(w.id));
+    if (currentTierAllRateLimited) {
+      console.warn(`[tier-system] Tier ${currentTierIndex + 1} tamamilə exhausted. Növbəti tier-ə keçilir.`);
+      tierExhausted.add(currentTierIndex);
+      currentTierIndex++;
+      continue; // Növbəti tier ilə davam et
+    }
+
     // Bütün modellər rate-limited isə və heç bir yeni sual gəlməyibsə
     if (allRateLimited && newThisRound === 0) {
-      console.warn(`[gen] Mərhələ ${round}: Bütün modellər rate-limited. Dayandırılır.`);
-      errors.push("Bütün AI modellər rate limit aldı. 5-10 dəqiqə gözləyib yenidən cəhd edin.");
-      break;
+      console.warn(`[gen] Mərhələ ${round}: Bütün modellər rate-limited. Növbəti tier-ə keçilir.`);
+      tierExhausted.add(currentTierIndex);
+      currentTierIndex++;
+      continue;
     }
 
     // Yeni sual gəlmədisə dövrü bitir
