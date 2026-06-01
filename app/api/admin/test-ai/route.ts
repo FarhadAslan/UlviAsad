@@ -36,7 +36,7 @@ async function testOpenRouter(apiKey: string) {
         "X-Title": "Muellim Portal",
       },
       body: JSON.stringify({
-        model: "openrouter/free",
+        model: "meta-llama/llama-3.3-70b-instruct:free",
         messages: [{ role: "user", content: 'Say "ok" in JSON: {"msg":"ok"}' }],
         max_tokens: 30,
       }),

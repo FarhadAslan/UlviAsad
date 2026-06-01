@@ -106,14 +106,12 @@ const HF_WORKERS: Worker[] = [
 
 // OpenRouter — müstəqil rate limit. Groq exhausted olduqda işə düşür.
 // 2026 aktiv pulsuz modellər (prioritet sırasında):
-// NOT: openrouter/free — avtomatik pulsuz model seçir
+// NOT: Yalnız stabil və sınaqdan keçmiş modellər istifadə edilir
 const OR_WORKERS: Worker[] = [
-  { id: "openrouter/free",                            provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 1 },
-  { id: "google/gemma-4-31b-it:free",                 provider: "openrouter", jsonMode: false, maxTokens: 5000, priority: 2 },
-  { id: "google/gemma-4-26b-a4b-it:free",             provider: "openrouter", jsonMode: false, maxTokens: 5000, priority: 3 },
-  { id: "qwen/qwen3-8b:free",                         provider: "openrouter", jsonMode: false, maxTokens: 5000, priority: 4 },
-  { id: "meta-llama/llama-3.3-70b-instruct:free",     provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 5 },
-  { id: "deepseek/deepseek-chat:free",                provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 6 },
+  { id: "meta-llama/llama-3.3-70b-instruct:free",     provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 1 },
+  { id: "google/gemma-2-9b-it:free",                  provider: "openrouter", jsonMode: false, maxTokens: 5000, priority: 2 },
+  { id: "qwen/qwen-2-7b-instruct:free",               provider: "openrouter", jsonMode: false, maxTokens: 5000, priority: 3 },
+  { id: "mistralai/mistral-7b-instruct:free",         provider: "openrouter", jsonMode: false, maxTokens: 5000, priority: 4 },
 ];
 
 // ─── JSON parser ──────────────────────────────────────────────────────────────
