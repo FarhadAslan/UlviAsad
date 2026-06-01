@@ -214,7 +214,7 @@ async function callWorker(
       break;
     case "gemini":
       key = geminiKey;
-      endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${w.id}:generateContent?key=${key}`;
+      endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${w.id}:generateContent?key=${geminiKey}`;
       break;
     case "mistral":
       key = mistralKey;
