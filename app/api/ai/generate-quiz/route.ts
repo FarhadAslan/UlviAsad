@@ -878,6 +878,7 @@ async function generateQuestions(
       await new Promise(r => setTimeout(r, delay));
     }
     // Uğurlu olduqda fasilə YOX (global cooldown kifayətdir)
+  } // while loop sonu
   }
 
   const elapsed = Date.now() - startTime;
