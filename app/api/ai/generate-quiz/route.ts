@@ -106,15 +106,14 @@ const HF_WORKERS: Worker[] = [
 
 // OpenRouter — müstəqil rate limit. Groq exhausted olduqda işə düşür.
 // 2026 aktiv pulsuz modellər (prioritet sırasında):
+// NOT: openrouter/free — avtomatik pulsuz model seçir
 const OR_WORKERS: Worker[] = [
-  { id: "deepseek/deepseek-v4-flash:free",            provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 1 },
-  { id: "qwen/qwen3.6-plus:free",                     provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 2 },
-  { id: "meta-llama/llama-4-maverick:free",           provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 3 },
-  { id: "google/gemma-4-31b-it:free",                 provider: "openrouter", jsonMode: false, maxTokens: 5000, priority: 4 },
-  { id: "qwen/qwen3-8b:free",                         provider: "openrouter", jsonMode: false, maxTokens: 5000, priority: 5 },
-  { id: "meta-llama/llama-3.3-70b-instruct:free",     provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 6 },
-  { id: "deepseek/deepseek-chat:free",                provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 7 },
-  { id: "deepseek/deepseek-r1:free",                  provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 8 },
+  { id: "openrouter/free",                            provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 1 },
+  { id: "google/gemma-4-31b-it:free",                 provider: "openrouter", jsonMode: false, maxTokens: 5000, priority: 2 },
+  { id: "google/gemma-4-26b-a4b-it:free",             provider: "openrouter", jsonMode: false, maxTokens: 5000, priority: 3 },
+  { id: "qwen/qwen3-8b:free",                         provider: "openrouter", jsonMode: false, maxTokens: 5000, priority: 4 },
+  { id: "meta-llama/llama-3.3-70b-instruct:free",     provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 5 },
+  { id: "deepseek/deepseek-chat:free",                provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 6 },
 ];
 
 // ─── JSON parser ──────────────────────────────────────────────────────────────

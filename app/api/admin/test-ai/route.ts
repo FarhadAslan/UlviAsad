@@ -36,7 +36,7 @@ async function testOpenRouter(apiKey: string) {
         "X-Title": "Muellim Portal",
       },
       body: JSON.stringify({
-        model: "deepseek/deepseek-v4-flash:free",
+        model: "openrouter/free",
         messages: [{ role: "user", content: 'Say "ok" in JSON: {"msg":"ok"}' }],
         max_tokens: 30,
       }),
