@@ -678,10 +678,6 @@ async function generateQuestions(
       break;
     }
 
-    // SMART PARALLEL: Cooldown-da olmayan provider-lər varsa 2 paralel, yoxsa 1
-    // Bu sürəti artırır amma rate limit riskini minimumda saxlayır
-    const parallelCount = availableByProvider.size >= 2 ? 2 : 1;
-    
     // Provider rotasiyası: cooldown-da olmayan və ən az istifadə edilən provider-i seç
     const availableByProvider = new Map<string, Worker[]>();
     for (const w of available) {
@@ -711,6 +707,10 @@ async function generateQuestions(
         break;
       }
     }
+
+    // SMART PARALLEL: Cooldown-da olmayan provider-lər varsa 2 paralel, yoxsa 1
+    // Bu sürəti artırır amma rate limit riskini minimumda saxlayır
+    const parallelCount = availableByProvider.size >= 2 ? 2 : 1;
 
     const sortedProviders = Array.from(availableByProvider.keys()).sort((a, b) => {
       const aTime = providerLastUsed.get(a) || 0;
