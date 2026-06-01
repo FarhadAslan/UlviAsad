@@ -65,7 +65,7 @@ function setCache(key: string, questions: any[]): void {
 // ─── Model konfiqurasiyası ───────────────────────────────────────────────────
 interface Worker {
   id: string;
-  provider: "groq" | "openrouter";
+  provider: "groq" | "openrouter" | "gemini" | "mistral" | "cerebras" | "huggingface";
   jsonMode: boolean;
   maxTokens: number;
   priority: number; // aşağı = daha əvvəl cəhd et
@@ -78,6 +78,29 @@ const GROQ_WORKERS: Worker[] = [
   { id: "llama-3.1-8b-instant",    provider: "groq", jsonMode: false, maxTokens: 4000, priority: 2 },
   { id: "gemma2-9b-it",            provider: "groq", jsonMode: false, maxTokens: 4000, priority: 3 },
   { id: "llama3-70b-8192",         provider: "groq", jsonMode: false, maxTokens: 5000, priority: 4 },
+];
+
+// Google Gemini — 1,500 requests/day, 1M token context, pulsuz və güclü
+const GEMINI_WORKERS: Worker[] = [
+  { id: "gemini-2.5-flash",        provider: "gemini", jsonMode: true,  maxTokens: 6000, priority: 1 },
+  { id: "gemini-2.5-flash-lite",   provider: "gemini", jsonMode: false, maxTokens: 5000, priority: 2 },
+];
+
+// Mistral AI — 1 req/sec (~86K req/day), EU GDPR uyğun
+const MISTRAL_WORKERS: Worker[] = [
+  { id: "mistral-small-latest",    provider: "mistral", jsonMode: true,  maxTokens: 5000, priority: 1 },
+  { id: "mistral-tiny",            provider: "mistral", jsonMode: false, maxTokens: 4000, priority: 2 },
+];
+
+// Cerebras — 2,100 tokens/sec, ən sürətli inference
+const CEREBRAS_WORKERS: Worker[] = [
+  { id: "llama-3.3-70b",           provider: "cerebras", jsonMode: false, maxTokens: 6000, priority: 1 },
+];
+
+// HuggingFace — 100+ model, rate limited amma çox müxtəliflik
+const HF_WORKERS: Worker[] = [
+  { id: "meta-llama/Llama-3.3-70B-Instruct", provider: "huggingface", jsonMode: false, maxTokens: 5000, priority: 1 },
+  { id: "mistralai/Mistral-7B-Instruct-v0.3", provider: "huggingface", jsonMode: false, maxTokens: 4000, priority: 2 },
 ];
 
 // OpenRouter — müstəqil rate limit. Groq exhausted olduqda işə düşür.
@@ -169,20 +192,61 @@ async function callWorker(
   w:          Worker,
   groqKey:    string | undefined,
   orKey:      string | undefined,
+  geminiKey:  string | undefined,
+  mistralKey: string | undefined,
+  cerebrasKey: string | undefined,
+  hfKey:      string | undefined,
   system:     string,
   userPrompt: string,
 ): Promise<any[]> {
-  const key = w.provider === "groq" ? groqKey : orKey;
-  if (!key) throw new Error(`[${w.id}] API açarı tapılmadı`);
+  let key: string | undefined;
+  let endpoint: string;
 
-  const endpoint = w.provider === "groq"
-    ? "https://api.groq.com/openai/v1/chat/completions"
-    : "https://openrouter.ai/api/v1/chat/completions";
+  // Provider-ə görə API key və endpoint seç
+  switch (w.provider) {
+    case "groq":
+      key = groqKey;
+      endpoint = "https://api.groq.com/openai/v1/chat/completions";
+      break;
+    case "openrouter":
+      key = orKey;
+      endpoint = "https://openrouter.ai/api/v1/chat/completions";
+      break;
+    case "gemini":
+      key = geminiKey;
+      endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${w.id}:generateContent?key=${key}`;
+      break;
+    case "mistral":
+      key = mistralKey;
+      endpoint = "https://api.mistral.ai/v1/chat/completions";
+      break;
+    case "cerebras":
+      key = cerebrasKey;
+      endpoint = "https://api.cerebras.ai/v1/chat/completions";
+      break;
+    case "huggingface":
+      key = hfKey;
+      endpoint = `https://api-inference.huggingface.co/models/${w.id}`;
+      break;
+    default:
+      throw new Error(`[${w.id}] Naməlum provider: ${w.provider}`);
+  }
+
+  if (!key) throw new Error(`[${w.id}] API açarı tapılmadı`);
 
   const headers: Record<string, string> = {
     "Content-Type":  "application/json",
-    "Authorization": `Bearer ${key}`,
   };
+
+  // Provider-ə görə header konfiqurasiyası
+  if (w.provider === "gemini") {
+    // Gemini üçün key URL-də olduğu üçün Authorization header lazım deyil
+  } else if (w.provider === "huggingface") {
+    headers["Authorization"] = `Bearer ${key}`;
+  } else {
+    headers["Authorization"] = `Bearer ${key}`;
+  }
+
   if (w.provider === "openrouter") {
     headers["HTTP-Referer"] = "https://ulvi-asad-hnez.vercel.app";
     headers["X-Title"]      = "Muellim Portal";
@@ -198,6 +262,181 @@ async function callWorker(
     max_tokens:  w.maxTokens,
   };
   if (w.jsonMode) body.response_format = { type: "json_object" };
+
+  // Gemini üçün fərqli request formatı
+  if (w.provider === "gemini") {
+    const geminiBody = {
+      contents: [{
+        parts: [{ text: `${system}\n\n${userPrompt}` }]
+      }],
+      generationConfig: {
+        temperature: 0.7,
+        maxOutputTokens: w.maxTokens,
+        ...(w.jsonMode ? { responseMimeType: "application/json" } : {}),
+      },
+    };
+
+    // Exponential backoff retry: 3 cəhd, 2s → 4s → 8s
+    const maxRetries = 3;
+    let lastError: any = null;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), WORKER_TIMEOUT_MS);
+
+      try {
+        const res = await fetch(endpoint, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify(geminiBody),
+          signal:  controller.signal,
+        });
+        clearTimeout(timer);
+
+        if (res.status === 429) {
+          const retryAfter = parseInt(res.headers.get("retry-after") || "2") * 1000;
+          const backoffDelay = Math.min(retryAfter || (2000 * Math.pow(2, attempt - 1)), 10000);
+          
+          if (attempt < maxRetries) {
+            console.log(`[${w.id}] 429 rate-limit, ${backoffDelay}ms sonra retry (${attempt}/${maxRetries})`);
+            await new Promise(r => setTimeout(r, backoffDelay));
+            continue;
+          }
+          throw new Error(`[${w.id}] 429 rate-limit (${maxRetries} cəhd)`);
+        }
+
+        if (res.status === 401 || res.status === 403) throw new Error(`[${w.id}] API açarı səhvdir (${res.status})`);
+        
+        if (!res.ok) {
+          const errText = await res.text().catch(() => "");
+          throw new Error(`[${w.id}] HTTP ${res.status}: ${errText.slice(0, 80)}`);
+        }
+
+        const data = await res.json().catch(() => null);
+        const content = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!content) throw new Error(`[${w.id}] boş cavab`);
+
+        const qs = extractQuestions(content);
+        if (!qs) throw new Error(`[${w.id}] JSON parse xətası`);
+
+        const valid = qs.filter(isValidQuestion);
+        if (valid.length === 0) throw new Error(`[${w.id}] ${qs.length} sualdan heç biri valid deyil`);
+
+        console.log(`[${w.id}] ✓ ${valid.length}/${qs.length} etibarlı sual (cəhd ${attempt})`);
+        return valid;
+
+      } catch (e: any) {
+        clearTimeout(timer);
+        lastError = e;
+        
+        if (e?.name === "AbortError") {
+          throw new Error(`[${w.id}] timeout`);
+        }
+        
+        const isRetryable = e?.message?.includes("429") || 
+                            e?.message?.includes("timeout") ||
+                            e?.message?.includes("ECONNRESET");
+        
+        if (isRetryable && attempt < maxRetries) {
+          const backoffDelay = 2000 * Math.pow(2, attempt - 1);
+          console.log(`[${w.id}] Xəta: ${e.message}, ${backoffDelay}ms sonra retry (${attempt}/${maxRetries})`);
+          await new Promise(r => setTimeout(r, backoffDelay));
+          continue;
+        }
+        
+        throw e;
+      }
+    }
+
+    throw lastError || new Error(`[${w.id}] ${maxRetries} cəhddən sonra uğursuz`);
+  }
+
+  // HuggingFace üçün fərqli request formatı
+  if (w.provider === "huggingface") {
+    const hfBody = {
+      inputs: `${system}\n\n${userPrompt}`,
+      parameters: {
+        temperature: 0.7,
+        max_new_tokens: w.maxTokens,
+        return_full_text: false,
+      },
+    };
+
+    const maxRetries = 3;
+    let lastError: any = null;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), WORKER_TIMEOUT_MS);
+
+      try {
+        const res = await fetch(endpoint, {
+          method:  "POST",
+          headers,
+          body:    JSON.stringify(hfBody),
+          signal:  controller.signal,
+        });
+        clearTimeout(timer);
+
+        if (res.status === 429 || res.status === 503) {
+          const backoffDelay = 2000 * Math.pow(2, attempt - 1);
+          
+          if (attempt < maxRetries) {
+            console.log(`[${w.id}] ${res.status} rate-limit/loading, ${backoffDelay}ms sonra retry (${attempt}/${maxRetries})`);
+            await new Promise(r => setTimeout(r, backoffDelay));
+            continue;
+          }
+          throw new Error(`[${w.id}] ${res.status} rate-limit (${maxRetries} cəhd)`);
+        }
+
+        if (res.status === 401 || res.status === 403) throw new Error(`[${w.id}] API açarı səhvdir (${res.status})`);
+        
+        if (!res.ok) {
+          const errText = await res.text().catch(() => "");
+          throw new Error(`[${w.id}] HTTP ${res.status}: ${errText.slice(0, 80)}`);
+        }
+
+        const data = await res.json().catch(() => null);
+        const content = Array.isArray(data) ? data[0]?.generated_text : data?.generated_text;
+        if (!content) throw new Error(`[${w.id}] boş cavab`);
+
+        const qs = extractQuestions(content);
+        if (!qs) throw new Error(`[${w.id}] JSON parse xətası`);
+
+        const valid = qs.filter(isValidQuestion);
+        if (valid.length === 0) throw new Error(`[${w.id}] ${qs.length} sualdan heç biri valid deyil`);
+
+        console.log(`[${w.id}] ✓ ${valid.length}/${qs.length} etibarlı sual (cəhd ${attempt})`);
+        return valid;
+
+      } catch (e: any) {
+        clearTimeout(timer);
+        lastError = e;
+        
+        if (e?.name === "AbortError") {
+          throw new Error(`[${w.id}] timeout`);
+        }
+        
+        const isRetryable = e?.message?.includes("429") || 
+                            e?.message?.includes("503") ||
+                            e?.message?.includes("timeout") ||
+                            e?.message?.includes("ECONNRESET");
+        
+        if (isRetryable && attempt < maxRetries) {
+          const backoffDelay = 2000 * Math.pow(2, attempt - 1);
+          console.log(`[${w.id}] Xəta: ${e.message}, ${backoffDelay}ms sonra retry (${attempt}/${maxRetries})`);
+          await new Promise(r => setTimeout(r, backoffDelay));
+          continue;
+        }
+        
+        throw e;
+      }
+    }
+
+    throw lastError || new Error(`[${w.id}] ${maxRetries} cəhddən sonra uğursuz`);
+  }
+
+  // OpenAI-compatible API-lər üçün (Groq, OpenRouter, Mistral, Cerebras)
 
   // Exponential backoff retry: 3 cəhd, 2s → 4s → 8s
   const maxRetries = 3;
@@ -343,11 +582,19 @@ async function generateQuestions(
   buildPrompt: (count: number, hint: string) => string,
   groqKey:     string | undefined,
   orKey:       string | undefined,
+  geminiKey:   string | undefined,
+  mistralKey:  string | undefined,
+  cerebrasKey: string | undefined,
+  hfKey:       string | undefined,
 ): Promise<{ questions: any[]; errors: string[] }> {
 
   const allWorkers: Worker[] = [
-    ...(groqKey ? GROQ_WORKERS : []),
-    ...(orKey   ? OR_WORKERS   : []),
+    ...(groqKey    ? GROQ_WORKERS    : []),
+    ...(geminiKey  ? GEMINI_WORKERS  : []),
+    ...(mistralKey ? MISTRAL_WORKERS : []),
+    ...(cerebrasKey? CEREBRAS_WORKERS: []),
+    ...(hfKey      ? HF_WORKERS      : []),
+    ...(orKey      ? OR_WORKERS      : []),
   ].sort((a, b) => a.priority - b.priority);
 
   if (allWorkers.length === 0) {
@@ -420,7 +667,7 @@ async function generateQuestions(
     const tasks = workers.map((w, idx) => {
       const hint   = hints[(idx + round * 2) % hints.length];
       const prompt = buildPrompt(askCount, hint);
-      return callWorker(w, groqKey, orKey, system, prompt)
+      return callWorker(w, groqKey, orKey, geminiKey, mistralKey, cerebrasKey, hfKey, system, prompt)
         .then(qs  => ({ w, qs, ok: true  as const }))
         .catch(err => ({ w, err, ok: false as const }));
     });
@@ -517,6 +764,10 @@ export async function POST(req: NextRequest) {
 
     const groqKeyRaw = process.env.GROQ_API_KEY;
     const orKey      = process.env.OPENROUTER_API_KEY;
+    const geminiKey  = process.env.GEMINI_API_KEY;
+    const mistralKey = process.env.MISTRAL_API_KEY;
+    const cerebrasKey= process.env.CEREBRAS_API_KEY;
+    const hfKey      = process.env.HUGGINGFACE_API_KEY;
 
     // Groq açarı "gsk_" ilə başlamalıdır
     const groqKey = groqKeyRaw?.startsWith("gsk_") ? groqKeyRaw : undefined;
@@ -524,8 +775,8 @@ export async function POST(req: NextRequest) {
       console.warn("[generate-quiz] GROQ_API_KEY formatı səhvdir. Groq atlanılır.");
     }
 
-    if (!groqKey && !orKey) {
-      return NextResponse.json({ error: "AI API açarı konfiqurasiya edilməyib." }, { status: 503 });
+    if (!groqKey && !orKey && !geminiKey && !mistralKey && !cerebrasKey && !hfKey) {
+      return NextResponse.json({ error: "Heç bir AI API açarı konfiqurasiya edilməyib." }, { status: 503 });
     }
 
     const body = await req.json();
@@ -608,7 +859,7 @@ YALNIZ JSON, DƏQIQ ${count} sual:`;
     };
 
     const genResult = await generateQuestions(
-      safeCount, systemPrompt, buildPrompt, groqKey, orKey
+      safeCount, systemPrompt, buildPrompt, groqKey, orKey, geminiKey, mistralKey, cerebrasKey, hfKey
     );
 
     if (genResult.questions.length === 0) {
