@@ -71,11 +71,6 @@ function markModelUsed(modelId: string): void {
   modelGlobalCooldown.set(modelId, Date.now());
 }
 
-function markProviderUsed(provider: string): void {
-  providerGlobalCooldown.set(provider, Date.now());
-  console.log(`[cooldown] ${provider} marked as used, cooldown until ${new Date(Date.now() + PROVIDER_COOLDOWN_MS).toISOString()}`);
-}
-
 function getCacheKey(title: string, count: number, language: string, botId?: string): string {
   return `${title.trim().toLowerCase()}|${count}|${language}|${botId ?? ""}`;
 }
@@ -755,7 +750,6 @@ async function generateQuestions(
     for (const w of available) {
       // DUAL COOLDOWN CHECK: Həm provider həm də model cooldown-da deyilsə əlavə et
       if (isProviderAvailable(w.provider) && isModelAvailable(w.id)) {
-      if (isProviderAvailable(w.provider) && isModelAvailable(w.id)) {
         if (!availableByProvider.has(w.provider)) {
           availableByProvider.set(w.provider, []);
         }
@@ -879,7 +873,6 @@ async function generateQuestions(
     }
     // Uğurlu olduqda fasilə YOX (global cooldown kifayətdir)
   } // while loop sonu
-  }
 
   const elapsed = Date.now() - startTime;
   console.log(
