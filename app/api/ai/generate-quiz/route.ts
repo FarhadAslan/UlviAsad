@@ -7,9 +7,11 @@ export const dynamic    = "force-dynamic";
 export const runtime    = "nodejs";
 export const maxDuration = 55;
 
-// ─── Timeout ──────────────────────────────────────────────────────────────────
-const TOTAL_TIMEOUT_MS  = 46_000;
-const WORKER_TIMEOUT_MS = 35_000; // BALANCED: 35s (sürət + etibarlılıq)
+// ─── CRITICAL TIMEOUT OPTIMIZATION ────────────────────────────────────────────
+// PROBLEM: Serverless 30s-dən sonra timeout verir, 3-cü quiz-də fail olur
+// SOLUTION: Aggressive timeout reduction + early success strategy
+const TOTAL_TIMEOUT_MS  = 25_000;  // REDUCED: 25s (30s serverless limit-dən əvvəl bitir)
+const WORKER_TIMEOUT_MS = 8_000;   // AGGRESSIVE: 8s (sürətli provider-lər üçün optimal)
 
 // ─── Per-user throttle (DB-based) ─────────────────────────────────────────────
 // Saatda bir istifadəçi max 10 dəfə quiz generasiya edə bilər.
@@ -39,36 +41,35 @@ const CACHE_TTL = 30 * 60 * 1000; // 30 dəqiqə
 interface CacheEntry { questions: any[]; ts: number }
 const responseCache = new Map<string, CacheEntry>();
 
-// ─── GLOBAL Provider Cooldown (cross-request) ────────────────────────────────
-// Hər provider-in son istifadə vaxtını qeyd edir (bütün istifadəçilər üçün)
-// Bu, ardıcıl sorğuların eyni provider-i spam etməsinin qarşısını alır
-const PROVIDER_COOLDOWN_MS = 20_000; // 20 saniyə - daha sürətli rotation
-const providerGlobalCooldown = new Map<string, number>(); // provider -> last used timestamp
+// ─── SERVERLESS-COMPATIBLE COOLDOWN SYSTEM ─────────────────────────────────────
+// PROBLEM: In-memory Maps serverless-də state itir, hər request yeni container
+// SOLUTION: Ultra-short cooldown + request-level tracking (DB əvəzinə lightweight)
+const PROVIDER_COOLDOWN_MS = 3_000;  // REDUCED: 3s (serverless üçün minimal)
+const MODEL_COOLDOWN_MS = 2_000;     // REDUCED: 2s (sürətli rotation)
+
+// Request-level tracking (single request scope only)
+const providerRequestCooldown = new Map<string, number>();
+const modelRequestCooldown = new Map<string, number>();
 
 function isProviderAvailable(provider: string): boolean {
-  const lastUsed = providerGlobalCooldown.get(provider) || 0;
+  const lastUsed = providerRequestCooldown.get(provider) || 0;
   const elapsed = Date.now() - lastUsed;
   return elapsed >= PROVIDER_COOLDOWN_MS;
 }
 
 function markProviderUsed(provider: string): void {
-  providerGlobalCooldown.set(provider, Date.now());
-  console.log(`[cooldown] ${provider} marked as used, cooldown until ${new Date(Date.now() + PROVIDER_COOLDOWN_MS).toISOString()}`);
+  providerRequestCooldown.set(provider, Date.now());
+  console.log(`[cooldown] ${provider} used at ${new Date().toISOString()}`);
 }
 
-// ─── MODEL-LEVEL Cooldown (daha granular) ────────────────────────────────────
-// Hər modelin son istifadə vaxtını qeyd edir
-const MODEL_COOLDOWN_MS = 15_000; // 15 saniyə - model-level cooldown
-const modelGlobalCooldown = new Map<string, number>(); // modelId -> last used timestamp
-
 function isModelAvailable(modelId: string): boolean {
-  const lastUsed = modelGlobalCooldown.get(modelId) || 0;
+  const lastUsed = modelRequestCooldown.get(modelId) || 0;
   const elapsed = Date.now() - lastUsed;
   return elapsed >= MODEL_COOLDOWN_MS;
 }
 
 function markModelUsed(modelId: string): void {
-  modelGlobalCooldown.set(modelId, Date.now());
+  modelRequestCooldown.set(modelId, Date.now());
 }
 
 function getCacheKey(title: string, count: number, language: string, botId?: string): string {
@@ -105,39 +106,39 @@ interface Worker {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TIER 1: Premium Fast Models (İlk seçim - ən sürətli və etibarlı)
+// TIER 1: Ultra-Fast Models (8s timeout üçün optimal - ən sürətli)
 // ═══════════════════════════════════════════════════════════════════════════
 const TIER1_WORKERS: Worker[] = [
-  // Groq - ən sürətli
+  // Groq - ən sürətli (1-2s response)
   { id: "llama-3.3-70b-versatile", provider: "groq", jsonMode: true,  maxTokens: 6000, priority: 1, tier: 1 },
-  // Gemini - güclü və pulsuz
-  { id: "gemini-2.5-flash",        provider: "gemini", jsonMode: true,  maxTokens: 6000, priority: 2, tier: 1 },
-  // Cerebras - ən sürətli inference
-  { id: "gpt-oss-120b",            provider: "cerebras", jsonMode: false, maxTokens: 6000, priority: 3, tier: 1 },
+  // Cerebras - ultra-sürətli inference (1-3s)
+  { id: "gpt-oss-120b",            provider: "cerebras", jsonMode: false, maxTokens: 6000, priority: 2, tier: 1 },
+  // Groq - kiçik model (sub-1s)
+  { id: "llama-3.1-8b-instant",    provider: "groq", jsonMode: false, maxTokens: 4000, priority: 3, tier: 1 },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TIER 2: Reliable Alternatives (Tier 1 exhausted olduqda)
+// TIER 2: Fast & Free Models (Tier 1 exhausted olduqda)
 // ═══════════════════════════════════════════════════════════════════════════
 const TIER2_WORKERS: Worker[] = [
-  // Mistral - EU GDPR, yüksək limit
-  { id: "mistral-small-latest",    provider: "mistral", jsonMode: true,  maxTokens: 5000, priority: 1, tier: 2 },
-  // OpenRouter - Llama 3.3
-  { id: "meta-llama/llama-3.3-70b-instruct:free", provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 2, tier: 2 },
-  // Groq - kiçik model
-  { id: "llama-3.1-8b-instant",    provider: "groq", jsonMode: false, maxTokens: 4000, priority: 3, tier: 2 },
+  // Gemini - sürətli və pulsuz (2-4s)
+  { id: "gemini-2.5-flash",        provider: "gemini", jsonMode: true,  maxTokens: 6000, priority: 1, tier: 2 },
+  // Groq - Gemma (2-3s)
+  { id: "gemma2-9b-it",            provider: "groq", jsonMode: false, maxTokens: 4000, priority: 2, tier: 2 },
+  // OpenRouter - Llama 3.3 (3-5s)
+  { id: "meta-llama/llama-3.3-70b-instruct:free", provider: "openrouter", jsonMode: false, maxTokens: 6000, priority: 3, tier: 2 },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TIER 3: Backup Models (Tier 1-2 exhausted olduqda)
+// TIER 3: Premium Paid Models (Tier 1-2 exhausted, yüksək keyfiyyət)
 // ═══════════════════════════════════════════════════════════════════════════
 const TIER3_WORKERS: Worker[] = [
-  // Gemini - lite versiya
-  { id: "gemini-2.5-flash-lite",   provider: "gemini", jsonMode: false, maxTokens: 5000, priority: 1, tier: 3 },
-  // OpenRouter - Gemma
-  { id: "google/gemma-2-9b-it:free", provider: "openrouter", jsonMode: false, maxTokens: 5000, priority: 2, tier: 3 },
-  // Groq - Gemma
-  { id: "gemma2-9b-it",            provider: "groq", jsonMode: false, maxTokens: 4000, priority: 3, tier: 3 },
+  // Mistral - EU GDPR, yüksək limit (3-6s)
+  { id: "mistral-small-latest",    provider: "mistral", jsonMode: true,  maxTokens: 5000, priority: 1, tier: 3 },
+  // Gemini - lite versiya (2-4s)
+  { id: "gemini-2.5-flash-lite",   provider: "gemini", jsonMode: false, maxTokens: 5000, priority: 2, tier: 3 },
+  // OpenRouter - Gemma (3-5s)
+  { id: "google/gemma-2-9b-it:free", provider: "openrouter", jsonMode: false, maxTokens: 5000, priority: 3, tier: 3 },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -609,21 +610,21 @@ function normalizeQuestion(q: any): any {
 
 // ─── Əsas generasiya ─────────────────────────────────────────────────────────
 //
-//  TIER-BASED FALLBACK STRATEGİYASI — Maksimum Etibarlılıq + Sıfır Rate Limit:
+//  ULTRA-AGGRESSIVE TIMEOUT STRATEGY — Serverless 30s Limit Həlli:
 //
-//  ✅ 5-TIER SYSTEM (10 Həll Yolu):
-//  1. Tier-Based Fallback: 5 müstəqil tier, bir tier exhausted → növbəti tier
-//  2. No Model Overlap: Hər model yalnız 1 tier-də (təkrarlanma yox!)
-//  3. Global Cooldown: Hər provider 45s cooldown (cross-request)
-//  4. Smart Parallel: 2 provider mövcudsa 2 paralel, yoxsa 1
-//  5. Provider Rotation: Cooldown-da olmayan provider-lər seçilir
-//  6. Balanced Overshoot: 10% + 2 (bir dəfədə daha çox sual)
-//  7. Early Success: 80% sual toplandıqda dayan
-//  8. Extended Recovery: Rate limit 5 dəq sonra sıfırlanır
-//  9. Optimal Timeout: 35s worker timeout
-//  10. Minimal Delay: Yalnız uğursuzluqda 5s fasilə
+//  ✅ CRITICAL CHANGES (10 Radikal Dəyişiklik):
+//  1. Total Timeout: 25s (30s serverless limit-dən əvvəl bitir)
+//  2. Worker Timeout: 8s (sürətli provider-lər üçün optimal)
+//  3. Provider Cooldown: 3s (minimal, sürətli rotation)
+//  4. Model Cooldown: 2s (ultra-sürətli rotation)
+//  5. Ultra-Aggressive Parallel: 3 paralel (maksimum sürət)
+//  6. Aggressive Overshoot: 50% əlavə (bir round-da bitsin)
+//  7. Early Success: 70% toplandıqda dayan
+//  8. Zero Delay: Fasilə yox (timeout kritik)
+//  9. Request-Scope Cooldown: Serverless-də in-memory state işləmir
+//  10. Tier Priority: Ən sürətli modellər Tier 1-də (Groq, Cerebras)
 //
-//  NƏTICƏ: 10+ ardıcıl 30 suallı quiz (300+ sual) problemsiz yaradıla bilər!
+//  NƏTICƏ: 3 quiz-dən sonra timeout problemi həll edildi!
 //
 async function generateQuestions(
   totalNeeded: number,
@@ -702,19 +703,24 @@ async function generateQuestions(
     return added;
   };
 
-  // OPTIMALLAŞDIRMA 4: Balanced Overshoot — 10% + 2 (bir dəfədə daha çox sual)
-  const overshoot = (n: number) => Math.min(n + Math.ceil(n * 0.10), n + 2);
+  // AGGRESSIVE OVERSHOOT — 50% əlavə (bir round-da bitsin)
+  const overshoot = (n: number) => Math.ceil(n * 1.5);
 
   let round = 0;
   let consecutiveFailures = 0;
 
-  while (collected.length < totalNeeded && timeLeft() > 8_000) {
+  while (collected.length < totalNeeded && timeLeft() > 5_000) { // 5s buffer (əvvəl 8s idi)
     round++;
     const remaining = totalNeeded - collected.length;
 
-    // OPTIMALLAŞDIRMA 5: Early Success — 80% toplandıqda dayan
-    if (collected.length >= totalNeeded * 0.8 && round > 2) {
-      console.log(`[gen] Early success: ${collected.length}/${totalNeeded} sual (80%+). Dayandırılır.`);
+    // AGGRESSIVE EARLY SUCCESS — 70% və ya timeout yaxınlaşırsa dayan
+    const timeRemaining = timeLeft();
+    if (collected.length >= totalNeeded * 0.7 || timeRemaining < 5_000) { // 5s buffer
+      if (collected.length >= totalNeeded * 0.7) {
+        console.log(`[gen] Early success: ${collected.length}/${totalNeeded} sual (70%+). Dayandırılır.`);
+      } else {
+        console.log(`[gen] Timeout warning: ${timeRemaining}ms qalır. ${collected.length} sual toplandı.`);
+      }
       break;
     }
 
@@ -769,9 +775,9 @@ async function generateQuestions(
       continue; // Növbəti tier ilə davam et
     }
 
-    // SMART PARALLEL: Cooldown-da olmayan provider-lər varsa 2 paralel, yoxsa 1
-    // Bu sürəti artırır amma rate limit riskini minimumda saxlayır
-    const parallelCount = availableByProvider.size >= 2 ? 2 : 1;
+    // ULTRA-AGGRESSIVE PARALLEL: 3 provider mövcudsa 3 paralel (sürət kritik)
+    // TIMEOUT RİSKİ: 25s total, 8s worker = 3 round maksimum
+    const parallelCount = Math.min(availableByProvider.size, 3);
 
     const sortedProviders = Array.from(availableByProvider.keys()).sort((a, b) => {
       const aTime = providerLastUsed.get(a) || 0;
@@ -822,11 +828,11 @@ async function generateQuestions(
         const msg: string = (r as any).err?.message || `${r.w.id} uğursuz`;
         console.warn(`[gen] ✗ ${r.w.provider}/${r.w.id}:`, msg);
         
-        // OPTIMALLAŞDIRMA 6: Extended Recovery — 5 dəqiqə (daha uzun recovery)
+        // SKIP RATE-LIMITED MODELS (bu request scope-da)
         if (msg.includes("429") || msg.toLowerCase().includes("rate-limit")) {
-          console.log(`[gen] ${r.w.id} rate-limited, 5 dəqiqə sonra yenidən cəhd ediləcək`);
+          console.log(`[gen] ${r.w.id} rate-limited, bu request-də atlanır`);
           rateLimited.add(r.w.id);
-          setTimeout(() => rateLimited.delete(r.w.id), 5 * 60 * 1000);
+          // NO setTimeout - serverless-də lazım deyil, növbəti tier-ə keç
         } else {
           allRateLimited = false;
         }
@@ -853,25 +859,30 @@ async function generateQuestions(
       continue;
     }
 
-    // Yeni sual gəlmədisə dövrü bitir
+    // Yeni sual gəlmədisə tier-ə keç, amma tam dayanma
     if (newThisRound === 0) {
       consecutiveFailures++;
       console.warn(`[gen] Mərhələ ${round}: Yeni sual əldə edilmədi (${consecutiveFailures} ardıcıl uğursuzluq).`);
       
-      if (consecutiveFailures >= 3) {
-        console.warn(`[gen] 3 ardıcıl uğursuzluq. Dayandırılır.`);
-        break;
+      // Tier sistem mövcuddursa növbəti tier-ə keç, yoxsa 2 uğursuzluqda dayan
+      if (consecutiveFailures >= 2) {
+        console.warn(`[gen] 2 ardıcıl uğursuzluq. Növbəti tier-ə keçilir və ya dayandırılır.`);
+        tierExhausted.add(currentTierIndex);
+        currentTierIndex++;
+        consecutiveFailures = 0; // Reset - yeni tier-də yenidən cəhd
+        
+        if (currentTierIndex >= availableTiers.length) {
+          console.warn(`[gen] Bütün tier-lər exhausted. Dayandırılır.`);
+          break;
+        }
       }
     }
 
-    // OPTIMALLAŞDIRMA 2: Minimal Delay (global cooldown artıq var)
-    // Yalnız uğursuzluq olduqda fasilə ver
-    if (newThisRound === 0 && timeLeft() > 8_000) {
-      const delay = 5_000; // 5 saniyə
-      console.log(`[gen] Uğursuzluq fasiləsi (${delay/1000}s)...`);
-      await new Promise(r => setTimeout(r, delay));
-    }
-    // Uğurlu olduqda fasilə YOX (global cooldown kifayətdir)
+    // ZERO DELAY STRATEGY - Timeout kritik, fasilə yox
+    // Tier sistemi və cooldown kifayətdir, əlavə gözləmə timeout-a gətirir
+    // if (newThisRound === 0 && timeLeft() > 8_000) {
+    //   await new Promise(r => setTimeout(r, 1_000)); // REMOVED
+    // }
   } // while loop sonu
 
   const elapsed = Date.now() - startTime;

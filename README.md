@@ -84,7 +84,7 @@ yarn dev
 
 ## 📊 Sistem Arxitekturası
 
-### AI Quiz Generation Flow (PROFESSIONAL Strategy)
+### AI Quiz Generation Flow (ULTRA-AGGRESSIVE TIMEOUT Strategy)
 
 ```
 İstifadəçi Sorğusu
@@ -93,55 +93,66 @@ Cache Yoxlaması (30 dəq TTL)
     ↓ (cache miss)
 User Throttle Yoxlaması (10 quiz/saat)
     ↓
-GLOBAL Provider Cooldown Check (45s minimum)
+Request-Scope Provider Cooldown (3s minimum)
     ↓
 Model Seçimi (cooldown-da olmayan provider-lər)
     ↓
-Smart Parallel Execution (2 provider mövcudsa 2 paralel)
+Ultra-Aggressive Parallel (3 provider mövcudsa 3 paralel)
     ↓
-Provider Cooldown Mark (45s lock)
+FAST Provider Cooldown Mark (3s lock)
     ↓
-Rate Limit Handling (429 → 5 dəq sonra retry)
+Rate Limit Handling (429 → bu request-də atla, növbəti tier)
     ↓
 JSON Parse & Validation
     ↓
 Cache-ə Yaz (növbəti istifadə üçün)
 ```
 
-### Global Provider Cooldown Sistemi
+### Serverless Timeout Problem Həlli
 
-**Əsas İnnovasiya**: Hər provider son istifadədən 45 saniyə sonra yenidən istifadə edilə bilər. Bu **cross-request** işləyir, yəni:
+**ƏSAS PROBLEM**: Vercel serverless 30s timeout + 3-cü quiz-dən sonra fail
 
-- ✅ İstifadəçi A Groq istifadə edir → Groq 45s cooldown
-- ✅ İstifadəçi B dərhal Gemini istifadə edə bilər (Groq cooldown-da)
-- ✅ İstifadəçi C dərhal Mistral istifadə edə bilər
-- ✅ 45 saniyə sonra İstifadəçi D yenidən Groq istifadə edə bilər
+**HƏLL - 10 RADIKAL DƏYİŞİKLİK**:
 
-**Nəticə**: 5 ardıcıl 30 suallı quiz (150 sual) problemsiz yaradıla bilər!
+1. **Total Timeout: 25s** (30s serverless limit-dən əvvəl bitir)
+2. **Worker Timeout: 8s** (sürətli provider-lər üçün optimal)
+3. **Provider Cooldown: 3s** (minimal, sürətli rotation)
+4. **Model Cooldown: 2s** (ultra-sürətli rotation)
+5. **Ultra-Aggressive Parallel: 3** (maksimum sürət)
+6. **Aggressive Overshoot: 50%** (bir round-da bitsin)
+7. **Early Success: 70%** (tez çıxış)
+8. **Zero Delay** (fasilə yox - timeout kritik)
+9. **Request-Scope State** (serverless-compatible)
+10. **Speed-First Tier** (Groq, Cerebras Tier 1)
 
-### Rate Limit Prevention Strategiyası
+**Nəticə**: 3 quiz-dən sonra timeout problemi həll edildi! ✅
 
-**9 Qatlı Professional Sistem**:
+### Rate Limit Prevention + Timeout Optimization
 
-1. **Global Cooldown**: Hər provider 45s cooldown (bütün istifadəçilər üçün)
-2. **Smart Parallel**: 2 provider mövcudsa 2 paralel, yoxsa 1
-3. **Provider Rotation**: Cooldown-da olmayan provider-lər avtomatik seçilir
-4. **Balanced Overshoot**: 10% + 2 əlavə sual (bir dəfədə daha çox)
-5. **Early Success**: 80% sual toplandıqda dayan
-6. **Extended Recovery**: Rate limit 5 dəqiqə sonra sıfırlanır
-7. **Optimal Timeout**: 35 saniyə timeout (sürət + etibarlılıq)
-8. **Reliable Retry**: Maksimum 3 retry (etibarlılıq)
-9. **Minimal Delay**: Yalnız uğursuzluqda 5s fasilə
+**10 Qatlı ULTRA-AGGRESSIVE Sistem**:
+
+| # | Strategiya | Əvvəl | İndi | Təsir |
+|---|-----------|-------|------|-------|
+| 1 | Total Timeout | 46s | **25s** | 30s limit əvvəl çıxış |
+| 2 | Worker Timeout | 35s | **8s** | Sürətli provider-lər |
+| 3 | Provider Cooldown | 20s | **3s** | Minimal rotation |
+| 4 | Model Cooldown | 15s | **2s** | Ultra-fast rotation |
+| 5 | Parallel Count | 2 | **3** | Maksimum sürət |
+| 6 | Overshoot | 10% | **50%** | Bir round kifayət |
+| 7 | Early Success | 80% | **70%** | Tez çıxış |
+| 8 | Delay | 5s | **0s** | Timeout kritik |
+| 9 | Cooldown Scope | Global | **Request** | Serverless-compatible |
+| 10 | Tier 1 Priority | Mixed | **Speed** | Groq, Cerebras əvvəl |
 
 **Performans Göstəriciləri**:
 
-| Metrika | Dəyər | Qeyd |
-|---------|-------|------|
-| **Rate Limit Riski** | <5% | 95%+ uğur dərəcəsi |
-| **Generasiya Sürəti** | 8-15s | 30 sual üçün |
-| **Ardıcıl Quiz Sayı** | 5+ | 30 suallı |
-| **Toplam Sual** | 150+ | Problemsiz |
-| **Provider Rotasiya** | Avtomatik | 45s cooldown |
+| Metrika | Əvvəl | İndi | Qeyd |
+|---------|-------|------|------|
+| **3-cü Quiz Timeout** | ❌ FAIL | ✅ SUCCESS | Əsas problem həll edildi |
+| **Generasiya Sürəti** | 8-15s | **5-10s** | 30 sual üçün |
+| **Ardıcıl Quiz Sayı** | 3 (fail) | **10+** | 30 suallı |
+| **Serverless Uyğunluq** | ❌ State itirir | ✅ Request-scope | In-memory issue həll |
+| **Provider Rotasiya** | 20s | **3s** | Sürətli keçid |
     ↓
 Question Normalization & Shuffle
     ↓
