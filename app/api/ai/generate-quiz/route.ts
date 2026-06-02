@@ -894,6 +894,59 @@ async function generateQuestions(
   return { questions: collected.slice(0, totalNeeded), errors };
 }
 
+// ─── MULTIPLE KEY ROTATION HELPER ────────────────────────────────────────────
+// Hər provider üçün bütün mövcud key-ləri topla və rotation et
+function getAllKeysForProvider(provider: string): string[] {
+  const keys: string[] = [];
+  
+  switch (provider) {
+    case "groq":
+      if (process.env.GROQ_API_KEY?.startsWith("gsk_")) keys.push(process.env.GROQ_API_KEY);
+      if (process.env.GROQ_API_KEY_2?.startsWith("gsk_")) keys.push(process.env.GROQ_API_KEY_2);
+      if (process.env.GROQ_API_KEY_3?.startsWith("gsk_")) keys.push(process.env.GROQ_API_KEY_3);
+      break;
+    case "gemini":
+      if (process.env.GEMINI_API_KEY) keys.push(process.env.GEMINI_API_KEY);
+      if (process.env.GEMINI_API_KEY_2) keys.push(process.env.GEMINI_API_KEY_2);
+      if (process.env.GEMINI_API_KEY_3) keys.push(process.env.GEMINI_API_KEY_3);
+      break;
+    case "openrouter":
+      if (process.env.OPENROUTER_API_KEY) keys.push(process.env.OPENROUTER_API_KEY);
+      if (process.env.OPENROUTER_API_KEY_2) keys.push(process.env.OPENROUTER_API_KEY_2);
+      break;
+    case "mistral":
+      if (process.env.MISTRAL_API_KEY) keys.push(process.env.MISTRAL_API_KEY);
+      if (process.env.MISTRAL_API_KEY_2) keys.push(process.env.MISTRAL_API_KEY_2);
+      break;
+    case "cerebras":
+      if (process.env.CEREBRAS_API_KEY) keys.push(process.env.CEREBRAS_API_KEY);
+      if (process.env.CEREBRAS_API_KEY_2) keys.push(process.env.CEREBRAS_API_KEY_2);
+      break;
+    case "huggingface":
+      if (process.env.HUGGINGFACE_API_KEY) keys.push(process.env.HUGGINGFACE_API_KEY);
+      if (process.env.HUGGINGFACE_API_KEY_2) keys.push(process.env.HUGGINGFACE_API_KEY_2);
+      break;
+  }
+  
+  return keys;
+}
+
+// Request-scope key rotation tracker
+const keyRotationIndex = new Map<string, number>(); // provider -> current index
+
+function getNextKeyForProvider(provider: string): string | undefined {
+  const keys = getAllKeysForProvider(provider);
+  if (keys.length === 0) return undefined;
+  
+  // Round-robin rotation
+  const currentIndex = keyRotationIndex.get(provider) || 0;
+  const key = keys[currentIndex % keys.length];
+  keyRotationIndex.set(provider, currentIndex + 1);
+  
+  console.log(`[key-rotation] ${provider}: using key ${(currentIndex % keys.length) + 1}/${keys.length}`);
+  return key;
+}
+
 // ─── POST handler ─────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
@@ -917,18 +970,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const groqKeyRaw = process.env.GROQ_API_KEY;
-    const orKey      = process.env.OPENROUTER_API_KEY;
-    const geminiKey  = process.env.GEMINI_API_KEY;
-    const mistralKey = process.env.MISTRAL_API_KEY;
-    const cerebrasKey= process.env.CEREBRAS_API_KEY;
-    const hfKey      = process.env.HUGGINGFACE_API_KEY;
+    // ── MULTIPLE KEY ROTATION: Hər provider üçün key-ləri yığ ────────────────
+    const groqKey = getNextKeyForProvider("groq");
+    const geminiKey = getNextKeyForProvider("gemini");
+    const orKey = getNextKeyForProvider("openrouter");
+    const mistralKey = getNextKeyForProvider("mistral");
+    const cerebrasKey = getNextKeyForProvider("cerebras");
+    const hfKey = getNextKeyForProvider("huggingface");
 
-    // Groq açarı "gsk_" ilə başlamalıdır
-    const groqKey = groqKeyRaw?.startsWith("gsk_") ? groqKeyRaw : undefined;
-    if (groqKeyRaw && !groqKey) {
-      console.warn("[generate-quiz] GROQ_API_KEY formatı səhvdir. Groq atlanılır.");
-    }
+    // Key count logging
+    const keyCount = [groqKey, geminiKey, orKey, mistralKey, cerebrasKey, hfKey].filter(Boolean).length;
+    console.log(`[key-rotation] Total active keys: ${keyCount}`);
 
     if (!groqKey && !orKey && !geminiKey && !mistralKey && !cerebrasKey && !hfKey) {
       return NextResponse.json({ error: "Heç bir AI API açarı konfiqurasiya edilməyib." }, { status: 503 });

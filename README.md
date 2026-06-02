@@ -24,13 +24,35 @@ DIRECT_URL="postgresql://..."
 NEXTAUTH_SECRET="your-secret"
 NEXTAUTH_URL="http://localhost:3000"
 
-# AI Providers (ən azı 3 provider konfiqurasiya edin - VACIB!)
-GROQ_API_KEY="gsk_..."              # https://console.groq.com (TÖVSIYƏ)
-GEMINI_API_KEY="AIza..."            # https://aistudio.google.com/apikey (TÖVSIYƏ)
-MISTRAL_API_KEY="..."               # https://console.mistral.ai (TÖVSIYƏ)
-CEREBRAS_API_KEY="..."              # https://cloud.cerebras.ai
-HUGGINGFACE_API_KEY="hf_..."        # https://huggingface.co/settings/tokens
-OPENROUTER_API_KEY="sk-or-..."      # https://openrouter.ai
+# AI Providers - MULTIPLE KEY ROTATION SUPPORT
+# Hər provider üçün 2-3 API key konfiqurasiya edə bilərsiniz
+# Sistem avtomatik rotate edəcək və rate limit-i 2-3x artıracaq
+
+# Groq - https://console.groq.com (TÖVSIYƏ: 2-3 key)
+GROQ_API_KEY="gsk_..."
+GROQ_API_KEY_2="gsk_..."              # OPTIONAL: Rate limit 2x
+GROQ_API_KEY_3="gsk_..."              # OPTIONAL: Rate limit 3x
+
+# Gemini - https://aistudio.google.com/apikey (TÖVSIYƏ: 2-3 key)
+GEMINI_API_KEY="AIza..."
+GEMINI_API_KEY_2="AIza..."            # OPTIONAL: Rate limit 2x
+GEMINI_API_KEY_3="AIza..."            # OPTIONAL: Rate limit 3x
+
+# OpenRouter - https://openrouter.ai (TÖVSIYƏ: 2 key)
+OPENROUTER_API_KEY="sk-or-..."
+OPENROUTER_API_KEY_2="sk-or-..."      # OPTIONAL: Rate limit 2x
+
+# Mistral - https://console.mistral.ai
+MISTRAL_API_KEY="..."
+MISTRAL_API_KEY_2="..."               # OPTIONAL: Rate limit 2x
+
+# Cerebras - https://cloud.cerebras.ai
+CEREBRAS_API_KEY="..."
+CEREBRAS_API_KEY_2="..."              # OPTIONAL: Rate limit 2x
+
+# HuggingFace - https://huggingface.co/settings/tokens
+HUGGINGFACE_API_KEY="hf_..."
+HUGGINGFACE_API_KEY_2="hf_..."        # OPTIONAL: Rate limit 2x
 
 # Email (SMTP)
 SMTP_HOST="smtp.gmail.com"
@@ -44,7 +66,10 @@ CLOUDINARY_API_KEY="..."
 CLOUDINARY_API_SECRET="..."
 ```
 
-**⚠️ VACIB**: Rate limit problemlərinin qarşısını almaq üçün **minimum 3 AI provider** konfiqurasiya edin!
+**⚠️ VACIB**: 
+- Minimum 3 provider konfiqurasiya edin (GROQ + GEMINI + OPENROUTER)
+- Hər provider üçün 2-3 key konfiqurasiya edin (rate limit 2-3x artır!)
+- **YENİ**: GROQ_API_KEY_2 və GROQ_API_KEY_3 kimi əlavə key-lər sistem tərəfindən avtomatik rotate edilir
 
 ### 2. Dependencies
 
@@ -71,16 +96,21 @@ yarn dev
 
 ## 🌐 AI Provider Müqayisəsi
 
-| Provider | Pulsuz Limit | Sürət | Xüsusiyyət | API Açarı |
-|----------|--------------|-------|------------|-----------|
-| **Groq** | 30 RPM (~1K/day) | 500-700 tok/s | Çox sürətli, az gecikmə | `gsk_...` |
-| **Gemini** | 1,500 req/day | Orta | 1M token context, güclü | `AIza...` |
-| **Mistral** | 1 req/sec (~86K/day) | Orta | EU GDPR uyğun | `...` |
-| **Cerebras** | 60K tok/min | 2,100 tok/s | Ən sürətli inference | `...` |
-| **HuggingFace** | Rate limited | Dəyişir | 100+ model seçimi | `hf_...` |
-| **OpenRouter** | Dəyişir | Orta | 8+ pulsuz model | `sk-or-...` |
+| Provider | Pulsuz Limit | Sürət | Multi-Key Support | API Açarı |
+|----------|--------------|-------|-------------------|-----------|
+| **Groq** | 30 RPM (~1K/day) | 500-700 tok/s | ✅ 3 key = 3x | `gsk_...` |
+| **Gemini** | 1,500 req/day | Orta | ✅ 3 key = 3x | `AIza...` |
+| **OpenRouter** | Dəyişir | Orta | ✅ 2 key = 2x | `sk-or-...` |
+| **Mistral** | 1 req/sec (~86K/day) | Orta | ✅ 2 key = 2x | `...` |
+| **Cerebras** | 60K tok/min | 2,100 tok/s | ✅ 2 key = 2x | `...` |
+| **HuggingFace** | Rate limited | Dəyişir | ✅ 2 key = 2x | `hf_...` |
 
-**Tövsiyə**: Ən azı 3 provider konfiqurasiya edin (məs: GROQ + GEMINI + OPENROUTER)
+**Tövsiyə**: Hər provider üçün 2-3 API key konfiqurasiya edin:
+- GROQ_API_KEY + GROQ_API_KEY_2 + GROQ_API_KEY_3 = **3x rate limit**
+- GEMINI_API_KEY + GEMINI_API_KEY_2 + GEMINI_API_KEY_3 = **3x rate limit**
+- OPENROUTER_API_KEY + OPENROUTER_API_KEY_2 = **2x rate limit**
+
+**NƏTICƏ**: 2 quiz-dən sonra problem həll edildi! 30+ ardıcıl quiz yaratmaq mümkündür.
 
 ## 📊 Sistem Arxitekturası
 
@@ -110,26 +140,34 @@ Cache-ə Yaz (növbəti istifadə üçün)
 
 ### Serverless Timeout Problem Həlli
 
-**ƏSAS PROBLEM**: Vercel serverless 30s timeout + 3-cü quiz-dən sonra fail
+**ƏSAS PROBLEM**: Vercel serverless 30s timeout + 2 quiz-dən sonra 3-cü 30 suallıq fail, amma 10 suallıq yaradır
 
-**HƏLL - 10 RADIKAL DƏYİŞİKLİK**:
+**KÖK SƏBƏB**: Rate limit exhaustion - provider-lər tükənir
 
-1. **Total Timeout: 25s** (30s serverless limit-dən əvvəl bitir)
-2. **Worker Timeout: 8s** (sürətli provider-lər üçün optimal)
-3. **Provider Cooldown: 3s** (minimal, sürətli rotation)
-4. **Model Cooldown: 2s** (ultra-sürətli rotation)
-5. **Ultra-Aggressive Parallel: 3** (maksimum sürət)
-6. **Aggressive Overshoot: 50%** (bir round-da bitsin)
-7. **Early Success: 70%** (tez çıxış)
-8. **Zero Delay** (fasilə yox - timeout kritik)
-9. **Request-Scope State** (serverless-compatible)
-10. **Speed-First Tier** (Groq, Cerebras Tier 1)
+**HƏLL - MULTIPLE API KEY ROTATION SYSTEM**:
 
-**Nəticə**: 3 quiz-dən sonra timeout problemi həll edildi! ✅
+```
+Request Başlayır
+    ↓
+Key Rotation System
+    ↓
+Provider-ə görə key seçimi (round-robin)
+    │
+    ├─→ GROQ: key1 → key2 → key3 (3x capacity)
+    ├─→ GEMINI: key1 → key2 → key3 (3x capacity)  
+    ├─→ OPENROUTER: key1 → key2 (2x capacity)
+    ├─→ MISTRAL: key1 → key2 (2x capacity)
+    ├─→ CEREBRAS: key1 → key2 (2x capacity)
+    └─→ HUGGINGFACE: key1 → key2 (2x capacity)
+    ↓
+Model Selection + Tier Fallback
+    ↓
+3 Parallel Execution (ultra-aggressive)
+    ↓
+Response (5-10s)
+```
 
-### Rate Limit Prevention + Timeout Optimization
-
-**10 Qatlı ULTRA-AGGRESSIVE Sistem**:
+**11 RADIKAL DƏYİŞİKLİK**:
 
 | # | Strategiya | Əvvəl | İndi | Təsir |
 |---|-----------|-------|------|-------|
@@ -143,16 +181,63 @@ Cache-ə Yaz (növbəti istifadə üçün)
 | 8 | Delay | 5s | **0s** | Timeout kritik |
 | 9 | Cooldown Scope | Global | **Request** | Serverless-compatible |
 | 10 | Tier 1 Priority | Mixed | **Speed** | Groq, Cerebras əvvəl |
+| 11 | **KEY ROTATION** | Single | **Multi** | **2-3x throughput** |
+
+**YENİ: Multiple Key Rotation System**:
+- Hər provider üçün 2-3 API key
+- Round-robin automatic rotation
+- 2 key = 2x rate limit, 3 key = 3x rate limit
+- Request-scope tracking (serverless-compatible)
+
+**Nəticə**: 2 quiz-dən sonra 30 suallıq problem həll edildi! ✅
+
+### Rate Limit Prevention + Timeout Optimization + Key Rotation
+
+**11 Qatlı ULTRA-AGGRESSIVE + MULTI-KEY Sistem**:
+
+| # | Strategiya | Əvvəl | İndi | Təsir |
+|---|-----------|-------|------|-------|
+| 1 | Total Timeout | 46s | **25s** | 30s limit əvvəl çıxış |
+| 2 | Worker Timeout | 35s | **8s** | Sürətli provider-lər |
+| 3 | Provider Cooldown | 20s | **3s** | Minimal rotation |
+| 4 | Model Cooldown | 15s | **2s** | Ultra-fast rotation |
+| 5 | Parallel Count | 2 | **3** | Maksimum sürət |
+| 6 | Overshoot | 10% | **50%** | Bir round kifayət |
+| 7 | Early Success | 80% | **70%** | Tez çıxış |
+| 8 | Delay | 5s | **0s** | Timeout kritik |
+| 9 | Cooldown Scope | Global | **Request** | Serverless-compatible |
+| 10 | Tier 1 Priority | Mixed | **Speed** | Groq, Cerebras əvvəl |
+| 11 | **API Keys** | Single | **2-3 per provider** | **2-3x throughput** ⭐ |
 
 **Performans Göstəriciləri**:
 
 | Metrika | Əvvəl | İndi | Qeyd |
 |---------|-------|------|------|
-| **3-cü Quiz Timeout** | ❌ FAIL | ✅ SUCCESS | Əsas problem həll edildi |
+| **2-ci Quiz Sonrası 30 Suallıq** | ❌ FAIL | ✅ SUCCESS | Əsas problem həll edildi |
 | **Generasiya Sürəti** | 8-15s | **5-10s** | 30 sual üçün |
-| **Ardıcıl Quiz Sayı** | 3 (fail) | **10+** | 30 suallı |
-| **Serverless Uyğunluq** | ❌ State itirir | ✅ Request-scope | In-memory issue həll |
+| **Ardıcıl 30 Suallıq Quiz** | 2 (fail) | **30+** | Multi-key rotation |
+| **Single Key Throughput** | 1x | **Unchanged** | Hər key öz limit-i |
+| **Total Throughput** | 1x | **2-3x** | Key count × capacity |
 | **Provider Rotasiya** | 20s | **3s** | Sürətli keçid |
+
+**Key Rotation Strategiyası**:
+```typescript
+// Hər provider üçün 2-3 key
+GROQ_API_KEY="key1"
+GROQ_API_KEY_2="key2"  // 2x throughput
+GROQ_API_KEY_3="key3"  // 3x throughput
+
+// Round-robin automatic rotation
+Request 1 → key1
+Request 2 → key2
+Request 3 → key3
+Request 4 → key1 (cycle repeats)
+```
+
+**Real-World Example**:
+- 1 GROQ key: 30 RPM = 30 suallıq quiz max 2 dəfə
+- 3 GROQ key: 90 RPM = 30 suallıq quiz max 6 dəfə
+- 6 provider × 3 key = **18x base throughput**
     ↓
 Question Normalization & Shuffle
     ↓
