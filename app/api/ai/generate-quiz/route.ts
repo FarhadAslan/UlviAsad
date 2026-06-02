@@ -761,8 +761,8 @@ async function generateQuestions(
         }
         availableByProvider.get(w.provider)!.push(w);
       } else {
-        const providerCooldown = Math.ceil((PROVIDER_COOLDOWN_MS - (Date.now() - (providerGlobalCooldown.get(w.provider) || 0))) / 1000);
-        const modelCooldown = Math.ceil((MODEL_COOLDOWN_MS - (Date.now() - (modelGlobalCooldown.get(w.id) || 0))) / 1000);
+        const providerCooldown = Math.ceil((PROVIDER_COOLDOWN_MS - (Date.now() - (providerRequestCooldown.get(w.provider) || 0))) / 1000);
+        const modelCooldown = Math.ceil((MODEL_COOLDOWN_MS - (Date.now() - (modelRequestCooldown.get(w.id) || 0))) / 1000);
         console.log(`[gen] ${w.provider}/${w.id.split("/").pop()} cooldown-dadır (provider: ${providerCooldown}s, model: ${modelCooldown}s)`);
       }
     }
