@@ -63,7 +63,7 @@ Bu plan mövcud Next.js quiz platformasına `METN` quiz tipini əlavə etmək ü
     - `fast-check` ilə `type=METN` filtri ilə sorğu göndərildikdə qaytarılan bütün quizlərin `METN` tipinə malik olduğunu yoxla
     - **Validates: Requirements 8.3**
 
-- [ ] 3. Checkpoint — API testlərini yoxla
+- [x] 3. Checkpoint — API testlərini yoxla
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 4. `lib/utils.ts` — `getTypeLabel` funksiyasının yenilənməsi
@@ -170,7 +170,7 @@ Bu plan mövcud Next.js quiz platformasına `METN` quiz tipini əlavə etmək ü
     - `fast-check` ilə istənilən `startTime` və `elapsed` dəyərləri üçün `METN` tipli quiz nəticəsinin `timeBonus = 0` olduğunu yoxla
     - **Validates: Requirements 9.2**
 
-- [ ] 7. Checkpoint — UI komponentlərini yoxla
+- [x] 7. Checkpoint — UI komponentlərini yoxla
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 8. `app/globals.css` — blockquote stilləndirməsi
@@ -198,7 +198,7 @@ Bu plan mövcud Next.js quiz platformasına `METN` quiz tipini əlavə etmək ü
     - `getTypeLabel(quiz.type)` çağırışı artıq `"Mətn Əsaslı"` qaytaracaq (Task 4.1-dən sonra)
     - _Requirements: 8.2_
 
-- [ ] 10. Final checkpoint — Bütün testlər keçir
+- [x] 10. Final checkpoint — Bütün testlər keçir
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes

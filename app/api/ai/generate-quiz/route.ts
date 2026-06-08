@@ -1024,6 +1024,33 @@ QAYDALAR:
 - "Hamısı doğrudur"/"Heç biri" tipli variantlardan çəkin
 - YALNIZ JSON formatında cavab ver
 
+SUAL NÖVLƏRİ — aşağıdakı növlər arasında müxtəliflik gözlə:
+
+TƏRİF SUALARI: Qanunda verilmiş anlayışların dəqiq tərifi soruşulur. 
+Nümunə: "'Ərizə' anlayışı bu qanun çərçivəsində nəyi bildirir?"
+
+NEQATIV SUALLAR ("hansı doğru/düzgün deyil"): Düzgün olmayan müddəanı tapmaq tələb olunur. Variantların 3-ü qanuna uyğun, 1-i isə yanlış/təhrif edilmiş olsun. 
+Nümunə: "Aşağıdakılardan hansı bu qanuna görə düzgün deyildir?"
+
+MÜDDƏT SUALLAR: Konkret müddətlər, günlər, iş günləri soruşulur. Distraktorlarda oxşar rəqəmlər istifadə et (məs: 10, 15, 20, 30 gün; iş günü vs təqvim günü). 
+Nümunə: "Müraciətə baxılma müddəti ən geci neçə iş günüdür?"
+
+TƏTBIQ DAİRƏSİ SUALLAR: Qanunun hansı müraciətlərə şamil edilib/edilmədiyini yoxla. 
+Nümunə: "Aşağıdakı müraciətlərdən hansına bu qanun tətbiq edilmir?"
+
+PROSES/PROSEDUR SUALLAR: Müraciətin qəbulundan cavablandırılmasına qədər addımlar, öhdəliklər soruşulur.
+
+ŞƏRT-NƏTİCƏ SUALLAR: "...olduqda nə edilir?" tipli, konkret hüquqi nəticəni soruşan suallar.
+
+ÇOXELEMENTLİ SUALLAR (çətin): Siyahı verilir (1,2,3,4,5...), hansı kombinasiyanın tam/düzgün olduğu soruşulur. 
+Nümunə: "Aşağıdakı mülahizələrdən neçəsi/hansıları doğrudur? a) 1,2,4 b) 1,3,5 c) ..."
+
+DİSTRAKTOR KEYFİYYƏTİ:
+- Müddət suallarında: eyni ölçü vahidini dəyiş (gün → iş günü, 15 → 20 kimi).
+- Tərif suallarında: başqa anlayışın tərifi ilə qarışdır (məs: "ərizə" yerinə "şikayət"in tərifi).
+- Proses suallarında: addımların ardıcıllığını və ya icraçısını dəyiş.
+- Qadağan/icazə suallarında: icazəlini qadağan, qadağanı icazəli kimi göstər.
+
 FORMAT:
 {"questions":[{"text":"Sual","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correctOption":"A"}]}`;
 
