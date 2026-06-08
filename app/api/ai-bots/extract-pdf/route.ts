@@ -6,6 +6,11 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+const ACCEPTED_TYPES = [
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
+];
+
 /**
  * PDF-dən mətn çıxarır.
  * pdf-parse kitabxanasını istifadə edir, test faylları olmadan.
@@ -32,6 +37,22 @@ async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; pageC
   };
 }
 
+/**
+ * DOCX (Word) faylından mətn çıxarır.
+ * mammoth kitabxanasını istifadə edir.
+ */
+async function extractTextFromDocx(buffer: Buffer): Promise<{ text: string; pageCount: number }> {
+  const mammoth = require("mammoth");
+  const result = await mammoth.extractRawText({ buffer });
+  // Word fayllarında səhifə sayını dəqiq bilmək mümkün deyil,
+  // hər 3000 simvola təxminən 1 səhifə kimi hesablanır
+  const estimatedPages = Math.max(1, Math.ceil(result.value.length / 3000));
+  return {
+    text: result.value,
+    pageCount: estimatedPages,
+  };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -45,11 +66,11 @@ export async function POST(req: NextRequest) {
     const file = formData.get("file") as File | null;
 
     if (!file) {
-      return NextResponse.json({ error: "PDF fayl tələb olunur" }, { status: 400 });
+      return NextResponse.json({ error: "Fayl tələb olunur" }, { status: 400 });
     }
 
-    if (file.type !== "application/pdf") {
-      return NextResponse.json({ error: "Yalnız PDF fayl qəbul edilir" }, { status: 400 });
+    if (!ACCEPTED_TYPES.includes(file.type)) {
+      return NextResponse.json({ error: "Yalnız PDF və ya Word (.docx) fayl qəbul edilir" }, { status: 400 });
     }
 
     if (file.size > 20 * 1024 * 1024) {
@@ -59,13 +80,18 @@ export async function POST(req: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
+    const isDocx = file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      || file.name?.toLowerCase().endsWith(".docx");
+
     let extracted: { text: string; pageCount: number };
     try {
-      extracted = await extractTextFromPdf(buffer);
+      extracted = isDocx
+        ? await extractTextFromDocx(buffer)
+        : await extractTextFromPdf(buffer);
     } catch (parseErr: any) {
-      console.error("PDF parse error:", parseErr?.message ?? parseErr);
+      console.error(`${isDocx ? "DOCX" : "PDF"} parse error:`, parseErr?.message ?? parseErr);
       return NextResponse.json(
-        { error: `PDF oxunarkən xəta: ${parseErr?.message ?? "bilinməyən xəta"}` },
+        { error: `Fayl oxunarkən xəta: ${parseErr?.message ?? "bilinməyən xəta"}` },
         { status: 422 }
       );
     }
@@ -80,7 +106,10 @@ export async function POST(req: NextRequest) {
 
     if (!cleaned || cleaned.length < 50) {
       return NextResponse.json(
-        { error: "PDF-dən mətn çıxarıla bilmədi. Skan edilmiş (şəkil) PDF ola bilər." },
+        { error: isDocx
+            ? "Word faylından mətn çıxarıla bilmədi. Faylın mətn ehtiva etdiyini yoxlayın."
+            : "PDF-dən mətn çıxarıla bilmədi. Skan edilmiş (şəkil) PDF ola bilər."
+        },
         { status: 422 }
       );
     }
@@ -89,9 +118,10 @@ export async function POST(req: NextRequest) {
       text: cleaned,
       charCount: cleaned.length,
       pageCount: extracted.pageCount,
+      fileType: isDocx ? "docx" : "pdf",
     });
   } catch (err: any) {
-    console.error("PDF extract error:", err?.message ?? err);
+    console.error("File extract error:", err?.message ?? err);
     return NextResponse.json(
       { error: `Server xətası: ${err?.message ?? "bilinməyən xəta"}` },
       { status: 500 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Plus, Trash2, Edit, Bot, X, Loader2, ChevronDown, ChevronUp, FileText, Upload, CheckCircle } from "lucide-react";
+import { Plus, Trash2, Edit, Bot, X, Loader2, ChevronDown, ChevronUp, FileText, Upload, CheckCircle, FileUp } from "lucide-react";
 import { useToast } from "@/components/ui/toast-1";
 
 interface AiBot {
@@ -47,8 +47,8 @@ export default function AiBotsPage() {
   const [saving, setSaving]         = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [pdfLoading, setPdfLoading] = useState(false);
-  const pdfInputRef                 = useRef<HTMLInputElement>(null);
+  const [fileLoading, setFileLoading] = useState(false);
+  const fileInputRef                 = useRef<HTMLInputElement>(null);
 
   const fetchBots = async () => {
     setLoading(true);
@@ -110,12 +110,21 @@ export default function AiBotsPage() {
 
   const labelCls = "block text-sm font-medium text-slate-700 mb-1.5";
 
-  const handlePdfUpload = async (file: File) => {
-    if (file.type !== "application/pdf") {
-      error("Yalnız PDF fayl qəbul edilir");
+  const ACCEPTED_TYPES = [
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ];
+
+  const handleFileUpload = async (file: File) => {
+    const isDocx = file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      || file.name?.toLowerCase().endsWith(".docx");
+    const isPdf = file.type === "application/pdf" || file.name?.toLowerCase().endsWith(".pdf");
+
+    if (!isPdf && !isDocx) {
+      error("Yalnız PDF və ya Word (.docx) fayl qəbul edilir");
       return;
     }
-    setPdfLoading(true);
+    setFileLoading(true);
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -128,18 +137,19 @@ export default function AiBotsPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        error(data.error || "PDF oxunarkən xəta baş verdi");
+        error(data.error || "Fayl oxunarkən xəta baş verdi");
         return;
       }
 
       setForm((p) => ({ ...p, content: data.text }));
-      success(`PDF oxundu: ${data.charCount.toLocaleString()} simvol, ~${data.pageCount} səhifə`);
+      const typeLabel = isDocx ? "Word" : "PDF";
+      success(`${typeLabel} oxundu: ${data.charCount.toLocaleString()} simvol, ~${data.pageCount} səhifə`);
     } catch (e: any) {
-      console.error("PDF parse error:", e);
-      error(`PDF xətası: ${e?.message || "Faylın zədəli olmadığını yoxlayın"}`);
+      console.error("File parse error:", e);
+      error(`Fayl xətası: ${e?.message || "Faylın zədəli olmadığını yoxlayın"}`);
     } finally {
-      setPdfLoading(false);
-      if (pdfInputRef.current) pdfInputRef.current.value = "";
+      setFileLoading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
@@ -229,25 +239,25 @@ export default function AiBotsPage() {
                   AI bu mətnə əsaslanaraq suallar yaradacaq. Mövzu ilə bağlı qanunlar, qaydalar, faktlar əlavə edin.
                 </p>
               </div>
-              {/* PDF yüklə düyməsi */}
+              {/* Fayl yüklə düyməsi (PDF / Word) */}
               <button
                 type="button"
-                onClick={() => pdfInputRef.current?.click()}
-                disabled={pdfLoading}
+                onClick={() => fileInputRef.current?.click()}
+                disabled={fileLoading}
                 className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{ background: "rgba(102,126,234,0.1)", color: "#667eea", border: "1px solid rgba(102,126,234,0.25)" }}
-                title="PDF yüklə — mətn avtomatik doldurulacaq"
+                title="PDF və ya Word (.docx) yüklə — mətn avtomatik doldurulacaq"
               >
-                {pdfLoading
+                {fileLoading
                   ? <><Loader2 size={13} className="animate-spin" /> Oxunur...</>
-                  : <><Upload size={13} /> PDF Yüklə</>}
+                  : <><Upload size={13} /> Fayl Yüklə</>}
               </button>
               <input
-                ref={pdfInputRef}
+                ref={fileInputRef}
                 type="file"
-                accept="application/pdf"
+                accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) handlePdfUpload(f); }}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileUpload(f); }}
               />
             </div>
 
@@ -264,7 +274,7 @@ export default function AiBotsPage() {
               rows={10}
               required
               className="input-field resize-y font-mono text-xs sm:text-sm w-full"
-              placeholder={"PDF yükləyin və ya mətni əl ilə daxil edin...\n\nMəs:\nAzərbaycan Respublikasının Konstitusiyası 1995-ci ildə qəbul edilmişdir...\n\nMaddə 1. Dövlət hakimiyyəti\nAzərbaycan Respublikasında dövlət hakimiyyətinin yeganə mənbəyi Azərbaycan xalqıdır..."}
+              placeholder={"PDF və ya Word faylı yükləyin, yaxud mətni əl ilə daxil edin...\n\nMəs:\nAzərbaycan Respublikasının Konstitusiyası 1995-ci ildə qəbul edilmişdir...\n\nMaddə 1. Dövlət hakimiyyəti\nAzərbaycan Respublikasında dövlət hakimiyyətinin yeganə mənbəyi Azərbaycan xalqıdır..."}
               onChange={(e) => setForm((p) => ({ ...p, content: e.target.value }))}
             />
             <p className="text-xs text-slate-400 mt-1.5">

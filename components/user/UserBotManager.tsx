@@ -93,7 +93,7 @@ export default function UserBotManager({ onSelectBot }: UserBotManagerProps) {
         <div className="min-w-0">
           <h2 className="text-xl sm:text-2xl font-bold text-slate-900 break-words">Mənim Botlarım</h2>
           <p className="text-sm text-slate-500 mt-0.5">
-            PDF yükləyin, bot yaradın, quiz generasiyasında istifadə edin
+            PDF və ya Word faylı yükləyin, bot yaradın, quiz generasiyasında istifadə edin
           </p>
         </div>
         <button
@@ -132,13 +132,13 @@ export default function UserBotManager({ onSelectBot }: UserBotManagerProps) {
           </div>
           <h3 className="text-xl font-bold text-slate-800 mb-2">Hələ bot yaratmamısınız</h3>
           <p className="text-sm text-slate-500 mb-8 max-w-sm mx-auto leading-relaxed">
-            PDF yükləyin, bot yaradın. Sonra bu bot əsasında AI ilə quiz generasiya edin.
+            PDF və ya Word faylı yükləyin, bot yaradın. Sonra bu bot əsasında AI ilə quiz generasiya edin.
           </p>
 
           {/* How it works */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-8 max-w-lg mx-auto">
             {[
-              { icon: Upload, label: "PDF yüklə", color: "text-blue-500", bg: "bg-blue-50" },
+              { icon: Upload, label: "Fayl yüklə", color: "text-blue-500", bg: "bg-blue-50" },
               { icon: Bot,    label: "Bot yarat", color: "text-purple-500", bg: "bg-purple-50" },
               { icon: Sparkles, label: "Quiz generasiya et", color: "text-amber-500", bg: "bg-amber-50" },
             ].map(({ icon: Icon, label, color, bg }, i) => (
@@ -256,8 +256,15 @@ function CreateBotForm({ onSuccess, onCancel }: { onSuccess: () => void; onCance
   const [pdfInfo, setPdfInfo] = useState<{ name: string; chars: number; pages: number } | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const handlePdfUpload = async (file: File) => {
-    if (file.type !== "application/pdf") { error("Yalnız PDF fayl qəbul edilir"); return; }
+  const handleFileUpload = async (file: File) => {
+    const isDocx = file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      || file.name?.toLowerCase().endsWith(".docx");
+    const isPdf = file.type === "application/pdf" || file.name?.toLowerCase().endsWith(".pdf");
+
+    if (!isPdf && !isDocx) {
+      error("Yalnız PDF və ya Word (.docx) fayl qəbul edilir");
+      return;
+    }
     setPdfLoading(true);
     try {
       const formData = new FormData();
@@ -271,16 +278,17 @@ function CreateBotForm({ onSuccess, onCancel }: { onSuccess: () => void; onCance
       const data = await res.json();
 
       if (!res.ok) {
-        error(data.error || "PDF oxunarkən xəta baş verdi");
+        error(data.error || "Fayl oxunarkən xəta baş verdi");
         return;
       }
 
       setContent(data.text);
       setPdfInfo({ name: file.name, chars: data.charCount, pages: data.pageCount });
-      success(`PDF oxundu — ${data.pageCount} səhifə, ${data.charCount.toLocaleString()} simvol`);
+      const typeLabel = isDocx ? "Word" : "PDF";
+      success(`${typeLabel} oxundu — ${data.pageCount} səhifə, ${data.charCount.toLocaleString()} simvol`);
     } catch (e: any) {
       console.error("PDF parse error:", e);
-      error("PDF oxunarkən xəta baş verdi. Faylın zədəli olmadığını yoxlayın.");
+      error("Fayl oxunarkən xəta baş verdi. Faylın zədəli olmadığını yoxlayın.");
     } finally {
       setPdfLoading(false);
     }
@@ -289,7 +297,7 @@ function CreateBotForm({ onSuccess, onCancel }: { onSuccess: () => void; onCance
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) { error("Bot adı daxil edin"); return; }
-    if (!content.trim()) { error("PDF yükləyin"); return; }
+    if (!content.trim()) { error("Fayl yükləyin və ya mətn daxil edin"); return; }
     setSaving(true);
     try {
       const res = await fetch("/api/user-bots", {
@@ -320,7 +328,7 @@ function CreateBotForm({ onSuccess, onCancel }: { onSuccess: () => void; onCance
           </div>
           <div>
             <h3 className="font-bold text-slate-800 text-sm">Yeni Bot Yarat</h3>
-            <p className="text-xs text-slate-500">PDF yükləyin, AI botu hazır olsun</p>
+            <p className="text-xs text-slate-500">PDF və ya Word faylı yükləyin, AI botu hazır olsun</p>
           </div>
         </div>
         <button
@@ -363,7 +371,7 @@ function CreateBotForm({ onSuccess, onCancel }: { onSuccess: () => void; onCance
         {/* PDF yükləmə sahəsi */}
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1.5">
-            Bilik Bazası (PDF) <span className="text-red-500">*</span>
+            Bilik Bazası (PDF / Word) <span className="text-red-500">*</span>
           </label>
 
           {pdfInfo ? (
@@ -412,7 +420,7 @@ function CreateBotForm({ onSuccess, onCancel }: { onSuccess: () => void; onCance
                     <Upload size={22} className="text-slate-400" />
                   </div>
                   <div className="text-center">
-                    <p className="text-sm font-semibold text-slate-700">PDF faylı yükləmək üçün klikləyin</p>
+                    <p className="text-sm font-semibold text-slate-700">PDF və ya Word (.docx) faylı yükləmək üçün klikləyin</p>
                     <p className="text-xs text-slate-400 mt-1">Mətn avtomatik çıxarılacaq</p>
                   </div>
                 </>
@@ -422,9 +430,9 @@ function CreateBotForm({ onSuccess, onCancel }: { onSuccess: () => void; onCance
           <input
             ref={fileInputRef}
             type="file"
-            accept="application/pdf"
+            accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             className="hidden"
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) handlePdfUpload(f); }}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileUpload(f); }}
           />
         </div>
 
@@ -433,7 +441,7 @@ function CreateBotForm({ onSuccess, onCancel }: { onSuccess: () => void; onCance
           <Zap size={14} className="text-purple-500 flex-shrink-0 mt-0.5" />
           <div className="text-xs text-purple-700 space-y-0.5">
             <p className="font-semibold">Necə işləyir?</p>
-            <p className="text-purple-600">PDF yükləyin → bot yaradın → "Quiz Yarat" ilə AI suallar hazırlasın</p>
+            <p className="text-purple-600">PDF və ya Word faylı yükləyin → bot yaradın → "Quiz Yarat" ilə AI suallar hazırlasın</p>
           </div>
         </div>
 
